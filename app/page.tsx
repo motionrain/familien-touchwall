@@ -1,4 +1,5 @@
 // @ts-nocheck
+/* eslint-disable react/no-unescaped-entities */
 'use client';
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
