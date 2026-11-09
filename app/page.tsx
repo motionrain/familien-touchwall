@@ -8,7 +8,7 @@ import {
   Calendar, GraduationCap, CheckSquare, Utensils, FileText,
   Palette, Cloud, Plus, ChevronLeft, ChevronRight, Maximize2,
   Smartphone, RefreshCw, Download, Upload, QrCode, X, Volume2,
-  ShieldCheck, Bell, BellRing
+  ShieldCheck, BellRing, Copy, ClipboardPaste
 } from 'lucide-react';
 
 // =========================================================
@@ -51,14 +51,14 @@ function hexToRgba(hex, alpha) {
   return `rgba(${(num >> 16) & 255}, ${(num >> 8) & 255}, ${num & 255}, ${alpha})`;
 }
 
-// Erzeugt einen angenehmen 3-Ton-Glockenklang über die Web Audio API (ohne externe MP3-Datei)
+// Erzeugt einen angenehmen 4-Ton-Glockenklang über die Web Audio API
 function playTouchwallAlarmSound() {
   if (typeof window === 'undefined') return;
   try {
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
     if (!AudioCtx) return;
     const ctx = new AudioCtx();
-    const notes = [523.25, 659.25, 783.99, 1046.5]; // C5, E5, G5, C6
+    const notes = [523.25, 659.25, 783.99, 1046.5];
     notes.forEach((freq, idx) => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
@@ -135,13 +135,25 @@ const BW_SCHOOL_VACATIONS = [
   { start: '2027-12-23', end: '2028-01-08', name: 'Weihnachtsferien BW' }
 ];
 
-function getBWVacationName(dateStr) {
+function getBWVacationInfo(dateStr) {
   if (!dateStr) return null;
   for (let i = 0; i < BW_SCHOOL_VACATIONS.length; i++) {
     const v = BW_SCHOOL_VACATIONS[i];
-    if (dateStr >= v.start && dateStr <= v.end) return v.name;
+    if (dateStr >= v.start && dateStr <= v.end) {
+      return {
+        name: v.name,
+        shortName: v.name.replace(' BW', ''),
+        isFirstDay: dateStr === v.start,
+        isLastDay: dateStr === v.end
+      };
+    }
   }
   return null;
+}
+
+function getBWVacationName(dateStr) {
+  const info = getBWVacationInfo(dateStr);
+  return info ? info.name : null;
 }
 
 // =========================================================
@@ -305,7 +317,7 @@ export default function TouchwallApp() {
     { id: 4, member: 'valentina', title: '🧸 Zimmer aufräumen & 15 Min. Lesen',     due: 'Heute', done: false }
   ]);
 
-  // Modals & Drag-and-Drop
+  // Modals, Drag-and-Drop & Kopieren/Einfügen
   const [toast, setToast] = useState(null);
   const [eventModal, setEventModal] = useState({
     open: false, id: null, origMember: '', origTitle: '', origDate: '',
@@ -316,7 +328,11 @@ export default function TouchwallApp() {
   const [yearDayModal, setYearDayModal] = useState({ open: false, dateStr: '', newTitle: '', newTime: 'Ganztägig', newMember: 'all' });
   const [schoolModal, setSchoolModal] = useState({ open: false, dayIdx: 0, periodIdx: 0, subject: '', room: '', status: 'normal' });
   const [qrModalOpen, setQrModalOpen] = useState(false);
+
+  // Neu: Verbessertes Drag & Drop + Termin-Kopierspeicher
   const [draggedEv, setDraggedEv] = useState(null);
+  const [dragOverCell, setDragOverCell] = useState(null);
+  const [copiedEvent, setCopiedEvent] = useState(null);
 
   // Eingabefelder
   const [newSchoolNote, setNewSchoolNote] = useState('');
@@ -352,7 +368,7 @@ export default function TouchwallApp() {
   const requestBrowserPushPermission = async () => {
     playTouchwallAlarmSound();
     if (typeof window === 'undefined' || !('Notification' in window)) {
-      showToast('Hinweis', 'Dieser Browser unterstützt keine nativen System-Pushes, der Sound- & Bildschirm-Alarm ist aber aktiv!', '🔊');
+      showToast('Hinweis', 'Sound- & Bildschirm-Alarm auf der Touchwall ist aktiv!', '🔊');
       return false;
     }
     const perm = await Notification.requestPermission();
@@ -377,7 +393,6 @@ export default function TouchwallApp() {
 
     playTouchwallAlarmSound();
 
-    // Großes Touchwall-Alarm-Banner einblenden
     setActiveAlarmBanner({
       title: evObj.title || 'Familientermin',
       time: evObj.time || 'Jetzt',
@@ -387,7 +402,6 @@ export default function TouchwallApp() {
       isTest
     });
 
-    // Echte Browser-Push-Notification senden (falls erlaubt)
     if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
       try {
         new Notification(`🔔 Termin-Erinnerung: ${evObj.title || 'Termin'}`, {
@@ -398,18 +412,8 @@ export default function TouchwallApp() {
     }
   };
 
-  // Prüft alle 20 Sekunden im Hintergrund, ob ein Termin-Alarm fällig ist
   useEffect(() => {
-    const offsetMinutesMap = {
-      '0m': 0,
-      '5m': 5,
-      '15m': 15,
-      '30m': 30,
-      '1h': 60,
-      '2h': 120,
-      '1d': 1440
-    };
-
+    const offsetMinutesMap = { '0m': 0, '5m': 5, '15m': 15, '30m': 30, '1h': 60, '2h': 120, '1d': 1440 };
     const checkUpcomingEventAlarms = () => {
       const now = new Date();
       const nowMs = now.getTime();
@@ -434,7 +438,6 @@ export default function TouchwallApp() {
         const alarmTriggerMs = eventStart.getTime() - offsetMins * 60 * 1000;
         const diffMs = nowMs - alarmTriggerMs;
 
-        // Wenn wir im Zeitfenster [0 bis +3 Minuten] nach dem Erinnerungszeitpunkt sind:
         const alarmKey = `${ev.id || ev.title}_${ev.date}_${ev.time}_${ev.notifyTime}`;
         if (diffMs >= 0 && diffMs <= 180000 && !triggeredAlarmsRef.current[alarmKey]) {
           triggeredAlarmsRef.current[alarmKey] = nowMs;
@@ -531,7 +534,7 @@ export default function TouchwallApp() {
     } catch (e) {}
   }, []);
 
-  // 3. Automatischer Hintergrund-Sync bei jeder Änderung an Aufgaben (Google Tasks!), Essensplan, Notizen, Schule oder Design
+  // 3. Automatischer Hintergrund-Sync
   useEffect(() => {
     const payload = { members, mealPlan, familyNotes, schoolData, familyTasks, currentTheme, customLogoUrl };
     try {
@@ -563,7 +566,7 @@ export default function TouchwallApp() {
     };
   }, [members, mealPlan, familyNotes, schoolData, familyTasks, currentTheme, customLogoUrl, appsScriptUrl]);
 
-  // 4. Daten aus Google Apps Script laden (inkl. erledigter Aufgaben vom Handy!)
+  // 4. Daten aus Google Apps Script laden
   const pullFromCloud = async (urlOverride, showFeedback = true) => {
     if (isMutatingCalendar.current && !showFeedback) return;
     const targetUrl = (urlOverride !== undefined ? urlOverride : appsScriptUrl).trim();
@@ -628,7 +631,6 @@ export default function TouchwallApp() {
     }
   };
 
-  // Automatischer Cloud-Abruf beim Start, alle 45 Sek. UND sofort wenn das Fenster fokussiert wird
   useEffect(() => {
     const initialUrl = localStorage.getItem('richter_tw_gas_url') || DEFAULT_APPS_SCRIPT_URL;
     if (initialUrl) {
@@ -657,7 +659,6 @@ export default function TouchwallApp() {
     };
   }, []);
 
-  // 5. Manuell Konten & Komplettstand in Google sichern
   const pushToCloudAndDrive = async (customMembersList, showFeedback = true) => {
     const targetUrl = appsScriptUrl.trim();
     const listToSave = customMembersList || members;
@@ -692,7 +693,6 @@ export default function TouchwallApp() {
     if (showFeedback) showToast('In Google gespeichert', 'Kalender, Google Tasks & Listen sind synchronisiert.', '✅');
   };
 
-  // 6. Selbsttest für alle Lese- und Schreibberechtigungen ausführen
   const runAllPermissionsTest = async () => {
     setIsTestingDiag(true);
     const res = await sendCalendarApiAction({ action: 'runDiagnostics' }, '🧪 Prüfe Lese- & Schreibrechte...');
@@ -711,7 +711,9 @@ export default function TouchwallApp() {
     }
   };
 
-  // Theme-Styling
+  // =========================================================
+  // DYNAMISCHES THEME-SYSTEM FÜR ALLE FENSTER & POPUPS
+  // =========================================================
   const themeStyles = useMemo(() => {
     switch (currentTheme) {
       case 'metal':
@@ -721,10 +723,12 @@ export default function TouchwallApp() {
           sidebar: 'bg-gradient-to-b from-[#4a4a4a] via-[#333333] to-[#262626] border-[#6e6e6e]',
           header: 'bg-gradient-to-r from-[#4f4f4f] via-[#383838] to-[#2b2b2b] border-[#6e6e6e]',
           viewport: 'bg-gradient-to-br from-[#404040] via-[#333333] to-[#292929]',
-          card: 'bg-[#4a4a4a] border-[#6e6e6e] text-slate-100',
-          subtle: 'bg-[#3d3d3d] border-[#636363] text-slate-200',
+          card: 'bg-[#464646] border-[#6e6e6e] text-slate-100',
+          subtle: 'bg-[#383838] border-[#5c5c5c] text-slate-100',
+          modal: 'bg-[#3d3d3d] border-[#757575] text-slate-100',
+          input: 'bg-[#2e2e2e] border-[#636363] text-slate-100 placeholder-zinc-400',
           banner: 'bg-[#1f1f1f] text-white',
-          divider: 'border-[#737373]',
+          divider: 'border-[#6e6e6e]',
           textMain: 'text-slate-100',
           textMuted: 'text-zinc-300',
           dark: true
@@ -737,7 +741,9 @@ export default function TouchwallApp() {
           header: 'bg-[#1c2428] border-[#37474f]',
           viewport: 'bg-[#192125]',
           card: 'bg-[#2b363c] border-[#455a64] text-slate-100',
-          subtle: 'bg-[#242e33] border-[#37474f] text-slate-200',
+          subtle: 'bg-[#222b30] border-[#37474f] text-slate-100',
+          modal: 'bg-[#252f34] border-[#455a64] text-slate-100',
+          input: 'bg-[#1b2327] border-[#455a64] text-slate-100 placeholder-slate-400',
           banner: 'bg-[#12181b] text-white',
           divider: 'border-[#455a64]',
           textMain: 'text-slate-100',
@@ -752,7 +758,9 @@ export default function TouchwallApp() {
           header: 'bg-[#15171a] border-[#33363d]',
           viewport: 'bg-[#111215]',
           card: 'bg-[#212327] border-[#383b42] text-zinc-100',
-          subtle: 'bg-[#1b1d21] border-[#33363d] text-zinc-200',
+          subtle: 'bg-[#191b1f] border-[#33363d] text-zinc-100',
+          modal: 'bg-[#1e2024] border-[#3f434c] text-zinc-100',
+          input: 'bg-[#141518] border-[#383b42] text-zinc-100 placeholder-zinc-500',
           banner: 'bg-[#090a0c] text-white',
           divider: 'border-[#3f434c]',
           textMain: 'text-zinc-100',
@@ -767,7 +775,9 @@ export default function TouchwallApp() {
           header: 'bg-slate-900 border-slate-800',
           viewport: 'bg-slate-950',
           card: 'bg-slate-800 border-slate-700 text-slate-100',
-          subtle: 'bg-slate-900 border-slate-700 text-slate-200',
+          subtle: 'bg-slate-900 border-slate-700 text-slate-100',
+          modal: 'bg-slate-900 border-slate-700 text-slate-100',
+          input: 'bg-slate-950 border-slate-700 text-slate-100 placeholder-slate-500',
           banner: 'bg-indigo-950 text-white',
           divider: 'border-slate-700',
           textMain: 'text-slate-100',
@@ -781,8 +791,10 @@ export default function TouchwallApp() {
           sidebar: 'bg-[#f5efe6] border-[#dfd3c3]',
           header: 'bg-[#fffdf9] border-[#dfd3c3]',
           viewport: 'bg-[#faf6f0]',
-          card: 'bg-white border-[#dfd3c3] text-[#3d2f1d]',
+          card: 'bg-[#fffdf9] border-[#dfd3c3] text-[#3d2f1d]',
           subtle: 'bg-[#f5efe6] border-[#dfd3c3] text-[#3d2f1d]',
+          modal: 'bg-[#fffdf9] border-[#d5c5b0] text-[#3d2f1d]',
+          input: 'bg-white border-[#d5c5b0] text-[#3d2f1d] placeholder-[#9c8974]',
           banner: 'bg-[#5c4738] text-white',
           divider: 'border-[#d5c5b0]',
           textMain: 'text-[#3d2f1d]',
@@ -796,8 +808,10 @@ export default function TouchwallApp() {
           sidebar: 'bg-[#eaf4f4] border-[#c7e5d9]',
           header: 'bg-[#f6fff8] border-[#c7e5d9]',
           viewport: 'bg-[#edf6f3]',
-          card: 'bg-white border-[#b7ded0] text-[#1b4332]',
+          card: 'bg-[#f8fffa] border-[#b7ded0] text-[#1b4332]',
           subtle: 'bg-[#e3f2ed] border-[#b7ded0] text-[#1b4332]',
+          modal: 'bg-[#f6fff8] border-[#a3d5c3] text-[#1b4332]',
+          input: 'bg-white border-[#a3d5c3] text-[#1b4332] placeholder-[#689689]',
           banner: 'bg-[#1b4332] text-white',
           divider: 'border-[#a3d5c3]',
           textMain: 'text-[#1b4332]',
@@ -813,6 +827,8 @@ export default function TouchwallApp() {
           viewport: 'bg-slate-100',
           card: 'bg-white border-slate-300 text-slate-900',
           subtle: 'bg-slate-50 border-slate-200 text-slate-800',
+          modal: 'bg-white border-slate-300 text-slate-900',
+          input: 'bg-slate-50 border-slate-300 text-slate-900 placeholder-slate-400',
           banner: 'bg-slate-800 text-white',
           divider: 'border-slate-300',
           textMain: 'text-slate-900',
@@ -822,40 +838,50 @@ export default function TouchwallApp() {
     }
   }, [currentTheme]);
 
+  // Abgemilderte, harmonische Termin- & Zeilenfarben (nicht mehr grell übersteuert)
   const getMemberStyles = (member) => {
     const p = COLOR_PALETTES[member.color] || COLOR_PALETTES.royal_bold;
     const dark = themeStyles.dark;
     if (p.bold) {
       return {
-        cardStyle: { backgroundColor: p.hex, borderLeft: `5px solid ${p.border}`, color: '#ffffff' },
+        cardStyle: {
+          background: dark
+            ? `linear-gradient(135deg, ${hexToRgba(p.hex, 0.65)} 0%, ${hexToRgba(p.hex, 0.45)} 100%)`
+            : `linear-gradient(135deg, ${hexToRgba(p.hex, 0.82)} 0%, ${hexToRgba(p.hex, 0.68)} 100%)`,
+          borderLeft: `5px solid ${p.hex}`,
+          borderTop: `1px solid ${hexToRgba(p.hex, 0.5)}`,
+          borderRight: `1px solid ${hexToRgba(p.hex, 0.35)}`,
+          borderBottom: `1px solid ${hexToRgba(p.hex, 0.35)}`,
+          color: '#ffffff'
+        },
         headerStyle: {
           background: dark
-            ? `linear-gradient(90deg, ${hexToRgba(p.hex, 0.42)} 0%, ${hexToRgba(p.hex, 0.18)} 100%)`
-            : `linear-gradient(90deg, ${hexToRgba(p.hex, 0.25)} 0%, ${hexToRgba(p.hex, 0.10)} 100%)`,
+            ? `linear-gradient(90deg, ${hexToRgba(p.hex, 0.32)} 0%, ${hexToRgba(p.hex, 0.12)} 100%)`
+            : `linear-gradient(90deg, ${hexToRgba(p.hex, 0.20)} 0%, ${hexToRgba(p.hex, 0.08)} 100%)`,
           borderLeft: `6px solid ${p.hex}`
         },
         cellStyle: (isWeekend) => ({
           backgroundColor: isWeekend
-            ? hexToRgba(p.hex, dark ? 0.30 : 0.24)
-            : hexToRgba(p.hex, dark ? 0.18 : 0.14)
+            ? hexToRgba(p.hex, dark ? 0.20 : 0.16)
+            : hexToRgba(p.hex, dark ? 0.11 : 0.09)
         }),
-        badgeStyle: { backgroundColor: p.hex, color: '#ffffff' }
+        badgeStyle: { backgroundColor: hexToRgba(p.hex, 0.88), color: '#ffffff' }
       };
     } else {
       return {
         cardStyle: {
-          backgroundColor: dark ? hexToRgba(p.hex, 0.36) : p.light,
+          backgroundColor: dark ? hexToRgba(p.hex, 0.32) : p.light,
           borderLeft: `4px solid ${p.hex}`,
           color: dark ? '#f8fafc' : p.text
         },
         headerStyle: {
-          backgroundColor: dark ? hexToRgba(p.hex, 0.28) : p.light,
+          backgroundColor: dark ? hexToRgba(p.hex, 0.22) : p.light,
           borderLeft: `6px solid ${p.hex}`
         },
         cellStyle: (isWeekend) => ({
           backgroundColor: isWeekend
-            ? hexToRgba(p.hex, dark ? 0.22 : 0.18)
-            : hexToRgba(p.hex, dark ? 0.12 : 0.10)
+            ? hexToRgba(p.hex, dark ? 0.18 : 0.15)
+            : hexToRgba(p.hex, dark ? 0.10 : 0.08)
         }),
         badgeStyle: { backgroundColor: p.hex, color: '#ffffff' }
       };
@@ -895,7 +921,7 @@ export default function TouchwallApp() {
       ? ev.notifyUsers.map(uid => members.find(x => x.id === uid)?.badge).filter(Boolean).join(',')
       : '';
     return (
-      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-black/25 text-[9px] font-extrabold shrink-0">
+      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-black/30 text-[9px] font-extrabold shrink-0">
         {chIcon} {userBadges ? `${userBadges} • ` : ''}{ev.notifyTime}
       </span>
     );
@@ -944,8 +970,42 @@ export default function TouchwallApp() {
   };
 
   // =========================================================
-  // 5. KALENDER-TERMINE SPEICHERN, BEARBEITEN, LÖSCHEN & VERSCHIEBEN
+  // 5. KALENDER-TERMINE SPEICHERN, KOPIEREN, EINFÜGEN & VERSCHIEBEN
   // =========================================================
+  const duplicateEventToTarget = async (sourceEv, targetMemberId, targetDateStr) => {
+    const newDate = targetDateStr || sourceEv.date || todayStr;
+    const newMember = targetMemberId || sourceEv.member || 'all';
+    const targetM = members.find(m => m.id === newMember);
+
+    const copiedNewEv = {
+      id: String(Date.now() + Math.floor(Math.random() * 1000)),
+      title: String(sourceEv.title || 'Termin').trim(),
+      date: newDate,
+      time: sourceEv.time || 'Ganztägig',
+      member: newMember,
+      notifyTime: sourceEv.notifyTime || '30m',
+      notifyChannel: sourceEv.notifyChannel || 'wall_push',
+      notifyUsers: newMember === 'all' ? ['hans', 'sarah', 'dean', 'valentina'] : [newMember],
+      fromGoogle: true
+    };
+
+    setEvents(prev => [...prev, copiedNewEv]);
+    showToast('Termin eingefügt', `„${copiedNewEv.title}“ → ${targetM ? targetM.name : newMember} (${newDate})`, '📋');
+
+    await sendCalendarApiAction({
+      action: 'createEvent',
+      event: copiedNewEv
+    }, '⏳ Speichere Kopie in Google Kalender...');
+  };
+
+  const handleCalendarCellClick = (dateStr, memberId) => {
+    if (copiedEvent) {
+      duplicateEventToTarget(copiedEvent, memberId, dateStr);
+      return;
+    }
+    openNewEventModal(dateStr, memberId);
+  };
+
   const openNewEventModal = (dateStr = todayStr, memberId = 'all') => {
     setEventModal({
       open: true, id: null, origMember: '', origTitle: '', origDate: '',
@@ -1232,7 +1292,6 @@ export default function TouchwallApp() {
                   {syncStatusText}
                 </button>
 
-                {/* BROWSER PUSH & SOUND ALARM BUTTON */}
                 <button
                   onClick={requestBrowserPushPermission}
                   className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold border cursor-pointer ${
@@ -1288,7 +1347,7 @@ export default function TouchwallApp() {
                 </span>
 
                 <span className={`text-[11px] font-semibold ${themeStyles.textMuted} hidden xl:inline`}>
-                  🔄 2-Wege Tasks & Kalender Sync • 🔔 Browser-Push & Sound aktiv
+                  📋 Tipp: Mit dem Kopieren-Symbol auf jedem Termin kannst du Termine bei anderen einfügen!
                 </span>
               </div>
             </div>
@@ -1343,6 +1402,24 @@ export default function TouchwallApp() {
               </div>
             </div>
           </header>
+
+          {/* LEISTE FÜR AKTIVEN KOPIER-MODUS (WENN EIN TERMIN KOPIERT WURDE) */}
+          {copiedEvent && (
+            <div className="bg-amber-400 text-slate-950 px-5 py-2.5 flex flex-wrap items-center justify-between gap-3 border-b-2 border-slate-900 shadow-md z-30 shrink-0">
+              <div className="flex items-center gap-2.5 text-xs sm:text-sm font-black">
+                <ClipboardPaste className="w-5 h-5 shrink-0" />
+                <span>
+                  KOPIER-MODUS AKTIV: „{copiedEvent.title}“ ({copiedEvent.time}) — Tippe jetzt einfach auf ein beliebiges Tagesfeld (auch bei einer anderen Person), um eine Kopie einzufügen!
+                </span>
+              </div>
+              <button
+                onClick={() => setCopiedEvent(null)}
+                className="px-4 py-1.5 rounded-xl bg-slate-900 text-white text-xs font-extrabold hover:bg-slate-800 cursor-pointer shrink-0"
+              >
+                ✕ Kopier-Modus beenden
+              </button>
+            </div>
+          )}
 
           {/* HAUPT-VIEWPORT */}
           <main className={`flex-1 overflow-auto ${themeStyles.viewport}`}>
@@ -1417,8 +1494,8 @@ export default function TouchwallApp() {
                                 +
                               </button>
                             </div>
-                            {holiday && <div className="text-[10px] font-extrabold text-rose-300 truncate mt-0.5">🎌 {holiday}</div>}
-                            {!holiday && vacation && <div className="text-[10px] font-extrabold text-emerald-300 truncate mt-0.5">🏖️ {vacation}</div>}
+                            {holiday && <div className="text-[10px] font-extrabold text-rose-400 truncate mt-0.5">🎌 {holiday}</div>}
+                            {!holiday && vacation && <div className="text-[10px] font-extrabold text-emerald-400 truncate mt-0.5">🏖️ {vacation}</div>}
                           </div>
                         );
                       })}
@@ -1448,43 +1525,95 @@ export default function TouchwallApp() {
 
                           {days.map((d, idx) => {
                             const dateStr = formatDateStr(d);
+                            const cellKey = `${dateStr}_${member.id}`;
                             const isWeekend = d.getDay() === 0 || d.getDay() === 6;
                             const isToday = dateStr === todayStr;
+                            const isDragTarget = dragOverCell === cellKey;
                             const cellEvents = events.filter(e => e.date === dateStr && e.member === member.id);
 
                             return (
                               <div
                                 key={dateStr}
-                                onClick={() => openNewEventModal(dateStr, member.id)}
-                                onDragOver={(e) => e.preventDefault()}
+                                onClick={() => handleCalendarCellClick(dateStr, member.id)}
+                                onDragOver={(e) => {
+                                  e.preventDefault();
+                                  if (dragOverCell !== cellKey) setDragOverCell(cellKey);
+                                }}
+                                onDragLeave={() => {
+                                  if (dragOverCell === cellKey) setDragOverCell(null);
+                                }}
                                 onDrop={(e) => {
                                   e.preventDefault();
+                                  setDragOverCell(null);
                                   if (draggedEv) {
-                                    transferEvent(draggedEv.id, member.id, dateStr);
+                                    if (e.ctrlKey || e.altKey) {
+                                      duplicateEventToTarget(draggedEv, member.id, dateStr);
+                                    } else {
+                                      transferEvent(draggedEv.id, member.id, dateStr);
+                                    }
                                     setDraggedEv(null);
                                   }
                                 }}
                                 style={st.cellStyle(isWeekend)}
-                                className={`p-2 border-r-2 flex flex-col gap-1.5 transition-all hover:brightness-110 cursor-pointer ${themeStyles.divider} ${
+                                className={`p-2 border-r-2 flex flex-col gap-1.5 transition-all cursor-pointer relative ${themeStyles.divider} ${
                                   idx === 7 ? 'border-l-4' : ''
-                                } ${isToday ? 'ring-2 ring-inset ring-orange-400' : ''}`}
+                                } ${isToday ? 'ring-2 ring-inset ring-orange-400' : ''} ${
+                                  isDragTarget ? 'ring-4 ring-inset ring-amber-400 !bg-indigo-500/35 scale-[0.99] z-10' : 'hover:brightness-105'
+                                }`}
                               >
-                                {cellEvents.map(ev => (
-                                  <div
-                                    key={ev.id}
-                                    draggable
-                                    onDragStart={() => setDraggedEv(ev)}
-                                    onClick={(e) => openEditEventModal(e, ev)}
-                                    style={st.cardStyle}
-                                    className="rounded-xl p-2 shadow-md flex flex-col justify-between cursor-grab active:cursor-grabbing border border-black/15"
-                                  >
-                                    <div className="font-extrabold text-xs sm:text-sm leading-snug break-words">{ev.title}</div>
-                                    <div className="flex items-center justify-between gap-1 mt-1 flex-wrap">
-                                      <span className="text-[11px] opacity-90 font-bold">{ev.time}</span>
-                                      {renderNotifyBadgeOnCard(ev)}
-                                    </div>
+                                {/* DEUTLICHE DRAG & DROP ZIEL-ANZEIGE */}
+                                {isDragTarget && draggedEv && (
+                                  <div className="p-2 rounded-xl border-2 border-dashed border-amber-300 bg-slate-900/90 text-amber-300 text-[11px] font-black text-center shadow-lg animate-pulse">
+                                    📥 Hier ablegen: „{draggedEv.title}“ ({member.name.split(' ')[0]})
                                   </div>
-                                ))}
+                                )}
+
+                                {/* KOPIER-MODUS EINFÜGE-HINWEIS */}
+                                {copiedEvent && (
+                                  <div className="px-2 py-0.5 rounded-lg bg-amber-400/20 border border-dashed border-amber-400/60 text-[10px] font-extrabold text-center opacity-75 hover:opacity-100">
+                                    + 📋 Hier einfügen
+                                  </div>
+                                )}
+
+                                {cellEvents.map(ev => {
+                                  const isBeingDragged = draggedEv && String(draggedEv.id) === String(ev.id);
+                                  return (
+                                    <div
+                                      key={ev.id}
+                                      draggable
+                                      onDragStart={() => setDraggedEv(ev)}
+                                      onDragEnd={() => {
+                                        setDraggedEv(null);
+                                        setDragOverCell(null);
+                                      }}
+                                      onClick={(e) => openEditEventModal(e, ev)}
+                                      style={st.cardStyle}
+                                      className={`group rounded-xl p-2 shadow-sm flex flex-col justify-between cursor-grab active:cursor-grabbing transition-all relative ${
+                                        isBeingDragged ? 'opacity-40 scale-95 ring-2 ring-amber-400' : 'hover:shadow-md'
+                                      }`}
+                                    >
+                                      <div className="flex items-start justify-between gap-1">
+                                        <div className="font-extrabold text-xs sm:text-sm leading-snug break-words flex-1">{ev.title}</div>
+                                        <button
+                                          type="button"
+                                          title="Termin kopieren & bei jemand anderem einfügen"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setCopiedEvent(ev);
+                                            showToast('Termin kopiert', `„${ev.title}“ – klicke jetzt auf ein beliebiges Feld zum Einfügen!`, '📋');
+                                          }}
+                                          className="opacity-70 hover:opacity-100 p-1 rounded-lg bg-black/25 hover:bg-black/40 text-white shrink-0 cursor-pointer"
+                                        >
+                                          <Copy className="w-3 h-3" />
+                                        </button>
+                                      </div>
+                                      <div className="flex items-center justify-between gap-1 mt-1 flex-wrap">
+                                        <span className="text-[11px] opacity-95 font-bold">{ev.time}</span>
+                                        {renderNotifyBadgeOnCard(ev)}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
                               </div>
                             );
                           })}
@@ -1550,23 +1679,56 @@ export default function TouchwallApp() {
                                 {Array.from({ length: 7 }, (_, d) => {
                                   const dayObj = addDays(weekStart, d);
                                   const dateStr = formatDateStr(dayObj);
+                                  const cellKey = `4w_${dateStr}_${member.id}`;
                                   const isWeekend = dayObj.getDay() === 0 || dayObj.getDay() === 6;
+                                  const isDragTarget = dragOverCell === cellKey;
                                   const cellEvents = events.filter(e => e.date === dateStr && e.member === member.id);
                                   return (
                                     <div
                                       key={d}
-                                      onClick={() => openNewEventModal(dateStr, member.id)}
+                                      onClick={() => handleCalendarCellClick(dateStr, member.id)}
+                                      onDragOver={(e) => {
+                                        e.preventDefault();
+                                        if (dragOverCell !== cellKey) setDragOverCell(cellKey);
+                                      }}
+                                      onDragLeave={() => {
+                                        if (dragOverCell === cellKey) setDragOverCell(null);
+                                      }}
+                                      onDrop={(e) => {
+                                        e.preventDefault();
+                                        setDragOverCell(null);
+                                        if (draggedEv) {
+                                          transferEvent(draggedEv.id, member.id, dateStr);
+                                          setDraggedEv(null);
+                                        }
+                                      }}
                                       style={st.cellStyle(isWeekend)}
-                                      className={`min-h-[54px] p-1.5 border-r-2 flex flex-col gap-1 cursor-pointer ${themeStyles.divider}`}
+                                      className={`min-h-[58px] p-1.5 border-r-2 flex flex-col gap-1 cursor-pointer transition-all ${themeStyles.divider} ${
+                                        isDragTarget ? 'ring-4 ring-inset ring-amber-400 !bg-indigo-500/35' : ''
+                                      }`}
                                     >
                                       {cellEvents.map(ev => (
                                         <div
                                           key={ev.id}
+                                          draggable
+                                          onDragStart={() => setDraggedEv(ev)}
+                                          onDragEnd={() => { setDraggedEv(null); setDragOverCell(null); }}
                                           onClick={(e) => openEditEventModal(e, ev)}
                                           style={st.cardStyle}
-                                          className="px-2 py-1 rounded text-xs font-bold truncate"
+                                          className="px-2 py-1 rounded text-xs font-bold flex items-center justify-between gap-1 cursor-grab"
                                         >
-                                          {ev.title}
+                                          <span className="truncate">{ev.title}</span>
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setCopiedEvent(ev);
+                                              showToast('Termin kopiert', `„${ev.title}“ – klicke auf ein Feld zum Einfügen!`, '📋');
+                                            }}
+                                            className="opacity-70 hover:opacity-100 shrink-0"
+                                          >
+                                            <Copy className="w-3 h-3" />
+                                          </button>
                                         </div>
                                       ))}
                                     </div>
@@ -1583,24 +1745,24 @@ export default function TouchwallApp() {
               );
             })()}
 
-            {/* ANSICHT 3: JAHRESWAND (BW) */}
+            {/* ANSICHT 3: JAHRESWAND (FERIEN NUR AM 1. TAG BENANNT, KRÄFTIGER GRÜNER RAND & GRÖSSERE SCHRIFT) */}
             {activeSection === 'kalender' && currentView === 'year' && (() => {
               const year = currentBaseDate.getFullYear();
               return (
                 <div className="p-3 w-full h-full flex flex-col gap-2 overflow-hidden">
                   <div className={`px-4 py-2 rounded-2xl border flex flex-wrap items-center justify-between gap-3 shrink-0 ${themeStyles.card}`}>
-                    <span className="font-extrabold text-xs uppercase tracking-wider">📅 Jahreswand {year} (Baden-Württemberg)</span>
+                    <span className="font-extrabold text-xs sm:text-sm uppercase tracking-wider">📅 Jahreswand {year} (Baden-Württemberg)</span>
                     <div className="flex flex-wrap items-center gap-3 text-xs font-extrabold">
-                      <span className="px-3 py-1 rounded-full bg-rose-500/20 text-rose-300 border border-rose-400/30">🎌 Gesetzlicher Feiertag BW</span>
-                      <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">🏖️ Schulferien BW</span>
-                      <span className="px-3 py-1 rounded-full bg-orange-500/20 text-orange-300 border border-orange-400/30">🟠 Heute</span>
+                      <span className="px-3 py-1 rounded-full bg-rose-500/20 text-rose-300 border border-rose-400/40">🎌 Gesetzlicher Feiertag BW</span>
+                      <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border-l-4 border-emerald-500">🏖️ Schulferien BW (Name am 1. Tag + grüner Rand)</span>
+                      <span className="px-3 py-1 rounded-full bg-orange-500/20 text-orange-300 border border-orange-400/40">🟠 Heute</span>
                     </div>
                   </div>
 
                   <div className={`rounded-2xl border shadow-sm overflow-hidden flex-1 grid grid-cols-12 divide-x min-h-0 ${themeStyles.card} ${themeStyles.divider}`}>
                     {Array.from({ length: 12 }, (_, month) => (
                       <div key={month} className="flex flex-col min-w-0 overflow-hidden h-full">
-                        <div className={`font-extrabold text-[11px] uppercase py-1.5 px-1 text-center shrink-0 truncate ${themeStyles.banner}`}>
+                        <div className={`font-black text-xs uppercase py-2 px-1 text-center shrink-0 truncate tracking-wide ${themeStyles.banner}`}>
                           {MONTHS_NAMES[month]}
                         </div>
                         <div className={`divide-y flex-1 flex flex-col min-h-0 ${themeStyles.divider}`}>
@@ -1608,14 +1770,14 @@ export default function TouchwallApp() {
                             const day = i + 1;
                             const testDate = new Date(year, month, day);
                             if (testDate.getMonth() !== month) {
-                              return <div key={day} className="flex-1 min-h-[14px] bg-black/20" />;
+                              return <div key={day} className="flex-1 min-h-[15px] bg-black/20" />;
                             }
                             const dateStr = formatDateStr(testDate);
                             const dow = testDate.getDay();
                             const isWeekend = dow === 0 || dow === 6;
                             const isToday = dateStr === todayStr;
                             const hol = getBWHolidayName(dateStr);
-                            const vac = getBWVacationName(dateStr);
+                            const vacInfo = getBWVacationInfo(dateStr);
                             const dayEvents = events.filter(e => e.date === dateStr);
                             const firstEv = dayEvents[0];
                             const firstMem = firstEv ? members.find(m => m.id === firstEv.member) || members[0] : null;
@@ -1623,25 +1785,55 @@ export default function TouchwallApp() {
                             return (
                               <div
                                 key={day}
-                                onClick={() => setYearDayModal({ open: true, dateStr, newTitle: '', newTime: 'Ganztägig', newMember: 'all' })}
-                                className={`flex-1 min-h-[14px] px-1 flex items-center gap-1 text-[10px] cursor-pointer hover:bg-indigo-500/20 overflow-hidden ${
-                                  hol ? 'bg-rose-500/25 font-bold' : vac ? 'bg-emerald-500/20' : isWeekend ? 'bg-black/15' : ''
+                                onClick={() => {
+                                  if (copiedEvent) {
+                                    duplicateEventToTarget(copiedEvent, copiedEvent.member || 'all', dateStr);
+                                    return;
+                                  }
+                                  setYearDayModal({ open: true, dateStr, newTitle: '', newTime: 'Ganztägig', newMember: 'all' });
+                                }}
+                                title={
+                                  [
+                                    hol ? `🎌 ${hol}` : '',
+                                    vacInfo ? `🏖️ ${vacInfo.name}` : '',
+                                    ...dayEvents.map(e => `${e.title} (${e.time || 'Ganztägig'})`)
+                                  ].filter(Boolean).join(' • ')
+                                }
+                                style={
+                                  vacInfo && !hol
+                                    ? { borderLeft: '6px solid #10b981', backgroundColor: themeStyles.dark ? 'rgba(16, 185, 129, 0.22)' : 'rgba(16, 185, 129, 0.18)' }
+                                    : hol
+                                    ? { borderLeft: '6px solid #f43f5e', backgroundColor: themeStyles.dark ? 'rgba(244, 63, 94, 0.28)' : 'rgba(244, 63, 94, 0.18)' }
+                                    : undefined
+                                }
+                                className={`flex-1 min-h-[16px] px-1.5 flex items-center gap-1 cursor-pointer hover:bg-indigo-500/25 overflow-hidden ${
+                                  !hol && !vacInfo && isWeekend ? 'bg-black/15' : ''
                                 } ${isToday ? 'ring-2 ring-inset ring-orange-500' : ''}`}
                               >
-                                <span className="w-3.5 font-extrabold text-[9px] shrink-0">{String(day).padStart(2, '0')}</span>
-                                <span className="w-3.5 text-[8px] opacity-60 uppercase shrink-0">{WEEKDAYS_SHORT[dow]}</span>
-                                <div className="flex-1 flex items-center gap-0.5 min-w-0 overflow-hidden">
+                                <span className={`w-4 font-black text-[11px] sm:text-xs shrink-0 leading-none ${hol ? 'text-rose-400' : ''}`}>
+                                  {String(day).padStart(2, '0')}
+                                </span>
+                                <span className={`w-4 text-[10px] font-bold uppercase shrink-0 leading-none ${isWeekend ? ' opacity-90' : 'opacity-65'}`}>
+                                  {WEEKDAYS_SHORT[dow]}
+                                </span>
+
+                                <div className="flex-1 flex items-center gap-1 min-w-0 overflow-hidden">
                                   {firstEv && firstMem ? (
-                                    <span style={getMemberStyles(firstMem).badgeStyle} className="px-1 rounded text-[8px] font-bold truncate flex-1">
+                                    <span style={getMemberStyles(firstMem).badgeStyle} className="px-1.5 py-0.2 rounded text-[10px] sm:text-[11px] font-extrabold truncate flex-1 leading-tight shadow-2xs">
                                       {firstEv.title}
                                     </span>
                                   ) : hol ? (
-                                    <span className="text-[8px] font-extrabold text-rose-300 truncate flex-1">🎌 {hol}</span>
-                                  ) : vac ? (
-                                    <span className="text-[8px] font-bold text-emerald-300 truncate flex-1">🏖️ {vac.replace(' BW', '')}</span>
+                                    <span className="text-[10px] sm:text-[11px] font-extrabold text-rose-400 truncate flex-1 leading-tight">
+                                      🎌 {hol}
+                                    </span>
+                                  ) : vacInfo && vacInfo.isFirstDay ? (
+                                    <span className="px-1.5 py-0.2 rounded bg-emerald-600 text-white text-[10px] sm:text-[11px] font-black truncate flex-1 leading-tight shadow-2xs">
+                                      🏖️ {vacInfo.shortName}
+                                    </span>
                                   ) : null}
+
                                   {dayEvents.length > 1 && (
-                                    <span className="px-1 rounded bg-indigo-600 text-white text-[8px] font-extrabold shrink-0">
+                                    <span className="px-1 rounded bg-indigo-600 text-white text-[9px] font-black shrink-0">
                                       +{dayEvents.length - 1}
                                     </span>
                                   )}
@@ -1763,11 +1955,11 @@ export default function TouchwallApp() {
                                       style={slot.status === 'normal' ? childSt.cardStyle : undefined}
                                       className={`p-3.5 rounded-2xl border min-h-[82px] flex flex-col justify-between shadow-sm ${
                                         slot.status === 'change'
-                                          ? 'bg-amber-500/25 border-amber-400 text-amber-200 ring-2 ring-amber-400'
+                                          ? 'bg-amber-500/25 border-amber-400 text-amber-300 ring-2 ring-amber-400'
                                           : slot.status === 'exam'
                                           ? 'bg-purple-500/25 border-purple-400 text-purple-200 ring-2 ring-purple-400'
                                           : slot.status === 'cancel'
-                                          ? 'bg-rose-500/25 border-rose-400 text-rose-200 line-through opacity-80'
+                                          ? 'bg-rose-500/25 border-rose-400 text-rose-300 line-through opacity-80'
                                           : ''
                                       }`}
                                     >
@@ -1815,7 +2007,7 @@ export default function TouchwallApp() {
                             }
                           }}
                           placeholder="z.B. Freitag 5. Stunde fällt aus..."
-                          className={`flex-1 md:w-96 px-4 py-3 rounded-xl border text-sm font-semibold ${themeStyles.subtle}`}
+                          className={`flex-1 md:w-96 px-4 py-3 rounded-xl border text-sm font-semibold ${themeStyles.input}`}
                         />
                         <button
                           onClick={() => {
@@ -1850,7 +2042,7 @@ export default function TouchwallApp() {
                                 }
                               }));
                             }}
-                            className="w-8 h-8 rounded-lg hover:bg-rose-500/20 text-amber-300 hover:text-rose-300 font-bold cursor-pointer"
+                            className="w-8 h-8 rounded-lg hover:bg-rose-500/20 text-amber-400 hover:text-rose-400 font-bold cursor-pointer"
                           >
                             ✕
                           </button>
@@ -1862,7 +2054,7 @@ export default function TouchwallApp() {
               );
             })()}
 
-            {/* ANSICHT 5: AUFGABEN (MIT BEIDSEITIGEM GOOGLE TASKS SYNC & ERLEDIGT-BEREICH) */}
+            {/* ANSICHT 5: AUFGABEN */}
             {activeSection === 'aufgaben' && (
               <div className="p-6 flex flex-col gap-6">
                 <div className={`p-6 rounded-3xl border shadow-sm flex flex-wrap items-center justify-between gap-4 ${themeStyles.card}`}>
@@ -1892,12 +2084,12 @@ export default function TouchwallApp() {
                         }
                       }}
                       placeholder="Neue Aufgabe eintragen..."
-                      className={`px-4 py-3 rounded-xl border text-sm font-bold w-72 ${themeStyles.subtle}`}
+                      className={`px-4 py-3 rounded-xl border text-sm font-bold w-72 ${themeStyles.input}`}
                     />
                     <select
                       value={newTaskMember}
                       onChange={(e) => setNewTaskMember(e.target.value)}
-                      className={`px-4 py-3 rounded-xl border text-sm font-bold ${themeStyles.subtle}`}
+                      className={`px-4 py-3 rounded-xl border text-sm font-bold ${themeStyles.input}`}
                     >
                       {members.filter(m => m.id !== 'all').map(m => (
                         <option key={m.id} value={m.id} className="bg-slate-800 text-white">{m.name}</option>
@@ -1965,14 +2157,13 @@ export default function TouchwallApp() {
                               </div>
                             ))}
 
-                            {/* ERLEDIGTE AUFGABEN (WIE IN DER GOOGLE TASKS APP) */}
                             {doneTasks.length > 0 && (
                               <div className={`pt-3 mt-3 border-t space-y-2 ${themeStyles.divider}`}>
                                 <div className="flex items-center justify-between text-xs font-extrabold opacity-75">
                                   <span>☑️ Erledigt ({doneTasks.length})</span>
                                   <button
                                     onClick={() => setFamilyTasks(prev => prev.filter(t => !(t.member === member.id && t.done)))}
-                                    className="text-rose-300 hover:underline cursor-pointer"
+                                    className="text-rose-400 hover:underline cursor-pointer"
                                   >
                                     🗑️ Erledigte leeren
                                   </button>
@@ -2016,7 +2207,7 @@ export default function TouchwallApp() {
                               }
                             }}
                             placeholder={`Aufgabe für ${member.name}...`}
-                            className={`flex-1 px-4 py-2 rounded-xl border text-sm font-semibold ${themeStyles.card}`}
+                            className={`flex-1 px-4 py-2 rounded-xl border text-sm font-semibold ${themeStyles.input}`}
                           />
                           <button
                             onClick={() => {
@@ -2051,14 +2242,14 @@ export default function TouchwallApp() {
                       value={newMealDay}
                       onChange={(e) => setNewMealDay(e.target.value)}
                       placeholder="Tag / Name"
-                      className={`px-4 py-3 rounded-xl border text-sm font-bold w-48 ${themeStyles.subtle}`}
+                      className={`px-4 py-3 rounded-xl border text-sm font-bold w-48 ${themeStyles.input}`}
                     />
                     <input
                       type="text"
                       value={newMealDish}
                       onChange={(e) => setNewMealDish(e.target.value)}
                       placeholder="Gericht / Rezept..."
-                      className={`px-4 py-3 rounded-xl border text-sm font-bold w-56 ${themeStyles.subtle}`}
+                      className={`px-4 py-3 rounded-xl border text-sm font-bold w-56 ${themeStyles.input}`}
                     />
                     <button
                       onClick={() => {
@@ -2086,7 +2277,7 @@ export default function TouchwallApp() {
                               onChange={(e) => setMealPlan(prev => prev.map(m => m.id === meal.id ? { ...m, dayLabel: e.target.value } : m))}
                               className="bg-transparent font-extrabold text-base uppercase tracking-wider flex-1 min-w-0 focus:outline-none"
                             />
-                            <span className={`px-3 py-1 rounded-full text-xs font-extrabold ${missing.length === 0 ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'}`}>
+                            <span className={`px-3 py-1 rounded-full text-xs font-extrabold ${missing.length === 0 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}`}>
                               {missing.length === 0 ? 'Alle da ✓' : `${missing.length} fehlt`}
                             </span>
                           </div>
@@ -2096,7 +2287,7 @@ export default function TouchwallApp() {
                               type="text"
                               value={meal.dish}
                               onChange={(e) => setMealPlan(prev => prev.map(m => m.id === meal.id ? { ...m, dish: e.target.value } : m))}
-                              className={`w-full px-4 py-3 rounded-2xl border font-extrabold text-base ${themeStyles.subtle}`}
+                              className={`w-full px-4 py-3 rounded-2xl border font-extrabold text-base ${themeStyles.input}`}
                             />
                           </div>
 
@@ -2115,7 +2306,7 @@ export default function TouchwallApp() {
                                   } : n));
                                   showToast('Einkaufsliste & Tasks ergänzt', `${missing.length} Zutaten übertragen.`, '🛒');
                                 }}
-                                className="px-3 py-1 rounded-xl bg-indigo-500/20 text-indigo-300 text-xs font-extrabold border border-indigo-400/30 cursor-pointer"
+                                className="px-3 py-1 rounded-xl bg-indigo-500/20 text-indigo-400 text-xs font-extrabold border border-indigo-400/30 cursor-pointer"
                               >
                                 🛒 In Einkaufsliste
                               </button>
@@ -2168,7 +2359,7 @@ export default function TouchwallApp() {
                               }
                             }}
                             placeholder="Zutat hinzufügen..."
-                            className={`flex-1 px-4 py-2 rounded-xl border text-sm font-semibold ${themeStyles.card}`}
+                            className={`flex-1 px-4 py-2 rounded-xl border text-sm font-semibold ${themeStyles.input}`}
                           />
                           <button
                             onClick={() => {
@@ -2214,12 +2405,12 @@ export default function TouchwallApp() {
                       value={newNoteTitle}
                       onChange={(e) => setNewNoteTitle(e.target.value)}
                       placeholder="Titel (z.B. Baumarkt)"
-                      className={`px-4 py-3 rounded-xl border text-sm font-bold w-56 ${themeStyles.subtle}`}
+                      className={`px-4 py-3 rounded-xl border text-sm font-bold w-56 ${themeStyles.input}`}
                     />
                     <select
                       value={newNoteAuthor}
                       onChange={(e) => setNewNoteAuthor(e.target.value)}
-                      className={`px-4 py-3 rounded-xl border text-sm font-bold ${themeStyles.subtle}`}
+                      className={`px-4 py-3 rounded-xl border text-sm font-bold ${themeStyles.input}`}
                     >
                       {['Familie', 'Hans', 'Sarah', 'Sarah & Hans', 'Dean', 'Valentina'].map(a => (
                         <option key={a} value={a} className="bg-slate-800 text-white">👤 {a}</option>
@@ -2327,7 +2518,7 @@ export default function TouchwallApp() {
                             }
                           }}
                           placeholder="Neuen Punkt eintragen..."
-                          className={`flex-1 px-4 py-3 rounded-2xl border text-sm font-semibold ${themeStyles.subtle}`}
+                          className={`flex-1 px-4 py-3 rounded-2xl border text-sm font-semibold ${themeStyles.input}`}
                         />
                         <button
                           onClick={() => {
@@ -2358,7 +2549,7 @@ export default function TouchwallApp() {
                     <div className="flex flex-wrap items-center justify-between gap-4">
                       <div>
                         <h2 className="text-2xl font-extrabold">1. Seiten-Theme & Eigenes Touchwall-Logo</h2>
-                        <p className={`text-sm font-semibold ${themeStyles.textMuted}`}>Wähle dein Seiten-Design (inkl. abgedunkeltem Metal Silver) und dein eigenes Logo für oben links.</p>
+                        <p className={`text-sm font-semibold ${themeStyles.textMuted}`}>Wähle dein Seiten-Design (gilt für alle Fenster & Popups) und dein eigenes Logo für oben links.</p>
                       </div>
 
                       <div className={`flex flex-wrap items-center gap-2 p-2.5 rounded-2xl border ${themeStyles.subtle}`}>
@@ -2370,20 +2561,20 @@ export default function TouchwallApp() {
                           value={customLogoUrl}
                           onChange={(e) => setCustomLogoUrl(e.target.value)}
                           placeholder="Logo Bild-URL..."
-                          className={`w-40 px-3 py-1.5 rounded-xl border text-xs font-semibold ${themeStyles.card}`}
+                          className={`w-40 px-3 py-1.5 rounded-xl border text-xs font-semibold ${themeStyles.input}`}
                         />
                         <label className="px-3 py-1.5 rounded-xl bg-indigo-600 text-white text-xs font-bold cursor-pointer hover:bg-indigo-500">
                           📁 Logo hochladen
                           <input type="file" accept="image/*" className="hidden" onChange={handleLogoUpload} />
                         </label>
                         {customLogoUrl && (
-                          <button onClick={() => setCustomLogoUrl('')} className="px-2.5 py-1.5 rounded-xl bg-rose-500/20 text-rose-300 text-xs font-bold cursor-pointer">
+                          <button onClick={() => setCustomLogoUrl('')} className="px-2.5 py-1.5 rounded-xl bg-rose-500/20 text-rose-400 text-xs font-bold cursor-pointer">
                             ✕
                           </button>
                         )}
                         <button
                           onClick={restoreScreenshotDefaults}
-                          className="px-3 py-1.5 rounded-xl bg-amber-500/20 text-amber-300 border border-amber-400/30 text-xs font-extrabold cursor-pointer"
+                          className="px-3 py-1.5 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-400/30 text-xs font-extrabold cursor-pointer"
                         >
                           🔄 Standard-Profil wiederherstellen
                         </button>
@@ -2409,7 +2600,7 @@ export default function TouchwallApp() {
                   </div>
 
                   <div className={`p-6 rounded-3xl border shadow-sm space-y-5 ${themeStyles.card}`}>
-                    <h2 className="text-2xl font-extrabold">2. Persönliche Farbe (Kräftig & Sanft) & Avatar pro Benutzer</h2>
+                    <h2 className="text-2xl font-extrabold">2. Persönliche Farbe (Harmonisch gedämpft & Pastell) & Avatar</h2>
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
                       {members.map(m => {
                         const st = getMemberStyles(m);
@@ -2438,7 +2629,7 @@ export default function TouchwallApp() {
                             </div>
 
                             <div className="space-y-2">
-                              <div className="text-[11px] font-extrabold uppercase opacity-75">🔥 Kräftige Vollton-Farben:</div>
+                              <div className="text-[11px] font-extrabold uppercase opacity-75">🔥 Vollton-Farben (im Kalender angenehm abgedämpft):</div>
                               <div className="flex flex-wrap gap-1.5">
                                 {boldKeys.map(cKey => {
                                   const pal = COLOR_PALETTES[cKey];
@@ -2446,7 +2637,7 @@ export default function TouchwallApp() {
                                     <button
                                       key={cKey}
                                       onClick={() => setMembers(prev => prev.map(item => item.id === m.id ? { ...item, color: cKey } : item))}
-                                      style={{ backgroundColor: pal.hex, color: '#fff' }}
+                                      style={{ backgroundColor: hexToRgba(pal.hex, 0.82), color: '#fff', borderLeft: `4px solid ${pal.hex}` }}
                                       className={`px-2.5 py-1 rounded-xl text-xs font-extrabold cursor-pointer ${m.color === cKey ? 'ring-2 ring-white scale-105' : 'opacity-85 hover:opacity-100'}`}
                                     >
                                       {pal.name}
@@ -2494,7 +2685,7 @@ export default function TouchwallApp() {
                                     value={m.photoUrl || ''}
                                     onChange={(e) => setMembers(prev => prev.map(item => item.id === m.id ? { ...item, photoUrl: e.target.value } : item))}
                                     placeholder="https://... (Bild-URL)"
-                                    className={`flex-1 px-3 py-2 rounded-xl border text-xs font-semibold ${themeStyles.card}`}
+                                    className={`flex-1 px-3 py-2 rounded-xl border text-xs font-semibold ${themeStyles.input}`}
                                   />
                                   <label className="px-3.5 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold cursor-pointer">
                                     📁 Foto wählen
@@ -2515,17 +2706,17 @@ export default function TouchwallApp() {
               );
             })()}
 
-            {/* ANSICHT 9: GOOGLE KONTEN, SYSTEMTEST & DRIVE SYNC */}
+            {/* ANSICHT 9: GOOGLE KONTEN, SYSTEMTEST & DRIVE SYNC (THEME-ADAPTIV) */}
             {activeSection === 'google' && (
               <div className="p-6 flex flex-col gap-6">
-                <div className="bg-slate-900 text-white rounded-3xl p-6 shadow-xl border border-slate-700 space-y-5">
+                <div className={`rounded-3xl p-6 shadow-xl border space-y-5 ${themeStyles.card}`}>
                   <div className="flex flex-wrap items-center justify-between gap-4">
                     <div>
-                      <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-extrabold">
+                      <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-xs font-extrabold">
                         ☁️ 2-Wege-Synchronisation (Kalender, Google Tasks, Einkaufsliste & Notizen)
                       </span>
                       <h2 className="text-2xl font-extrabold mt-2">Google Synchronisation & System-Prüfung</h2>
-                      <p className="text-sm text-slate-300 mt-1">
+                      <p className={`text-sm mt-1 ${themeStyles.textMuted}`}>
                         Verbinde hier deine Google Apps Script URL und prüfe mit 1 Klick alle Lese- und Schreibberechtigungen.
                       </p>
                     </div>
@@ -2540,7 +2731,7 @@ export default function TouchwallApp() {
                       </button>
                       <button
                         onClick={() => pullFromCloud(undefined, true)}
-                        className="px-5 py-3 rounded-2xl bg-slate-700 hover:bg-slate-600 text-white font-bold text-sm flex items-center gap-2 cursor-pointer"
+                        className={`px-5 py-3 rounded-2xl border font-bold text-sm flex items-center gap-2 cursor-pointer ${themeStyles.subtle}`}
                       >
                         <RefreshCw className="w-4 h-4" /> Live aus Google laden
                       </button>
@@ -2553,9 +2744,8 @@ export default function TouchwallApp() {
                     </div>
                   </div>
 
-                  {/* ERGEBNIS-ANZEIGE DES LESE-/SCHREIB-SYSTEMTESTS */}
                   {diagResult && (
-                    <div className="p-4 rounded-2xl bg-slate-950/90 border border-slate-700 space-y-2">
+                    <div className={`p-4 rounded-2xl border space-y-2 ${themeStyles.subtle}`}>
                       <div className="text-xs font-extrabold uppercase text-amber-400">
                         🧪 Diagnose-Ergebnis ({diagResult.timestamp || 'Live'}):
                       </div>
@@ -2563,16 +2753,16 @@ export default function TouchwallApp() {
                         <div className="text-xs font-bold text-rose-400">{diagResult.error}</div>
                       ) : (
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 text-xs font-extrabold">
-                          <div className={`p-3 rounded-xl border ${diagResult.calendarReadWrite ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300' : 'bg-rose-500/15 border-rose-500/40 text-rose-300'}`}>
+                          <div className={`p-3 rounded-xl border ${diagResult.calendarReadWrite ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400' : 'bg-rose-500/15 border-rose-500/40 text-rose-400'}`}>
                             {diagResult.calendarReadWrite ? '✅ Kalender Lesen & Schreiben: OK' : `❌ Kalender-Fehler: ${diagResult.calendarError || 'Keine Berechtigung'}`}
                           </div>
-                          <div className={`p-3 rounded-xl border ${diagResult.tasksReadWrite ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300' : 'bg-rose-500/15 border-rose-500/40 text-rose-300'}`}>
+                          <div className={`p-3 rounded-xl border ${diagResult.tasksReadWrite ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400' : 'bg-rose-500/15 border-rose-500/40 text-rose-400'}`}>
                             {diagResult.tasksReadWrite ? '✅ Google Tasks 2-Wege-Sync: OK' : `❌ Tasks-Fehler: ${diagResult.tasksError || 'Dienst Tasks in Apps Script aktivieren'}`}
                           </div>
-                          <div className={`p-3 rounded-xl border ${diagResult.shoppingListTasksSync ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300' : 'bg-rose-500/15 border-rose-500/40 text-rose-300'}`}>
+                          <div className={`p-3 rounded-xl border ${diagResult.shoppingListTasksSync ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400' : 'bg-rose-500/15 border-rose-500/40 text-rose-400'}`}>
                             {diagResult.shoppingListTasksSync ? '✅ Einkaufsliste in Tasks: OK' : '❌ Einkaufslisten-Sync fehlt'}
                           </div>
-                          <div className={`p-3 rounded-xl border ${diagResult.propertiesReadWrite ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300' : 'bg-rose-500/15 border-rose-500/40 text-rose-300'}`}>
+                          <div className={`p-3 rounded-xl border ${diagResult.propertiesReadWrite ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400' : 'bg-rose-500/15 border-rose-500/40 text-rose-400'}`}>
                             {diagResult.propertiesReadWrite ? '✅ Notizen/Schule/Essensplan: OK' : '❌ Cloud-Speicher Fehler'}
                           </div>
                         </div>
@@ -2580,7 +2770,7 @@ export default function TouchwallApp() {
                     </div>
                   )}
 
-                  <div className="p-4 rounded-2xl bg-slate-800/90 border border-slate-700 flex flex-wrap items-center gap-3">
+                  <div className={`p-4 rounded-2xl border flex flex-wrap items-center gap-3 ${themeStyles.subtle}`}>
                     <span className="text-xs font-extrabold uppercase text-amber-400 shrink-0">🔗 Deine Apps-Script Web-App URL:</span>
                     <input
                       type="url"
@@ -2590,7 +2780,7 @@ export default function TouchwallApp() {
                         try { localStorage.setItem('richter_tw_gas_url', e.target.value); } catch (err) {}
                       }}
                       placeholder="https://script.google.com/macros/s/.../exec"
-                      className="flex-1 min-w-[260px] px-4 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-xs font-mono text-emerald-300"
+                      className={`flex-1 min-w-[260px] px-4 py-2.5 rounded-xl border text-xs font-mono ${themeStyles.input}`}
                     />
                   </div>
                 </div>
@@ -2619,7 +2809,7 @@ export default function TouchwallApp() {
                               setMembers(prev => prev.map(item => item.id === m.id ? { ...item, calendarId: val, ok: Boolean(val.trim()), statusMsg: val.trim() ? 'Bereit zum Speichern' : 'Leer' } : item));
                             }}
                             placeholder={m.id === 'all' ? 'primary' : 'name@gmail.com oder ...@group.calendar.google.com'}
-                            className={`w-full px-4 py-3 rounded-xl border text-sm font-bold ${themeStyles.card}`}
+                            className={`w-full px-4 py-3 rounded-xl border text-sm font-bold ${themeStyles.input}`}
                           />
                         </div>
 
@@ -2631,12 +2821,12 @@ export default function TouchwallApp() {
                                 setMembers(filtered);
                                 pushToCloudAndDrive(filtered, true);
                               }}
-                              className="px-3.5 py-2.5 rounded-xl bg-rose-500/20 text-rose-300 text-xs font-extrabold cursor-pointer"
+                              className="px-3.5 py-2.5 rounded-xl bg-rose-500/20 text-rose-400 text-xs font-extrabold cursor-pointer"
                             >
                               🗑️ Löschen
                             </button>
                           )}
-                          <span className={`px-4 py-2 rounded-xl text-xs font-extrabold ${m.calendarId ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'}`}>
+                          <span className={`px-4 py-2 rounded-xl text-xs font-extrabold ${m.calendarId ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}`}>
                             {m.statusMsg || (m.calendarId ? 'Verbunden ✓' : 'Bereit')}
                           </span>
                         </div>
@@ -2687,19 +2877,19 @@ export default function TouchwallApp() {
       </div>
 
       {/* =========================================================
-          MODAL 1: TERMIN ERSTELLEN / BEARBEITEN (EXAKT WIE IM SCREENSHOT)
+          MODAL 1: TERMIN ERSTELLEN / BEARBEITEN / KOPIEREN (THEME-ADAPTIV)
          ========================================================= */}
       {eventModal.open && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-          <form onSubmit={saveEventModal} className="w-full max-w-xl rounded-3xl bg-white text-slate-900 border border-slate-200 p-6 sm:p-7 shadow-2xl space-y-5 my-auto">
+          <form onSubmit={saveEventModal} className={`w-full max-w-xl rounded-3xl border-2 p-6 sm:p-7 shadow-2xl space-y-5 my-auto ${themeStyles.modal}`}>
             <div className="flex items-center justify-between">
-              <h3 className="text-2xl font-extrabold text-slate-900">
+              <h3 className="text-2xl font-extrabold">
                 {eventModal.id ? 'Termin bearbeiten' : 'Neuer Familientermin'}
               </h3>
               <button
                 type="button"
                 onClick={() => setEventModal({ ...eventModal, open: false })}
-                className="w-10 h-10 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center cursor-pointer"
+                className={`w-10 h-10 rounded-full border flex items-center justify-center cursor-pointer ${themeStyles.subtle}`}
               >
                 <X className="w-5 h-5" />
               </button>
@@ -2707,7 +2897,7 @@ export default function TouchwallApp() {
 
             {/* WAS STEHT AN + SCHNELL-CHIPS */}
             <div className="space-y-2.5">
-              <label className="block text-xs font-extrabold uppercase tracking-wider text-slate-500">
+              <label className={`block text-xs font-extrabold uppercase tracking-wider ${themeStyles.textMuted}`}>
                 WAS STEHT AN?
               </label>
               <input
@@ -2716,7 +2906,7 @@ export default function TouchwallApp() {
                 value={eventModal.title}
                 onChange={(e) => setEventModal({ ...eventModal, title: e.target.value })}
                 placeholder="z.B. ⚽ Fußballtraining oder 🦷 Zahnarzt"
-                className="w-full px-4 py-3.5 rounded-2xl bg-slate-50 border border-slate-200 font-bold text-base text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className={`w-full px-4 py-3.5 rounded-2xl border font-bold text-base focus:outline-none focus:ring-2 focus:ring-indigo-500 ${themeStyles.input}`}
               />
               <div className="flex gap-2 overflow-x-auto pb-1 pt-0.5">
                 {[
@@ -2732,7 +2922,7 @@ export default function TouchwallApp() {
                     key={chip.label}
                     type="button"
                     onClick={() => setEventModal({ ...eventModal, title: chip.val })}
-                    className="px-3.5 py-1.5 rounded-full bg-slate-100 hover:bg-indigo-50 text-slate-800 border border-slate-200 text-xs font-extrabold shrink-0 cursor-pointer transition-colors"
+                    className={`px-3.5 py-1.5 rounded-full border text-xs font-extrabold shrink-0 cursor-pointer transition-all hover:border-indigo-400 ${themeStyles.subtle}`}
                   >
                     {chip.label}
                   </button>
@@ -2742,7 +2932,7 @@ export default function TouchwallApp() {
 
             {/* FÜR WEN IST DER TERMIN (ZEILE)? */}
             <div>
-              <label className="block text-xs font-extrabold uppercase tracking-wider text-slate-500 mb-2">
+              <label className={`block text-xs font-extrabold uppercase tracking-wider mb-2 ${themeStyles.textMuted}`}>
                 FÜR WEN IST DER TERMIN (ZEILE)?
               </label>
               <div className="grid grid-cols-3 sm:grid-cols-5 gap-2.5">
@@ -2758,12 +2948,12 @@ export default function TouchwallApp() {
                       }}
                       className={`p-3 rounded-2xl border-2 flex flex-col items-center gap-1.5 cursor-pointer transition-all ${
                         selected
-                          ? 'border-indigo-600 bg-indigo-50/70 ring-2 ring-indigo-400/40'
-                          : 'border-slate-200 bg-white hover:border-slate-300'
+                          ? 'border-indigo-500 bg-indigo-500/20 ring-2 ring-indigo-400/50'
+                          : `${themeStyles.subtle} hover:border-indigo-400/40`
                       }`}
                     >
                       {renderAvatar(m, 'w-10 h-10', 'text-sm')}
-                      <span className="text-xs font-extrabold text-slate-800 truncate max-w-full">
+                      <span className="text-xs font-extrabold truncate max-w-full">
                         {m.id === 'all' ? 'Familie' : m.name.split(' ')[0]}
                       </span>
                     </button>
@@ -2772,21 +2962,44 @@ export default function TouchwallApp() {
               </div>
             </div>
 
+            {/* NEU: DIREKT KOPIE BEI JEMAND ANDEREM EINFÜGEN */}
+            {eventModal.title.trim() && (
+              <div className={`p-3.5 rounded-2xl border flex flex-wrap items-center justify-between gap-2 ${themeStyles.subtle}`}>
+                <span className="text-xs font-extrabold flex items-center gap-1.5">
+                  <Copy className="w-4 h-4 text-amber-400" />
+                  Kopie für andere Person einfügen:
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {members.map(targetM => (
+                    <button
+                      key={targetM.id}
+                      type="button"
+                      onClick={() => duplicateEventToTarget(eventModal, targetM.id, eventModal.date)}
+                      style={getMemberStyles(targetM).badgeStyle}
+                      className="px-2.5 py-1 rounded-xl text-xs font-extrabold flex items-center gap-1 cursor-pointer hover:scale-105 transition-transform shadow-xs"
+                    >
+                      + {targetM.id === 'all' ? 'Familie' : targetM.name.split(' ')[0]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* DATUM & UHRZEIT */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
               <div>
-                <label className="block text-xs font-extrabold uppercase tracking-wider text-slate-500 mb-1.5">
+                <label className={`block text-xs font-extrabold uppercase tracking-wider mb-1.5 ${themeStyles.textMuted}`}>
                   DATUM
                 </label>
                 <input
                   type="date"
                   value={eventModal.date}
                   onChange={(e) => setEventModal({ ...eventModal, date: e.target.value })}
-                  className="w-full px-4 py-3 rounded-2xl bg-slate-50 border border-slate-200 font-bold text-sm text-slate-900"
+                  className={`w-full px-4 py-3 rounded-2xl border font-bold text-sm ${themeStyles.input}`}
                 />
               </div>
               <div>
-                <label className="block text-xs font-extrabold uppercase tracking-wider text-slate-500 mb-1.5">
+                <label className={`block text-xs font-extrabold uppercase tracking-wider mb-1.5 ${themeStyles.textMuted}`}>
                   UHRZEIT
                 </label>
                 <input
@@ -2794,15 +3007,15 @@ export default function TouchwallApp() {
                   value={eventModal.time}
                   onChange={(e) => setEventModal({ ...eventModal, time: e.target.value })}
                   placeholder="15:00 - 16:00 oder Ganztägig"
-                  className="w-full px-4 py-3 rounded-2xl bg-slate-50 border border-slate-200 font-bold text-sm text-slate-900"
+                  className={`w-full px-4 py-3 rounded-2xl border font-bold text-sm ${themeStyles.input}`}
                 />
               </div>
             </div>
 
-            {/* 🔔 BENACHRICHTIGUNG & ERINNERUNG (INKL. BROWSER-PUSH & SOUND-ALARM) */}
-            <div className="p-4 sm:p-5 rounded-3xl bg-slate-50 border border-slate-200 space-y-4">
+            {/* 🔔 BENACHRICHTIGUNG & ERINNERUNG */}
+            <div className={`p-4 sm:p-5 rounded-3xl border space-y-4 ${themeStyles.subtle}`}>
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="text-xs font-black uppercase tracking-wider text-slate-800 flex items-center gap-1.5">
+                <div className="text-xs font-black uppercase tracking-wider flex items-center gap-1.5">
                   <span>🔔</span> BENACHRICHTIGUNG & ERINNERUNG
                 </div>
                 <button
@@ -2819,7 +3032,7 @@ export default function TouchwallApp() {
                       notifyUsers: eventModal.notifyUsers
                     }, true);
                   }}
-                  className="px-3.5 py-1.5 rounded-full bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
+                  className="px-3.5 py-1.5 rounded-full bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-xs"
                 >
                   <Volume2 className="w-3.5 h-3.5" /> Test-Alarm zeigen
                 </button>
@@ -2827,44 +3040,44 @@ export default function TouchwallApp() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[11px] font-extrabold uppercase text-slate-500 mb-1">
+                  <label className={`block text-[11px] font-extrabold uppercase mb-1 ${themeStyles.textMuted}`}>
                     WANN ERINNERN?
                   </label>
                   <select
                     value={eventModal.notifyTime}
                     onChange={(e) => setEventModal({ ...eventModal, notifyTime: e.target.value })}
-                    className="w-full px-3.5 py-2.5 rounded-2xl bg-white border border-slate-200 font-bold text-sm text-slate-900"
+                    className={`w-full px-3.5 py-2.5 rounded-2xl border font-bold text-sm ${themeStyles.input}`}
                   >
-                    <option value="none">Keine Erinnerung</option>
-                    <option value="0m">Pünktlich zum Start (0 Min.)</option>
-                    <option value="5m">5 Min. vorher</option>
-                    <option value="15m">15 Min. vorher</option>
-                    <option value="30m">30 Min. vorher</option>
-                    <option value="1h">1 Std. vorher</option>
-                    <option value="2h">2 Std. vorher</option>
-                    <option value="1d">1 Tag vorher</option>
+                    <option value="none" className="bg-slate-800 text-white">Keine Erinnerung</option>
+                    <option value="0m" className="bg-slate-800 text-white">Pünktlich zum Start (0 Min.)</option>
+                    <option value="5m" className="bg-slate-800 text-white">5 Min. vorher</option>
+                    <option value="15m" className="bg-slate-800 text-white">15 Min. vorher</option>
+                    <option value="30m" className="bg-slate-800 text-white">30 Min. vorher</option>
+                    <option value="1h" className="bg-slate-800 text-white">1 Std. vorher</option>
+                    <option value="2h" className="bg-slate-800 text-white">2 Std. vorher</option>
+                    <option value="1d" className="bg-slate-800 text-white">1 Tag vorher</option>
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-[11px] font-extrabold uppercase text-slate-500 mb-1">
+                  <label className={`block text-[11px] font-extrabold uppercase mb-1 ${themeStyles.textMuted}`}>
                     WIE BENACHRICHTIGEN?
                   </label>
                   <select
                     value={eventModal.notifyChannel}
                     onChange={(e) => setEventModal({ ...eventModal, notifyChannel: e.target.value })}
-                    className="w-full px-3.5 py-2.5 rounded-2xl bg-white border border-slate-200 font-bold text-sm text-slate-900"
+                    className={`w-full px-3.5 py-2.5 rounded-2xl border font-bold text-sm ${themeStyles.input}`}
                   >
-                    <option value="wall_push">Touchwall + Handy Push</option>
-                    <option value="wall">Nur Touchwall-Alarm</option>
-                    <option value="push">Handy Push (Google Kalender)</option>
-                    <option value="mail">E-Mail & Google Erinnerung</option>
+                    <option value="wall_push" className="bg-slate-800 text-white">Touchwall + Handy Push</option>
+                    <option value="wall" className="bg-slate-800 text-white">Nur Touchwall-Alarm</option>
+                    <option value="push" className="bg-slate-800 text-white">Handy Push (Google Kalender)</option>
+                    <option value="mail" className="bg-slate-800 text-white">E-Mail & Google Erinnerung</option>
                   </select>
                 </div>
               </div>
 
               <div>
-                <label className="block text-[11px] font-extrabold uppercase text-slate-500 mb-2">
+                <label className={`block text-[11px] font-extrabold uppercase mb-2 ${themeStyles.textMuted}`}>
                   WELCHE BENUTZER SOLLEN BENACHRICHTIGT WERDEN?
                 </label>
                 <div className="flex flex-wrap gap-2">
@@ -2877,8 +3090,8 @@ export default function TouchwallApp() {
                         onClick={() => toggleNotifyUserInModal(m.id)}
                         className={`px-3.5 py-2 rounded-2xl border-2 flex items-center gap-2 text-xs font-extrabold cursor-pointer transition-all ${
                           checked
-                            ? 'border-indigo-600 bg-indigo-50 text-slate-900 shadow-2xs'
-                            : 'border-slate-200 bg-white text-slate-500 opacity-75 hover:opacity-100'
+                            ? 'border-indigo-500 bg-indigo-500/20 shadow-2xs'
+                            : `${themeStyles.card} opacity-60 hover:opacity-100`
                         }`}
                       >
                         {renderAvatar(m, 'w-6 h-6', 'text-[10px]')}
@@ -2890,28 +3103,43 @@ export default function TouchwallApp() {
               </div>
             </div>
 
-            {/* SPEICHERN / LÖSCHEN / ABBRECHEN */}
-            <div className="flex items-center justify-between pt-2 border-t border-slate-200">
-              {eventModal.id ? (
-                <button
-                  type="button"
-                  onClick={() => deleteEventById(eventModal.id)}
-                  className="px-4 py-3 rounded-2xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-extrabold cursor-pointer"
-                >
-                  🗑️ Löschen
-                </button>
-              ) : <div />}
-              <div className="flex gap-2.5">
+            {/* SPEICHERN / KOPIEREN / LÖSCHEN / ABBRECHEN */}
+            <div className={`flex flex-wrap items-center justify-between gap-2 pt-2 border-t ${themeStyles.divider}`}>
+              <div className="flex items-center gap-2">
+                {eventModal.id && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => deleteEventById(eventModal.id)}
+                      className="px-4 py-3 rounded-2xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-extrabold cursor-pointer"
+                    >
+                      🗑️ Löschen
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCopiedEvent(eventModal);
+                        setEventModal({ ...eventModal, open: false });
+                        showToast('Termin im Kopierspeicher', 'Klicke jetzt im Kalender auf beliebige Tage/Personen zum Einfügen!', '📋');
+                      }}
+                      className="px-4 py-3 rounded-2xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Copy className="w-3.5 h-3.5" /> Im Kalender einfügen...
+                    </button>
+                  </>
+                )}
+              </div>
+              <div className="flex gap-2.5 ml-auto">
                 <button
                   type="button"
                   onClick={() => setEventModal({ ...eventModal, open: false })}
-                  className="px-5 py-3 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-extrabold cursor-pointer"
+                  className={`px-5 py-3 rounded-2xl border text-sm font-extrabold cursor-pointer ${themeStyles.subtle}`}
                 >
                   Abbrechen
                 </button>
                 <button
                   type="submit"
-                  className="px-7 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-extrabold shadow-md cursor-pointer"
+                  className="px-7 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-extrabold shadow-md cursor-pointer"
                 >
                   Speichern
                 </button>
@@ -2921,24 +3149,24 @@ export default function TouchwallApp() {
         </div>
       )}
 
-      {/* MODAL 2: JAHRESWAND TAGES-DETAILS */}
+      {/* MODAL 2: JAHRESWAND TAGES-DETAILS (THEME-ADAPTIV + KOPIEREN) */}
       {yearDayModal.open && (() => {
         const dayEvents = events.filter(e => e.date === yearDayModal.dateStr);
         const hol = getBWHolidayName(yearDayModal.dateStr);
         const vac = getBWVacationName(yearDayModal.dateStr);
 
         return (
-          <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
-            <div className={`w-full max-w-xl rounded-3xl border p-6 shadow-2xl space-y-4 ${themeStyles.card}`}>
+          <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className={`w-full max-w-xl rounded-3xl border-2 p-6 shadow-2xl space-y-4 ${themeStyles.modal}`}>
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-xl font-extrabold">📅 Tagesübersicht: {yearDayModal.dateStr}</h3>
                   <div className="flex gap-2 mt-1">
-                    {hol && <span className="px-2.5 py-0.5 rounded-full bg-rose-500/20 text-rose-300 text-xs font-extrabold">🎌 {hol}</span>}
-                    {vac && <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-extrabold">🏖️ {vac}</span>}
+                    {hol && <span className="px-2.5 py-0.5 rounded-full bg-rose-500/20 text-rose-400 text-xs font-extrabold">🎌 {hol}</span>}
+                    {vac && <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-xs font-extrabold">🏖️ {vac}</span>}
                   </div>
                 </div>
-                <button onClick={() => setYearDayModal({ ...yearDayModal, open: false })} className="p-2 rounded-full hover:bg-white/10">
+                <button onClick={() => setYearDayModal({ ...yearDayModal, open: false })} className={`p-2 rounded-full border ${themeStyles.subtle}`}>
                   <X className="w-5 h-5" />
                 </button>
               </div>
@@ -2960,10 +3188,12 @@ export default function TouchwallApp() {
                             <div className="text-xs opacity-75">{mem.name} • {ev.time}</div>
                           </div>
                         </div>
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1 flex-wrap">
+                          <span className="text-[10px] font-extrabold opacity-75 mr-1">Verschieben:</span>
                           {members.map(tm => (
                             <button
                               key={tm.id}
+                              title={`Verschieben zu ${tm.name}`}
                               onClick={() => transferEvent(ev.id, tm.id, yearDayModal.dateStr)}
                               style={getMemberStyles(tm).badgeStyle}
                               className={`w-6 h-6 rounded-lg text-[10px] font-extrabold cursor-pointer ${ev.member === tm.id ? 'ring-2 ring-white scale-110' : 'opacity-60 hover:opacity-100'}`}
@@ -2971,7 +3201,18 @@ export default function TouchwallApp() {
                               {tm.badge}
                             </button>
                           ))}
-                          <button onClick={() => deleteEventById(ev.id)} className="ml-2 px-2 py-1 rounded-lg bg-rose-600 text-white text-xs font-bold cursor-pointer">🗑️</button>
+                          <button
+                            title="Termin kopieren"
+                            onClick={() => {
+                              setCopiedEvent(ev);
+                              setYearDayModal({ ...yearDayModal, open: false });
+                              showToast('Termin kopiert', `„${ev.title}“ – tippe auf einen beliebigen Tag zum Einfügen!`, '📋');
+                            }}
+                            className="ml-1 px-2 py-1 rounded-lg bg-amber-400 text-slate-950 text-xs font-extrabold cursor-pointer"
+                          >
+                            📋
+                          </button>
+                          <button onClick={() => deleteEventById(ev.id)} className="px-2 py-1 rounded-lg bg-rose-600 text-white text-xs font-bold cursor-pointer">🗑️</button>
                         </div>
                       </div>
                     );
@@ -3008,12 +3249,12 @@ export default function TouchwallApp() {
                     value={yearDayModal.newTitle}
                     onChange={(e) => setYearDayModal({ ...yearDayModal, newTitle: e.target.value })}
                     placeholder="Titel..."
-                    className={`flex-1 px-3 py-2 rounded-xl border text-sm font-bold ${themeStyles.card}`}
+                    className={`flex-1 px-3 py-2 rounded-xl border text-sm font-bold ${themeStyles.input}`}
                   />
                   <select
                     value={yearDayModal.newMember}
                     onChange={(e) => setYearDayModal({ ...yearDayModal, newMember: e.target.value })}
-                    className={`px-3 py-2 rounded-xl border text-sm font-bold ${themeStyles.card}`}
+                    className={`px-3 py-2 rounded-xl border text-sm font-bold ${themeStyles.input}`}
                   >
                     {members.map(m => <option key={m.id} value={m.id} className="bg-slate-800 text-white">{m.name}</option>)}
                   </select>
@@ -3027,9 +3268,9 @@ export default function TouchwallApp() {
         );
       })()}
 
-      {/* MODAL 3: SCHULSTUNDE BEARBEITEN */}
+      {/* MODAL 3: SCHULSTUNDE BEARBEITEN (THEME-ADAPTIV) */}
       {schoolModal.open && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -3042,7 +3283,7 @@ export default function TouchwallApp() {
               });
               setSchoolModal({ ...schoolModal, open: false });
             }}
-            className={`w-full max-w-md rounded-3xl border p-6 shadow-2xl space-y-4 ${themeStyles.card}`}
+            className={`w-full max-w-md rounded-3xl border-2 p-6 shadow-2xl space-y-4 ${themeStyles.modal}`}
           >
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-extrabold">Schulstunde anpassen</h3>
@@ -3069,19 +3310,19 @@ export default function TouchwallApp() {
               value={schoolModal.subject}
               onChange={(e) => setSchoolModal({ ...schoolModal, subject: e.target.value })}
               placeholder="Schulfach..."
-              className={`w-full px-4 py-2.5 rounded-xl border text-sm font-bold ${themeStyles.subtle}`}
+              className={`w-full px-4 py-2.5 rounded-xl border text-sm font-bold ${themeStyles.input}`}
             />
             <input
               type="text"
               value={schoolModal.room}
               onChange={(e) => setSchoolModal({ ...schoolModal, room: e.target.value })}
               placeholder="Raum / Lehrer..."
-              className={`w-full px-4 py-2.5 rounded-xl border text-sm font-bold ${themeStyles.subtle}`}
+              className={`w-full px-4 py-2.5 rounded-xl border text-sm font-bold ${themeStyles.input}`}
             />
             <select
               value={schoolModal.status}
               onChange={(e) => setSchoolModal({ ...schoolModal, status: e.target.value })}
-              className={`w-full px-4 py-2.5 rounded-xl border text-sm font-bold ${themeStyles.subtle}`}
+              className={`w-full px-4 py-2.5 rounded-xl border text-sm font-bold ${themeStyles.input}`}
             >
               <option value="normal" className="bg-slate-800 text-white">Regulärer Unterricht</option>
               <option value="change" className="bg-slate-800 text-white">⚠️ Vertretung / Raumänderung</option>
@@ -3101,10 +3342,10 @@ export default function TouchwallApp() {
         </div>
       )}
 
-      {/* MODAL 4: HANDY QR-CODE */}
+      {/* MODAL 4: HANDY QR-CODE (THEME-ADAPTIV) */}
       {qrModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className={`w-full max-w-md rounded-3xl border p-6 shadow-2xl text-center space-y-4 ${themeStyles.card}`}>
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className={`w-full max-w-md rounded-3xl border-2 p-6 shadow-2xl text-center space-y-4 ${themeStyles.modal}`}>
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-extrabold">📱 Smartphone Live-App</h3>
               <button onClick={() => setQrModalOpen(false)}><X className="w-5 h-5" /></button>
@@ -3112,7 +3353,7 @@ export default function TouchwallApp() {
             <p className={`text-xs font-semibold ${themeStyles.textMuted}`}>
               Scanne den QR-Code mit deinem Handy, um eure Vercel-Touchwall unterwegs im Supermarkt zu öffnen:
             </p>
-            <div className="bg-white p-4 rounded-2xl inline-block mx-auto">
+            <div className="bg-white p-4 rounded-2xl inline-block mx-auto shadow-md">
               <img
                 src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(typeof window !== 'undefined' ? window.location.href : 'https://vercel.com')}`}
                 alt="QR Code"
@@ -3123,10 +3364,10 @@ export default function TouchwallApp() {
         </div>
       )}
 
-      {/* GROSSES TOUCHWALL ALARM-BANNER (BEI FÄLLIGER ERINNERUNG ODER TEST-ALARM) */}
+      {/* GROSSES TOUCHWALL ALARM-BANNER (THEME-ADAPTIV) */}
       {activeAlarmBanner && (
         <div className="fixed inset-0 z-[60] bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-md rounded-3xl bg-slate-900 text-white border-2 border-amber-400 p-6 shadow-2xl space-y-4 text-center animate-bounce">
+          <div className={`w-full max-w-md rounded-3xl border-2 border-amber-400 p-6 shadow-2xl space-y-4 text-center animate-bounce ${themeStyles.modal}`}>
             <div className="w-16 h-16 rounded-full bg-amber-400 text-slate-950 flex items-center justify-center mx-auto shadow-lg">
               <BellRing className="w-9 h-9" />
             </div>
@@ -3134,16 +3375,16 @@ export default function TouchwallApp() {
               {activeAlarmBanner.isTest ? '🔊 Touchwall Test-Alarm & Browser-Push' : '🔔 Termin-Erinnerung an der Touchwall'}
             </div>
             <h3 className="text-2xl font-extrabold">{activeAlarmBanner.title}</h3>
-            <p className="text-sm text-slate-300 font-bold">
+            <p className={`text-sm font-bold ${themeStyles.textMuted}`}>
               ⏰ {activeAlarmBanner.time} ({activeAlarmBanner.date}) • Erinnerung: {activeAlarmBanner.notifyTime} vorher
             </p>
-            <p className="text-xs font-extrabold text-indigo-300">
+            <p className="text-xs font-extrabold text-indigo-400">
               👤 Benachrichtigt: {activeAlarmBanner.who}
             </p>
             <div className="flex gap-3 justify-center pt-2">
               <button
                 onClick={() => playTouchwallAlarmSound()}
-                className="px-4 py-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-xs font-extrabold border border-slate-600 cursor-pointer"
+                className={`px-4 py-2.5 rounded-2xl text-xs font-extrabold border cursor-pointer ${themeStyles.subtle}`}
               >
                 🔊 Ton nochmal abspielen
               </button>
@@ -3160,7 +3401,7 @@ export default function TouchwallApp() {
 
       {/* TOAST BENACHRICHTIGUNG */}
       {toast && (
-        <div className="fixed bottom-5 right-5 z-50 bg-slate-900 text-white px-5 py-3.5 rounded-2xl shadow-2xl border border-slate-700 flex items-center gap-3">
+        <div className={`fixed bottom-5 right-5 z-50 px-5 py-3.5 rounded-2xl shadow-2xl border-2 flex items-center gap-3 ${themeStyles.modal}`}>
           <span className="text-2xl">{toast.icon}</span>
           <div>
             <div className="font-extrabold text-xs text-amber-400 uppercase">{toast.title}</div>
