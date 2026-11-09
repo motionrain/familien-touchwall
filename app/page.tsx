@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 
 // =========================================================
-// 1. HILFSFUNKTIONEN & DATUMS-LOGIK
+// 1. HILFSFUNKTIONEN & DATUMS-LOGIK 2
 // =========================================================
 function formatDateStr(dateObj) {
   const d = new Date(dateObj);
