@@ -7,11 +7,12 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Calendar, GraduationCap, CheckSquare, Utensils, FileText,
   Palette, Cloud, Plus, ChevronLeft, ChevronRight, Maximize2,
-  Smartphone, RefreshCw, Download, Upload, QrCode, X
+  Smartphone, RefreshCw, Download, Upload, QrCode, X, Volume2,
+  ShieldCheck, Bell, BellRing
 } from 'lucide-react';
 
 // =========================================================
-// 1. HILFSFUNKTIONEN & DATUMS-LOGIK 2
+// 1. HILFSFUNKTIONEN, SOUND-ALARM & DATUMS-LOGIK
 // =========================================================
 function formatDateStr(dateObj) {
   const d = new Date(dateObj);
@@ -48,6 +49,30 @@ function hexToRgba(hex, alpha) {
   const clean = String(hex || '#0284c7').replace('#', '');
   const num = parseInt(clean, 16);
   return `rgba(${(num >> 16) & 255}, ${(num >> 8) & 255}, ${num & 255}, ${alpha})`;
+}
+
+// Erzeugt einen angenehmen 3-Ton-Glockenklang über die Web Audio API (ohne externe MP3-Datei)
+function playTouchwallAlarmSound() {
+  if (typeof window === 'undefined') return;
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const notes = [523.25, 659.25, 783.99, 1046.5]; // C5, E5, G5, C6
+    notes.forEach((freq, idx) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, ctx.currentTime + idx * 0.16);
+      gain.gain.setValueAtTime(0.001, ctx.currentTime + idx * 0.16);
+      gain.gain.exponentialRampToValueAtTime(0.22, ctx.currentTime + idx * 0.16 + 0.04);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + idx * 0.16 + 0.45);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(ctx.currentTime + idx * 0.16);
+      osc.stop(ctx.currentTime + idx * 0.16 + 0.48);
+    });
+  } catch (e) {}
 }
 
 const WEEKDAYS_SHORT = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
@@ -252,8 +277,15 @@ export default function TouchwallApp() {
   const [appsScriptUrl, setAppsScriptUrl] = useState(DEFAULT_APPS_SCRIPT_URL);
   const [syncStatusText, setSyncStatusText] = useState('☁️ Auto-Sync aktiv');
   const [isSyncing, setIsSyncing] = useState(false);
+  const [diagResult, setDiagResult] = useState(null);
+  const [isTestingDiag, setIsTestingDiag] = useState(false);
 
-  // Refs für sauberen Hintergrund-Sync ohne Endlosschleifen
+  // Browser-Push- & Sound-Alarm-Status
+  const [pushPermission, setPushPermission] = useState('default');
+  const [activeAlarmBanner, setActiveAlarmBanner] = useState(null);
+  const triggeredAlarmsRef = useRef({});
+
+  // Refs für sauberen 2-Wege-Hintergrund-Sync
   const isInitialLoadDone = useRef(false);
   const isApplyingRemoteState = useRef(false);
   const isMutatingCalendar = useRef(false);
@@ -277,8 +309,9 @@ export default function TouchwallApp() {
   const [toast, setToast] = useState(null);
   const [eventModal, setEventModal] = useState({
     open: false, id: null, origMember: '', origTitle: '', origDate: '',
-    title: '', date: '', time: '15:00 - 16:00', member: 'hans',
-    notifyTime: '30m', notifyChannel: 'wall_push', notifyUsers: ['hans']
+    title: '', date: '', time: '15:00 - 16:00', member: 'all',
+    notifyTime: '30m', notifyChannel: 'wall_push',
+    notifyUsers: ['hans', 'sarah', 'dean', 'valentina']
   });
   const [yearDayModal, setYearDayModal] = useState({ open: false, dateStr: '', newTitle: '', newTime: 'Ganztägig', newMember: 'all' });
   const [schoolModal, setSchoolModal] = useState({ open: false, dayIdx: 0, periodIdx: 0, subject: '', room: '', status: 'normal' });
@@ -303,10 +336,124 @@ export default function TouchwallApp() {
     setTimeout(() => setToast(null), 3800);
   };
 
+  // =========================================================
+  // BROWSER-PUSH & SOUND-ALARM ENGINE
+  // =========================================================
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      setPushPermission(Notification.permission);
+    }
+    try {
+      const savedTriggered = localStorage.getItem('richter_tw_triggered_alarms');
+      if (savedTriggered) triggeredAlarmsRef.current = JSON.parse(savedTriggered);
+    } catch (e) {}
+  }, []);
+
+  const requestBrowserPushPermission = async () => {
+    playTouchwallAlarmSound();
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      showToast('Hinweis', 'Dieser Browser unterstützt keine nativen System-Pushes, der Sound- & Bildschirm-Alarm ist aber aktiv!', '🔊');
+      return false;
+    }
+    const perm = await Notification.requestPermission();
+    setPushPermission(perm);
+    if (perm === 'granted') {
+      new Notification('🔔 Familien-Touchwall Push aktiv!', {
+        body: 'Browser-Push-Benachrichtigungen & Sound-Alarme sind jetzt eingeschaltet.',
+        tag: 'touchwall-init'
+      });
+      showToast('Browser-Push aktiviert', 'Du erhältst jetzt echte Push- & Sound-Alarme!', '🔔');
+      return true;
+    } else {
+      showToast('Push blockiert', 'Bitte erlaube Benachrichtigungen oben links neben der Adresszeile.', '⚠️');
+      return false;
+    }
+  };
+
+  const triggerEventAlarmNow = (evObj, isTest = false) => {
+    const whoNames = (evObj.notifyUsers || [])
+      .map(uid => members.find(m => m.id === uid)?.name || uid)
+      .join(', ') || 'Familie';
+
+    playTouchwallAlarmSound();
+
+    // Großes Touchwall-Alarm-Banner einblenden
+    setActiveAlarmBanner({
+      title: evObj.title || 'Familientermin',
+      time: evObj.time || 'Jetzt',
+      date: evObj.date || todayStr,
+      who: whoNames,
+      notifyTime: evObj.notifyTime || '30m',
+      isTest
+    });
+
+    // Echte Browser-Push-Notification senden (falls erlaubt)
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+      try {
+        new Notification(`🔔 Termin-Erinnerung: ${evObj.title || 'Termin'}`, {
+          body: `⏰ ${evObj.time || 'Heute'} • Für: ${whoNames} (${evObj.notifyTime} vorher)`,
+          tag: `tw-alarm-${evObj.id || Date.now()}`
+        });
+      } catch (e) {}
+    }
+  };
+
+  // Prüft alle 20 Sekunden im Hintergrund, ob ein Termin-Alarm fällig ist
+  useEffect(() => {
+    const offsetMinutesMap = {
+      '0m': 0,
+      '5m': 5,
+      '15m': 15,
+      '30m': 30,
+      '1h': 60,
+      '2h': 120,
+      '1d': 1440
+    };
+
+    const checkUpcomingEventAlarms = () => {
+      const now = new Date();
+      const nowMs = now.getTime();
+
+      events.forEach(ev => {
+        if (!ev || !ev.date || !ev.notifyTime || ev.notifyTime === 'none') return;
+        const offsetMins = offsetMinutesMap[ev.notifyTime];
+        if (offsetMins === undefined) return;
+
+        const parts = String(ev.date).split('-');
+        if (parts.length !== 3) return;
+
+        let startHour = 8;
+        let startMin = 0;
+        const timeMatch = String(ev.time || '').match(/(\d{1,2}):(\d{2})/);
+        if (timeMatch && String(ev.time).toLowerCase() !== 'ganztägig') {
+          startHour = Number(timeMatch[1]);
+          startMin = Number(timeMatch[2]);
+        }
+
+        const eventStart = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]), startHour, startMin, 0);
+        const alarmTriggerMs = eventStart.getTime() - offsetMins * 60 * 1000;
+        const diffMs = nowMs - alarmTriggerMs;
+
+        // Wenn wir im Zeitfenster [0 bis +3 Minuten] nach dem Erinnerungszeitpunkt sind:
+        const alarmKey = `${ev.id || ev.title}_${ev.date}_${ev.time}_${ev.notifyTime}`;
+        if (diffMs >= 0 && diffMs <= 180000 && !triggeredAlarmsRef.current[alarmKey]) {
+          triggeredAlarmsRef.current[alarmKey] = nowMs;
+          try {
+            localStorage.setItem('richter_tw_triggered_alarms', JSON.stringify(triggeredAlarmsRef.current));
+          } catch (e) {}
+          triggerEventAlarmNow(ev, false);
+        }
+      });
+    };
+
+    const alarmTimer = setInterval(checkUpcomingEventAlarms, 20000);
+    return () => clearInterval(alarmTimer);
+  }, [events, members, todayStr]);
+
   // Zentrale Hilfsfunktion für POST-Aufrufe an Google Apps Script
   const sendCalendarApiAction = async (bodyData, statusLabel = '⏳ Synchronisiere mit Google...') => {
     const targetUrl = (appsScriptUrl || DEFAULT_APPS_SCRIPT_URL).trim();
-    if (!targetUrl) return;
+    if (!targetUrl) return null;
     isMutatingCalendar.current = true;
     setIsSyncing(true);
     setSyncStatusText(statusLabel);
@@ -321,14 +468,15 @@ export default function TouchwallApp() {
       if (json && json.result && Array.isArray(json.result.events)) {
         setEvents(json.result.events);
         try { localStorage.setItem('richter_touchwall_events_cache', JSON.stringify(json.result.events)); } catch (e) {}
-      } else {
-        // Fallback: Kurz danach aktuellen Stand abrufen
-        setTimeout(() => pullFromCloud(targetUrl, false), 800);
+      } else if (bodyData.action !== 'runDiagnostics') {
+        setTimeout(() => pullFromCloud(targetUrl, false), 700);
       }
       const now = new Date();
       setSyncStatusText(`☁️ Synchron (${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')})`);
+      return json;
     } catch (err) {
       setSyncStatusText('⚠️ Sync-Hinweis');
+      return null;
     } finally {
       isMutatingCalendar.current = false;
       setIsSyncing(false);
@@ -396,7 +544,7 @@ export default function TouchwallApp() {
     autoSaveTimer.current = setTimeout(async () => {
       const targetUrl = (appsScriptUrl || DEFAULT_APPS_SCRIPT_URL).trim();
       if (!targetUrl) return;
-      setSyncStatusText('⏳ Speichere in Google...');
+      setSyncStatusText('⏳ Synchronisiere Tasks & Cloud...');
       try {
         await fetch(targetUrl, {
           method: 'POST',
@@ -404,18 +552,18 @@ export default function TouchwallApp() {
           body: JSON.stringify({ action: 'saveState', payload })
         });
         const now = new Date();
-        setSyncStatusText(`☁️ Cloud gespeichert (${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')})`);
+        setSyncStatusText(`☁️ Cloud & Tasks synchron (${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')})`);
       } catch (e) {
         setSyncStatusText('💾 Lokal gesichert');
       }
-    }, 550);
+    }, 450);
 
     return () => {
       if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
     };
   }, [members, mealPlan, familyNotes, schoolData, familyTasks, currentTheme, customLogoUrl, appsScriptUrl]);
 
-  // 4. Daten aus Google Apps Script laden (inkl. Zusammenführung der Kalender-IDs & Tasks!)
+  // 4. Daten aus Google Apps Script laden (inkl. erledigter Aufgaben vom Handy!)
   const pullFromCloud = async (urlOverride, showFeedback = true) => {
     if (isMutatingCalendar.current && !showFeedback) return;
     const targetUrl = (urlOverride !== undefined ? urlOverride : appsScriptUrl).trim();
@@ -424,10 +572,10 @@ export default function TouchwallApp() {
       return;
     }
     setIsSyncing(true);
-    setSyncStatusText('🔄 Lade aus Google...');
+    setSyncStatusText('🔄 Lade Tasks & Kalender...');
     try {
       const sep = targetUrl.includes('?') ? '&' : '?';
-      const res = await fetch(`${targetUrl}${sep}action=json`, { method: 'GET', cache: 'no-store' });
+      const res = await fetch(`${targetUrl}${sep}action=json&_t=${Date.now()}`, { method: 'GET', cache: 'no-store' });
       const bundle = await res.json();
 
       isApplyingRemoteState.current = true;
@@ -455,17 +603,6 @@ export default function TouchwallApp() {
         if (Array.isArray(s.familyTasks)) setFamilyTasks(s.familyTasks);
         if (s.currentTheme) setCurrentTheme(s.currentTheme);
         if (s.customLogoUrl) setCustomLogoUrl(s.customLogoUrl);
-      } else if (Object.keys(calMap).length > 0) {
-        setMembers(prev => prev.map(m => {
-          const cid = calMap[m.id] !== undefined ? calMap[m.id] : (m.calendarId || '');
-          const st = statusMap[m.id];
-          return {
-            ...m,
-            calendarId: cid,
-            ok: st ? Boolean(st.ok) : Boolean(cid),
-            statusMsg: st && st.msg ? st.msg : (cid ? 'Verbunden ✓' : 'Bereit')
-          };
-        }));
       }
 
       if (bundle && bundle.calendarData && Array.isArray(bundle.calendarData.events)) {
@@ -476,11 +613,11 @@ export default function TouchwallApp() {
       setTimeout(() => {
         isApplyingRemoteState.current = false;
         isInitialLoadDone.current = true;
-      }, 250);
+      }, 300);
 
       const now = new Date();
       setSyncStatusText(`☁️ Auto-Sync (${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')})`);
-      if (showFeedback) showToast('Google-Sync erfolgreich', 'Kalender, Konten, Aufgaben & Listen sind aktuell.', '☁️');
+      if (showFeedback) showToast('2-Wege-Sync erfolgreich', 'Kalender, Handy-Tasks & Einkaufslisten sind abgeglichen.', '☁️');
     } catch (err) {
       isInitialLoadDone.current = true;
       isApplyingRemoteState.current = false;
@@ -491,7 +628,7 @@ export default function TouchwallApp() {
     }
   };
 
-  // Automatischer Cloud-Abruf beim Start & alle 2 Minuten
+  // Automatischer Cloud-Abruf beim Start, alle 45 Sek. UND sofort wenn das Fenster fokussiert wird
   useEffect(() => {
     const initialUrl = localStorage.getItem('richter_tw_gas_url') || DEFAULT_APPS_SCRIPT_URL;
     if (initialUrl) {
@@ -502,8 +639,22 @@ export default function TouchwallApp() {
     const syncTimer = setInterval(() => {
       const currentUrl = localStorage.getItem('richter_tw_gas_url') || DEFAULT_APPS_SCRIPT_URL;
       if (currentUrl) pullFromCloud(currentUrl, false);
-    }, 120000);
-    return () => clearInterval(syncTimer);
+    }, 45000);
+
+    const handleVisibilityOrFocus = () => {
+      if (document.visibilityState === 'visible') {
+        const currentUrl = localStorage.getItem('richter_tw_gas_url') || DEFAULT_APPS_SCRIPT_URL;
+        if (currentUrl) pullFromCloud(currentUrl, false);
+      }
+    };
+    window.addEventListener('focus', handleVisibilityOrFocus);
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+
+    return () => {
+      clearInterval(syncTimer);
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+    };
   }, []);
 
   // 5. Manuell Konten & Komplettstand in Google sichern
@@ -536,9 +687,28 @@ export default function TouchwallApp() {
 
     await sendCalendarApiAction(
       { action: 'saveDriveAndSync', payload, calendars: calMap },
-      '⏳ Speichere Konten & Daten...'
+      '⏳ Speichere Konten & Tasks...'
     );
-    if (showFeedback) showToast('In Google gespeichert', 'Daten, Aufgaben & Kalender-IDs wurden synchronisiert.', '✅');
+    if (showFeedback) showToast('In Google gespeichert', 'Kalender, Google Tasks & Listen sind synchronisiert.', '✅');
+  };
+
+  // 6. Selbsttest für alle Lese- und Schreibberechtigungen ausführen
+  const runAllPermissionsTest = async () => {
+    setIsTestingDiag(true);
+    const res = await sendCalendarApiAction({ action: 'runDiagnostics' }, '🧪 Prüfe Lese- & Schreibrechte...');
+    setIsTestingDiag(false);
+    if (res && res.result) {
+      setDiagResult(res.result);
+      showToast('Systemtest abgeschlossen', 'Alle Ergebnisse werden unten angezeigt.', '🧪');
+    } else {
+      setDiagResult({
+        propertiesReadWrite: false,
+        calendarReadWrite: false,
+        tasksReadWrite: false,
+        shoppingListTasksSync: false,
+        error: 'Keine Antwort – bitte in Google Apps Script unter „Bereitstellen -> Bereitstellungen verwalten -> Stift -> Neue Version“ veröffentlichen.'
+      });
+    }
   };
 
   // Theme-Styling
@@ -718,6 +888,19 @@ export default function TouchwallApp() {
     );
   };
 
+  const renderNotifyBadgeOnCard = (ev) => {
+    if (!ev.notifyTime || ev.notifyTime === 'none') return null;
+    const chIcon = ev.notifyChannel === 'push' ? '📲' : ev.notifyChannel === 'mail' ? '✉️' : '🔔';
+    const userBadges = Array.isArray(ev.notifyUsers) && ev.notifyUsers.length > 0
+      ? ev.notifyUsers.map(uid => members.find(x => x.id === uid)?.badge).filter(Boolean).join(',')
+      : '';
+    return (
+      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-black/25 text-[9px] font-extrabold shrink-0">
+        {chIcon} {userBadges ? `${userBadges} • ` : ''}{ev.notifyTime}
+      </span>
+    );
+  };
+
   const periodLabel = useMemo(() => {
     if (currentView === 'year') return `Jahreswand ${currentBaseDate.getFullYear()} (BW)`;
     const start = getMonday(currentBaseDate);
@@ -738,7 +921,6 @@ export default function TouchwallApp() {
     }
   };
 
-  // Uploads (Logo & Profilfoto)
   const handleLogoUpload = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -762,9 +944,9 @@ export default function TouchwallApp() {
   };
 
   // =========================================================
-  // 5. KALENDER-TERMINE SPEICHERN, BEARBEITEN, LÖSCHEN & VERSCHIEBEN (MIT GOOGLE SYNC!)
+  // 5. KALENDER-TERMINE SPEICHERN, BEARBEITEN, LÖSCHEN & VERSCHIEBEN
   // =========================================================
-  const openNewEventModal = (dateStr = todayStr, memberId = 'hans') => {
+  const openNewEventModal = (dateStr = todayStr, memberId = 'all') => {
     setEventModal({
       open: true, id: null, origMember: '', origTitle: '', origDate: '',
       title: '', date: dateStr, time: '15:00 - 16:00',
@@ -780,13 +962,25 @@ export default function TouchwallApp() {
       origMember: ev.member, origTitle: ev.title, origDate: ev.date,
       title: ev.title, date: ev.date, time: ev.time || 'Ganztägig',
       member: ev.member, notifyTime: ev.notifyTime || '30m', notifyChannel: ev.notifyChannel || 'wall_push',
-      notifyUsers: ev.notifyUsers || [ev.member]
+      notifyUsers: Array.isArray(ev.notifyUsers) && ev.notifyUsers.length > 0 ? ev.notifyUsers : ['hans', 'sarah']
+    });
+  };
+
+  const toggleNotifyUserInModal = (uid) => {
+    setEventModal(prev => {
+      const exists = prev.notifyUsers.includes(uid);
+      const next = exists ? prev.notifyUsers.filter(x => x !== uid) : [...prev.notifyUsers, uid];
+      return { ...prev, notifyUsers: next };
     });
   };
 
   const saveEventModal = async (e) => {
     e.preventDefault();
     if (!eventModal.title.trim()) return;
+
+    if (eventModal.notifyTime !== 'none' && typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().then(p => setPushPermission(p));
+    }
 
     if (eventModal.id) {
       const updatedEv = {
@@ -802,7 +996,7 @@ export default function TouchwallApp() {
       };
       setEvents(prev => prev.map(item => String(item.id) === String(eventModal.id) ? updatedEv : item));
       setEventModal({ ...eventModal, open: false });
-      showToast('Termin aktualisiert', updatedEv.title, '✅');
+      showToast('Termin & Erinnerung gespeichert', `${updatedEv.title} (${updatedEv.notifyTime})`, '✅');
 
       await sendCalendarApiAction({
         action: 'updateEvent',
@@ -825,7 +1019,7 @@ export default function TouchwallApp() {
       };
       setEvents(prev => [...prev, newEv]);
       setEventModal({ ...eventModal, open: false });
-      showToast('Termin eingetragen', newEv.title, '✅');
+      showToast('Termin & Erinnerung eingetragen', `${newEv.title} (${newEv.notifyTime})`, '✅');
 
       await sendCalendarApiAction({
         action: 'createEvent',
@@ -902,7 +1096,6 @@ export default function TouchwallApp() {
     showToast('Standard-Profil aktiv', 'Metal Silver sowie Farben & Fotos wurden wiederhergestellt.', '✅');
   };
 
-  // JSON Export & Import
   const exportBackupJson = () => {
     const payload = { members, events, mealPlan, familyNotes, schoolData, familyTasks, currentTheme, customLogoUrl };
     const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(payload, null, 2));
@@ -1000,7 +1193,7 @@ export default function TouchwallApp() {
           </div>
 
           <button
-            onClick={() => openNewEventModal(todayStr, 'hans')}
+            onClick={() => openNewEventModal(todayStr, 'all')}
             title="Neuer Familientermin"
             className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-gradient-to-tr from-emerald-500 to-amber-400 text-slate-950 font-black flex items-center justify-center shadow-lg hover:scale-105 transition-transform cursor-pointer"
           >
@@ -1037,6 +1230,19 @@ export default function TouchwallApp() {
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
                   {syncStatusText}
+                </button>
+
+                {/* BROWSER PUSH & SOUND ALARM BUTTON */}
+                <button
+                  onClick={requestBrowserPushPermission}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold border cursor-pointer ${
+                    pushPermission === 'granted'
+                      ? 'bg-sky-500/20 text-sky-300 border-sky-400/30'
+                      : 'bg-rose-500/25 text-rose-200 border-rose-400/40 animate-pulse'
+                  }`}
+                >
+                  <BellRing className="w-3.5 h-3.5" />
+                  {pushPermission === 'granted' ? 'Push-Alarm aktiv' : 'Push-Alarm aktivieren'}
                 </button>
 
                 <button
@@ -1082,7 +1288,7 @@ export default function TouchwallApp() {
                 </span>
 
                 <span className={`text-[11px] font-semibold ${themeStyles.textMuted} hidden xl:inline`}>
-                  🔄 2-Min. Auto-Refresh • 🏖️ BW-Ferien & Feiertage aktiv
+                  🔄 2-Wege Tasks & Kalender Sync • 🔔 Browser-Push & Sound aktiv
                 </span>
               </div>
             </div>
@@ -1205,7 +1411,7 @@ export default function TouchwallApp() {
                                 </span>
                               </div>
                               <button
-                                onClick={() => openNewEventModal(dateStr, 'hans')}
+                                onClick={() => openNewEventModal(dateStr, 'all')}
                                 className="w-6 h-6 rounded-lg opacity-60 hover:opacity-100 hover:bg-white/10 font-bold flex items-center justify-center cursor-pointer"
                               >
                                 +
@@ -1275,11 +1481,7 @@ export default function TouchwallApp() {
                                     <div className="font-extrabold text-xs sm:text-sm leading-snug break-words">{ev.title}</div>
                                     <div className="flex items-center justify-between gap-1 mt-1 flex-wrap">
                                       <span className="text-[11px] opacity-90 font-bold">{ev.time}</span>
-                                      {ev.notifyTime && ev.notifyTime !== 'none' && (
-                                        <span className="px-1.5 py-0.5 rounded bg-black/25 text-[9px] font-extrabold">
-                                          🔔 {ev.notifyTime}
-                                        </span>
-                                      )}
+                                      {renderNotifyBadgeOnCard(ev)}
                                     </div>
                                   </div>
                                 ))}
@@ -1330,7 +1532,7 @@ export default function TouchwallApp() {
                                 <span className={`text-xs font-extrabold truncate ${isToday ? 'bg-orange-500 text-white px-2 py-0.5 rounded-full' : ''}`}>
                                   {WEEKDAYS_SHORT[dayObj.getDay()]}, {dayObj.getDate()}. {hol ? '🎌' : vac ? '🏖️' : ''}
                                 </span>
-                                <button onClick={() => openNewEventModal(dateStr, 'hans')} className="opacity-60 hover:opacity-100 font-bold text-sm cursor-pointer">+</button>
+                                <button onClick={() => openNewEventModal(dateStr, 'all')} className="opacity-60 hover:opacity-100 font-bold text-sm cursor-pointer">+</button>
                               </div>
                             );
                           })}
@@ -1660,13 +1862,23 @@ export default function TouchwallApp() {
               );
             })()}
 
-            {/* ANSICHT 5: AUFGABEN (MIT AUTOMATISCHEM GOOGLE TASKS SYNC) */}
+            {/* ANSICHT 5: AUFGABEN (MIT BEIDSEITIGEM GOOGLE TASKS SYNC & ERLEDIGT-BEREICH) */}
             {activeSection === 'aufgaben' && (
               <div className="p-6 flex flex-col gap-6">
                 <div className={`p-6 rounded-3xl border shadow-sm flex flex-wrap items-center justify-between gap-4 ${themeStyles.card}`}>
                   <div>
-                    <h2 className="text-2xl font-extrabold">✅ Familien-Aufgaben & Ämtli</h2>
-                    <p className={`text-sm font-semibold ${themeStyles.textMuted}`}>Direkt antippen zum Abhaken – wird automatisch mit Google Tasks synchronisiert.</p>
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <h2 className="text-2xl font-extrabold">✅ Familien-Aufgaben & Ämtli</h2>
+                      <button
+                        onClick={() => pullFromCloud(undefined, true)}
+                        className="px-3.5 py-1.5 rounded-xl bg-emerald-600 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} /> Handy-Tasks jetzt abrufen
+                      </button>
+                    </div>
+                    <p className={`text-sm font-semibold mt-1 ${themeStyles.textMuted}`}>
+                      2-Wege-Sync mit „TW Aufgaben: Hans / Sarah / Dean / Valentina“ – am Handy erledigte Aufgaben wandern automatisch nach unten in „Erledigt“.
+                    </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2.5">
                     <input
@@ -1707,7 +1919,8 @@ export default function TouchwallApp() {
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
                   {members.filter(m => m.id !== 'all').map(member => {
                     const mTasks = familyTasks.filter(t => t.member === member.id);
-                    const openCount = mTasks.filter(t => !t.done).length;
+                    const openTasks = mTasks.filter(t => !t.done);
+                    const doneTasks = mTasks.filter(t => t.done);
                     const st = getMemberStyles(member);
 
                     return (
@@ -1721,19 +1934,24 @@ export default function TouchwallApp() {
                                 <div className={`text-xs font-semibold ${themeStyles.textMuted}`}>{member.role}</div>
                               </div>
                             </div>
-                            <span className="px-3 py-1 rounded-full bg-black/25 text-xs font-extrabold">{openCount} offen</span>
+                            <span className="px-3 py-1 rounded-full bg-black/25 text-xs font-extrabold">{openTasks.length} offen</span>
                           </div>
 
                           <div className="p-4 space-y-2.5 flex-1">
-                            {mTasks.map(task => (
+                            {openTasks.length === 0 && (
+                              <div className="py-6 text-center text-xs font-bold opacity-50">
+                                🎉 Keine offenen Aufgaben!
+                              </div>
+                            )}
+                            {openTasks.map(task => (
                               <div
                                 key={task.id}
-                                onClick={() => setFamilyTasks(prev => prev.map(t => t.id === task.id ? { ...t, done: !t.done } : t))}
-                                className={`p-3.5 rounded-2xl border flex items-center justify-between gap-3 cursor-pointer ${themeStyles.subtle} ${task.done ? 'opacity-55' : ''}`}
+                                onClick={() => setFamilyTasks(prev => prev.map(t => t.id === task.id ? { ...t, done: true } : t))}
+                                className={`p-3.5 rounded-2xl border flex items-center justify-between gap-3 cursor-pointer ${themeStyles.subtle}`}
                               >
                                 <div className="flex items-center gap-3 min-w-0">
-                                  <input type="checkbox" checked={task.done} readOnly className="w-5 h-5 accent-indigo-600 rounded cursor-pointer" />
-                                  <span className={`text-sm font-bold break-words ${task.done ? 'line-through opacity-60' : ''}`}>{task.title}</span>
+                                  <input type="checkbox" checked={false} readOnly className="w-5 h-5 accent-indigo-600 rounded cursor-pointer" />
+                                  <span className="text-sm font-bold break-words">{task.title}</span>
                                 </div>
                                 <button
                                   onClick={(e) => {
@@ -1746,6 +1964,42 @@ export default function TouchwallApp() {
                                 </button>
                               </div>
                             ))}
+
+                            {/* ERLEDIGTE AUFGABEN (WIE IN DER GOOGLE TASKS APP) */}
+                            {doneTasks.length > 0 && (
+                              <div className={`pt-3 mt-3 border-t space-y-2 ${themeStyles.divider}`}>
+                                <div className="flex items-center justify-between text-xs font-extrabold opacity-75">
+                                  <span>☑️ Erledigt ({doneTasks.length})</span>
+                                  <button
+                                    onClick={() => setFamilyTasks(prev => prev.filter(t => !(t.member === member.id && t.done)))}
+                                    className="text-rose-300 hover:underline cursor-pointer"
+                                  >
+                                    🗑️ Erledigte leeren
+                                  </button>
+                                </div>
+                                {doneTasks.map(task => (
+                                  <div
+                                    key={task.id}
+                                    onClick={() => setFamilyTasks(prev => prev.map(t => t.id === task.id ? { ...t, done: false } : t))}
+                                    className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 cursor-pointer opacity-55 ${themeStyles.subtle}`}
+                                  >
+                                    <div className="flex items-center gap-2.5 min-w-0">
+                                      <input type="checkbox" checked={true} readOnly className="w-4 h-4 accent-emerald-600 rounded cursor-pointer" />
+                                      <span className="text-xs font-bold line-through break-words">{task.title}</span>
+                                    </div>
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setFamilyTasks(prev => prev.filter(t => t.id !== task.id));
+                                      }}
+                                      className="text-xs opacity-60 hover:opacity-100 hover:text-rose-400 font-bold cursor-pointer"
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         </div>
 
@@ -1789,7 +2043,7 @@ export default function TouchwallApp() {
                 <div className={`p-6 rounded-3xl border shadow-sm flex flex-wrap items-center justify-between gap-4 ${themeStyles.card}`}>
                   <div>
                     <h2 className="text-2xl font-extrabold">🍲 Familien-Essensplan & Zutaten-Listen</h2>
-                    <p className={`text-sm font-semibold ${themeStyles.textMuted}`}>Fehlende Zutaten mit 1 Klick auf die Einkaufsliste setzen.</p>
+                    <p className={`text-sm font-semibold ${themeStyles.textMuted}`}>Fehlende Zutaten mit 1 Klick auf die Einkaufsliste & in Google Tasks setzen.</p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2.5">
                     <input
@@ -1859,7 +2113,7 @@ export default function TouchwallApp() {
                                     ...n,
                                     items: [...n.items, ...missing.map(i => ({ text: `${i.name} (${meal.dayLabel})`, done: false }))]
                                   } : n));
-                                  showToast('Einkaufsliste ergänzt', `${missing.length} Zutaten übertragen.`, '🛒');
+                                  showToast('Einkaufsliste & Tasks ergänzt', `${missing.length} Zutaten übertragen.`, '🛒');
                                 }}
                                 className="px-3 py-1 rounded-xl bg-indigo-500/20 text-indigo-300 text-xs font-extrabold border border-indigo-400/30 cursor-pointer"
                               >
@@ -1935,13 +2189,13 @@ export default function TouchwallApp() {
               </div>
             )}
 
-            {/* ANSICHT 7: NOTIZEN */}
+            {/* ANSICHT 7: NOTIZEN & EINKAUFSLISTE IN TASKS */}
             {activeSection === 'listen' && (
               <div className="p-6 flex flex-col gap-6">
                 <div className={`p-6 rounded-3xl border shadow-sm flex flex-wrap items-center justify-between gap-4 ${themeStyles.card}`}>
                   <div>
                     <div className="flex items-center gap-3 flex-wrap">
-                      <h2 className="text-2xl font-extrabold">📝 Familien-Notizen & Smartphone-Listen</h2>
+                      <h2 className="text-2xl font-extrabold">📝 Familien-Notizen & Einkaufslisten</h2>
                       <button
                         onClick={() => setQrModalOpen(true)}
                         className="px-4 py-2 rounded-2xl bg-emerald-600 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
@@ -1949,7 +2203,9 @@ export default function TouchwallApp() {
                         <QrCode className="w-4 h-4" /> Handy-App & QR-Code
                       </button>
                     </div>
-                    <p className={`text-sm font-semibold mt-1 ${themeStyles.textMuted}`}>Direkt-Übernahme in Google Notizen (Keep) & Smartphone-Sync.</p>
+                    <p className={`text-sm font-semibold mt-1 ${themeStyles.textMuted}`}>
+                      2-Wege-Sync mit Google Tasks (als abhakbare Handy-Liste) & Direkt-Übernahme in Google Notizen (Keep).
+                    </p>
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2.5">
@@ -2003,6 +2259,15 @@ export default function TouchwallApp() {
 
                         <div className={`flex flex-wrap items-center gap-2 mb-3 pb-2.5 border-b ${themeStyles.divider}`}>
                           <button
+                            onClick={async () => {
+                              await sendCalendarApiAction({ action: 'pushNoteToTasks', note }, '📲 Sende Liste an Google Tasks...');
+                              showToast('In Google Tasks synchronisiert', `„${note.title}“ ist jetzt auf deinem Handy in der Tasks-App!`, '📲');
+                            }}
+                            className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-extrabold cursor-pointer"
+                          >
+                            📲 In Google Tasks App senden
+                          </button>
+                          <button
                             onClick={() => {
                               const lines = note.items.map(i => `${i.done ? '☑' : '☐'} ${i.text}`).join('\n');
                               const text = `${note.title} (${note.author})\n\n${lines}`;
@@ -2022,7 +2287,7 @@ export default function TouchwallApp() {
                               <label className="flex items-center gap-3 cursor-pointer flex-1 min-w-0">
                                 <input
                                   type="checkbox"
-                                  checked={item.done}
+                                  checked={Boolean(item.done)}
                                   onChange={() => {
                                     setFamilyNotes(prev => prev.map(n => n.id === note.id ? {
                                       ...n,
@@ -2250,21 +2515,29 @@ export default function TouchwallApp() {
               );
             })()}
 
-            {/* ANSICHT 9: GOOGLE KONTEN & DRIVE SYNC */}
+            {/* ANSICHT 9: GOOGLE KONTEN, SYSTEMTEST & DRIVE SYNC */}
             {activeSection === 'google' && (
               <div className="p-6 flex flex-col gap-6">
                 <div className="bg-slate-900 text-white rounded-3xl p-6 shadow-xl border border-slate-700 space-y-5">
                   <div className="flex flex-wrap items-center justify-between gap-4">
                     <div>
                       <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-extrabold">
-                        ☁️ Vercel Cloud + Google Kalender / Tasks / Drive API-Brücke
+                        ☁️ 2-Wege-Synchronisation (Kalender, Google Tasks, Einkaufsliste & Notizen)
                       </span>
-                      <h2 className="text-2xl font-extrabold mt-2">Google Synchronisation & Kalender-Konten</h2>
+                      <h2 className="text-2xl font-extrabold mt-2">Google Synchronisation & System-Prüfung</h2>
                       <p className="text-sm text-slate-300 mt-1">
-                        Verbinde hier deine bestehende Google Apps Script URL. Alle Termine, Aufgaben und Kalender-IDs synchronisieren in beide Richtungen.
+                        Verbinde hier deine Google Apps Script URL und prüfe mit 1 Klick alle Lese- und Schreibberechtigungen.
                       </p>
                     </div>
                     <div className="flex flex-wrap gap-2.5">
+                      <button
+                        onClick={runAllPermissionsTest}
+                        disabled={isTestingDiag}
+                        className="px-5 py-3 rounded-2xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-sm flex items-center gap-2 cursor-pointer shadow-md"
+                      >
+                        <ShieldCheck className="w-4 h-4" />
+                        {isTestingDiag ? 'Prüfe Rechte...' : '🧪 Alle Lese- & Schreibrechte testen'}
+                      </button>
                       <button
                         onClick={() => pullFromCloud(undefined, true)}
                         className="px-5 py-3 rounded-2xl bg-slate-700 hover:bg-slate-600 text-white font-bold text-sm flex items-center gap-2 cursor-pointer"
@@ -2275,10 +2548,37 @@ export default function TouchwallApp() {
                         onClick={() => pushToCloudAndDrive(members, true)}
                         className="px-6 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-sm flex items-center gap-2 cursor-pointer shadow-md"
                       >
-                        <Cloud className="w-4 h-4" /> Auf Google & Drive sichern
+                        <Cloud className="w-4 h-4" /> Auf Google & Tasks sichern
                       </button>
                     </div>
                   </div>
+
+                  {/* ERGEBNIS-ANZEIGE DES LESE-/SCHREIB-SYSTEMTESTS */}
+                  {diagResult && (
+                    <div className="p-4 rounded-2xl bg-slate-950/90 border border-slate-700 space-y-2">
+                      <div className="text-xs font-extrabold uppercase text-amber-400">
+                        🧪 Diagnose-Ergebnis ({diagResult.timestamp || 'Live'}):
+                      </div>
+                      {diagResult.error ? (
+                        <div className="text-xs font-bold text-rose-400">{diagResult.error}</div>
+                      ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 text-xs font-extrabold">
+                          <div className={`p-3 rounded-xl border ${diagResult.calendarReadWrite ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300' : 'bg-rose-500/15 border-rose-500/40 text-rose-300'}`}>
+                            {diagResult.calendarReadWrite ? '✅ Kalender Lesen & Schreiben: OK' : `❌ Kalender-Fehler: ${diagResult.calendarError || 'Keine Berechtigung'}`}
+                          </div>
+                          <div className={`p-3 rounded-xl border ${diagResult.tasksReadWrite ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300' : 'bg-rose-500/15 border-rose-500/40 text-rose-300'}`}>
+                            {diagResult.tasksReadWrite ? '✅ Google Tasks 2-Wege-Sync: OK' : `❌ Tasks-Fehler: ${diagResult.tasksError || 'Dienst Tasks in Apps Script aktivieren'}`}
+                          </div>
+                          <div className={`p-3 rounded-xl border ${diagResult.shoppingListTasksSync ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300' : 'bg-rose-500/15 border-rose-500/40 text-rose-300'}`}>
+                            {diagResult.shoppingListTasksSync ? '✅ Einkaufsliste in Tasks: OK' : '❌ Einkaufslisten-Sync fehlt'}
+                          </div>
+                          <div className={`p-3 rounded-xl border ${diagResult.propertiesReadWrite ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300' : 'bg-rose-500/15 border-rose-500/40 text-rose-300'}`}>
+                            {diagResult.propertiesReadWrite ? '✅ Notizen/Schule/Essensplan: OK' : '❌ Cloud-Speicher Fehler'}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   <div className="p-4 rounded-2xl bg-slate-800/90 border border-slate-700 flex flex-wrap items-center gap-3">
                     <span className="text-xs font-extrabold uppercase text-amber-400 shrink-0">🔗 Deine Apps-Script Web-App URL:</span>
@@ -2386,100 +2686,234 @@ export default function TouchwallApp() {
         </div>
       </div>
 
-      {/* MODAL 1: TERMIN ERSTELLEN / BEARBEITEN */}
+      {/* =========================================================
+          MODAL 1: TERMIN ERSTELLEN / BEARBEITEN (EXAKT WIE IM SCREENSHOT)
+         ========================================================= */}
       {eventModal.open && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
-          <form onSubmit={saveEventModal} className={`w-full max-w-lg rounded-3xl border p-6 shadow-2xl space-y-4 ${themeStyles.card}`}>
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <form onSubmit={saveEventModal} className="w-full max-w-xl rounded-3xl bg-white text-slate-900 border border-slate-200 p-6 sm:p-7 shadow-2xl space-y-5 my-auto">
             <div className="flex items-center justify-between">
-              <h3 className="text-xl font-extrabold">{eventModal.id ? 'Termin bearbeiten' : 'Neuer Familientermin'}</h3>
-              <button type="button" onClick={() => setEventModal({ ...eventModal, open: false })} className="p-2 rounded-full hover:bg-white/10">
+              <h3 className="text-2xl font-extrabold text-slate-900">
+                {eventModal.id ? 'Termin bearbeiten' : 'Neuer Familientermin'}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setEventModal({ ...eventModal, open: false })}
+                className="w-10 h-10 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center cursor-pointer"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="space-y-3">
-              <div>
-                <label className="block text-xs font-extrabold uppercase opacity-75 mb-1">Titel & Schnell-Emojis</label>
-                <div className="flex gap-1.5 mb-2 flex-wrap">
-                  {['🎂', '⚽', '🐴', '🩺', '🛒', '🎉', '🏖️', '🏫'].map(em => (
-                    <button
-                      key={em}
-                      type="button"
-                      onClick={() => setEventModal({ ...eventModal, title: em + ' ' + eventModal.title })}
-                      className={`w-9 h-9 rounded-xl border text-base cursor-pointer ${themeStyles.subtle}`}
-                    >
-                      {em}
-                    </button>
-                  ))}
-                </div>
-                <input
-                  type="text"
-                  required
-                  value={eventModal.title}
-                  onChange={(e) => setEventModal({ ...eventModal, title: e.target.value })}
-                  placeholder="z.B. Kinderarzt, Ponyhof, Fußball..."
-                  className={`w-full px-4 py-3 rounded-2xl border font-bold text-sm ${themeStyles.subtle}`}
-                />
+            {/* WAS STEHT AN + SCHNELL-CHIPS */}
+            <div className="space-y-2.5">
+              <label className="block text-xs font-extrabold uppercase tracking-wider text-slate-500">
+                WAS STEHT AN?
+              </label>
+              <input
+                type="text"
+                required
+                value={eventModal.title}
+                onChange={(e) => setEventModal({ ...eventModal, title: e.target.value })}
+                placeholder="z.B. ⚽ Fußballtraining oder 🦷 Zahnarzt"
+                className="w-full px-4 py-3.5 rounded-2xl bg-slate-50 border border-slate-200 font-bold text-base text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              <div className="flex gap-2 overflow-x-auto pb-1 pt-0.5">
+                {[
+                  { label: '🐴 Ponyhof', val: '🐴 Ponyhof' },
+                  { label: '🦷 Arzt', val: '🦷 Zahnarzt / Arzt' },
+                  { label: '🎂 Feier', val: '🎂 Geburtstag / Feier' },
+                  { label: '🎒 Schule', val: '🎒 Schule / Elternabend' },
+                  { label: '🏎️ Kartbahn', val: '🏎️ Kartbahn Rheinfelden' },
+                  { label: '⚽ Fußball', val: '⚽ Fußballtraining' },
+                  { label: '🛒 Einkauf', val: '🛒 Wocheneinkauf' }
+                ].map(chip => (
+                  <button
+                    key={chip.label}
+                    type="button"
+                    onClick={() => setEventModal({ ...eventModal, title: chip.val })}
+                    className="px-3.5 py-1.5 rounded-full bg-slate-100 hover:bg-indigo-50 text-slate-800 border border-slate-200 text-xs font-extrabold shrink-0 cursor-pointer transition-colors"
+                  >
+                    {chip.label}
+                  </button>
+                ))}
               </div>
+            </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-extrabold uppercase opacity-75 mb-1">Datum</label>
-                  <input
-                    type="date"
-                    value={eventModal.date}
-                    onChange={(e) => setEventModal({ ...eventModal, date: e.target.value })}
-                    className={`w-full px-4 py-3 rounded-2xl border font-bold text-sm ${themeStyles.subtle}`}
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-extrabold uppercase opacity-75 mb-1">Uhrzeit</label>
-                  <input
-                    type="text"
-                    value={eventModal.time}
-                    onChange={(e) => setEventModal({ ...eventModal, time: e.target.value })}
-                    placeholder="15:00 - 16:00 oder Ganztägig"
-                    className={`w-full px-4 py-3 rounded-2xl border font-bold text-sm ${themeStyles.subtle}`}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-extrabold uppercase opacity-75 mb-1.5">Person / Kalender-Zeile</label>
-                <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
-                  {members.map(m => (
+            {/* FÜR WEN IST DER TERMIN (ZEILE)? */}
+            <div>
+              <label className="block text-xs font-extrabold uppercase tracking-wider text-slate-500 mb-2">
+                FÜR WEN IST DER TERMIN (ZEILE)?
+              </label>
+              <div className="grid grid-cols-3 sm:grid-cols-5 gap-2.5">
+                {members.map(m => {
+                  const selected = eventModal.member === m.id;
+                  return (
                     <button
                       key={m.id}
                       type="button"
-                      onClick={() => setEventModal({ ...eventModal, member: m.id })}
-                      className={`p-2 rounded-2xl border-2 flex flex-col items-center gap-1 cursor-pointer ${
-                        eventModal.member === m.id ? 'border-indigo-500 bg-indigo-500/20' : themeStyles.subtle
+                      onClick={() => {
+                        const defaultUsers = m.id === 'all' ? ['hans', 'sarah', 'dean', 'valentina'] : [m.id];
+                        setEventModal({ ...eventModal, member: m.id, notifyUsers: defaultUsers });
+                      }}
+                      className={`p-3 rounded-2xl border-2 flex flex-col items-center gap-1.5 cursor-pointer transition-all ${
+                        selected
+                          ? 'border-indigo-600 bg-indigo-50/70 ring-2 ring-indigo-400/40'
+                          : 'border-slate-200 bg-white hover:border-slate-300'
                       }`}
                     >
-                      {renderAvatar(m, 'w-7 h-7', 'text-xs')}
-                      <span className="text-xs font-bold truncate max-w-full">{m.name.split(' ')[0]}</span>
+                      {renderAvatar(m, 'w-10 h-10', 'text-sm')}
+                      <span className="text-xs font-extrabold text-slate-800 truncate max-w-full">
+                        {m.id === 'all' ? 'Familie' : m.name.split(' ')[0]}
+                      </span>
                     </button>
-                  ))}
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* DATUM & UHRZEIT */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+              <div>
+                <label className="block text-xs font-extrabold uppercase tracking-wider text-slate-500 mb-1.5">
+                  DATUM
+                </label>
+                <input
+                  type="date"
+                  value={eventModal.date}
+                  onChange={(e) => setEventModal({ ...eventModal, date: e.target.value })}
+                  className="w-full px-4 py-3 rounded-2xl bg-slate-50 border border-slate-200 font-bold text-sm text-slate-900"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-extrabold uppercase tracking-wider text-slate-500 mb-1.5">
+                  UHRZEIT
+                </label>
+                <input
+                  type="text"
+                  value={eventModal.time}
+                  onChange={(e) => setEventModal({ ...eventModal, time: e.target.value })}
+                  placeholder="15:00 - 16:00 oder Ganztägig"
+                  className="w-full px-4 py-3 rounded-2xl bg-slate-50 border border-slate-200 font-bold text-sm text-slate-900"
+                />
+              </div>
+            </div>
+
+            {/* 🔔 BENACHRICHTIGUNG & ERINNERUNG (INKL. BROWSER-PUSH & SOUND-ALARM) */}
+            <div className="p-4 sm:p-5 rounded-3xl bg-slate-50 border border-slate-200 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-xs font-black uppercase tracking-wider text-slate-800 flex items-center gap-1.5">
+                  <span>🔔</span> BENACHRICHTIGUNG & ERINNERUNG
+                </div>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission !== 'granted') {
+                      await requestBrowserPushPermission();
+                    }
+                    triggerEventAlarmNow({
+                      title: eventModal.title || 'Beispiel-Termin',
+                      time: eventModal.time || '15:00 - 16:00',
+                      date: eventModal.date || todayStr,
+                      notifyTime: eventModal.notifyTime,
+                      notifyUsers: eventModal.notifyUsers
+                    }, true);
+                  }}
+                  className="px-3.5 py-1.5 rounded-full bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Volume2 className="w-3.5 h-3.5" /> Test-Alarm zeigen
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-extrabold uppercase text-slate-500 mb-1">
+                    WANN ERINNERN?
+                  </label>
+                  <select
+                    value={eventModal.notifyTime}
+                    onChange={(e) => setEventModal({ ...eventModal, notifyTime: e.target.value })}
+                    className="w-full px-3.5 py-2.5 rounded-2xl bg-white border border-slate-200 font-bold text-sm text-slate-900"
+                  >
+                    <option value="none">Keine Erinnerung</option>
+                    <option value="0m">Pünktlich zum Start (0 Min.)</option>
+                    <option value="5m">5 Min. vorher</option>
+                    <option value="15m">15 Min. vorher</option>
+                    <option value="30m">30 Min. vorher</option>
+                    <option value="1h">1 Std. vorher</option>
+                    <option value="2h">2 Std. vorher</option>
+                    <option value="1d">1 Tag vorher</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-extrabold uppercase text-slate-500 mb-1">
+                    WIE BENACHRICHTIGEN?
+                  </label>
+                  <select
+                    value={eventModal.notifyChannel}
+                    onChange={(e) => setEventModal({ ...eventModal, notifyChannel: e.target.value })}
+                    className="w-full px-3.5 py-2.5 rounded-2xl bg-white border border-slate-200 font-bold text-sm text-slate-900"
+                  >
+                    <option value="wall_push">Touchwall + Handy Push</option>
+                    <option value="wall">Nur Touchwall-Alarm</option>
+                    <option value="push">Handy Push (Google Kalender)</option>
+                    <option value="mail">E-Mail & Google Erinnerung</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-extrabold uppercase text-slate-500 mb-2">
+                  WELCHE BENUTZER SOLLEN BENACHRICHTIGT WERDEN?
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {members.filter(m => m.id !== 'all').map(m => {
+                    const checked = eventModal.notifyUsers.includes(m.id);
+                    return (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => toggleNotifyUserInModal(m.id)}
+                        className={`px-3.5 py-2 rounded-2xl border-2 flex items-center gap-2 text-xs font-extrabold cursor-pointer transition-all ${
+                          checked
+                            ? 'border-indigo-600 bg-indigo-50 text-slate-900 shadow-2xs'
+                            : 'border-slate-200 bg-white text-slate-500 opacity-75 hover:opacity-100'
+                        }`}
+                      >
+                        {renderAvatar(m, 'w-6 h-6', 'text-[10px]')}
+                        <span>{m.name}</span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             </div>
 
-            <div className="flex items-center justify-between pt-3">
+            {/* SPEICHERN / LÖSCHEN / ABBRECHEN */}
+            <div className="flex items-center justify-between pt-2 border-t border-slate-200">
               {eventModal.id ? (
                 <button
                   type="button"
                   onClick={() => deleteEventById(eventModal.id)}
-                  className="px-4 py-2.5 rounded-2xl bg-rose-600 text-white text-xs font-extrabold cursor-pointer"
+                  className="px-4 py-3 rounded-2xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-extrabold cursor-pointer"
                 >
                   🗑️ Löschen
                 </button>
               ) : <div />}
-              <div className="flex gap-2">
-                <button type="button" onClick={() => setEventModal({ ...eventModal, open: false })} className={`px-5 py-2.5 rounded-2xl border text-xs font-bold cursor-pointer ${themeStyles.subtle}`}>
+              <div className="flex gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setEventModal({ ...eventModal, open: false })}
+                  className="px-5 py-3 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-extrabold cursor-pointer"
+                >
                   Abbrechen
                 </button>
-                <button type="submit" className="px-6 py-2.5 rounded-2xl bg-indigo-600 text-white text-xs font-extrabold cursor-pointer">
-                  💾 Speichern
+                <button
+                  type="submit"
+                  className="px-7 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-extrabold shadow-md cursor-pointer"
+                >
+                  Speichern
                 </button>
               </div>
             </div>
@@ -2684,6 +3118,41 @@ export default function TouchwallApp() {
                 alt="QR Code"
                 className="w-48 h-48"
               />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* GROSSES TOUCHWALL ALARM-BANNER (BEI FÄLLIGER ERINNERUNG ODER TEST-ALARM) */}
+      {activeAlarmBanner && (
+        <div className="fixed inset-0 z-[60] bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-md rounded-3xl bg-slate-900 text-white border-2 border-amber-400 p-6 shadow-2xl space-y-4 text-center animate-bounce">
+            <div className="w-16 h-16 rounded-full bg-amber-400 text-slate-950 flex items-center justify-center mx-auto shadow-lg">
+              <BellRing className="w-9 h-9" />
+            </div>
+            <div className="text-xs font-black uppercase tracking-widest text-amber-400">
+              {activeAlarmBanner.isTest ? '🔊 Touchwall Test-Alarm & Browser-Push' : '🔔 Termin-Erinnerung an der Touchwall'}
+            </div>
+            <h3 className="text-2xl font-extrabold">{activeAlarmBanner.title}</h3>
+            <p className="text-sm text-slate-300 font-bold">
+              ⏰ {activeAlarmBanner.time} ({activeAlarmBanner.date}) • Erinnerung: {activeAlarmBanner.notifyTime} vorher
+            </p>
+            <p className="text-xs font-extrabold text-indigo-300">
+              👤 Benachrichtigt: {activeAlarmBanner.who}
+            </p>
+            <div className="flex gap-3 justify-center pt-2">
+              <button
+                onClick={() => playTouchwallAlarmSound()}
+                className="px-4 py-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-xs font-extrabold border border-slate-600 cursor-pointer"
+              >
+                🔊 Ton nochmal abspielen
+              </button>
+              <button
+                onClick={() => setActiveAlarmBanner(null)}
+                className="px-6 py-2.5 rounded-2xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-sm font-black cursor-pointer shadow-md"
+              >
+                ✅ Verstanden
+              </button>
             </div>
           </div>
         </div>
