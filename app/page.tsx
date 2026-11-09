@@ -12,11 +12,11 @@ import {
 
 import {
   formatDateStr, addDays, getMonday, playTouchwallAlarmSound,
-  MONTHS_NAMES, COLOR_PALETTES, PAGE_THEMES, DEFAULT_MEMBERS,
+  COLOR_PALETTES, PAGE_THEMES, DEFAULT_MEMBERS,
   DEFAULT_MEALS, DEFAULT_NOTES, DEFAULT_SCHOOL, DEFAULT_APPS_SCRIPT_URL,
-  getBWHolidayName, getBWVacationName, buildThemeStyles, buildMemberStyles,
+  buildThemeStyles, buildMemberStyles,
   discoverTodoistWorkspace, pullFromTodoistTwoWay, createTodoistTaskItem,
-  closeOrReopenTodoistTask, deleteTodoistTask
+  updateTodoistTaskItem, closeOrReopenTodoistTask, deleteTodoistTask
 } from './touchwallConfig';
 
 import CalendarSection from './CalendarSection';
@@ -64,10 +64,10 @@ export default function TouchwallApp() {
   const [schoolData, setSchoolData] = useState(DEFAULT_SCHOOL);
   const [activeSchoolChild, setActiveSchoolChild] = useState('dean');
   const [familyTasks, setFamilyTasks] = useState([
-    { id: 1, member: 'hans',      title: 'Todoist Team „Familie Richter“ verbinden', due: 'Heute', dueDate: '', dueTime: '', notifyTime: '30m', done: false },
-    { id: 2, member: 'sarah',     title: 'Essensplan für nächste Woche durchsehen',  due: 'Morgen', dueDate: '', dueTime: '', notifyTime: '30m', done: false },
-    { id: 3, member: 'dean',      title: '🎒 Schultasche & Sportzeug richten',       due: 'Heute', dueDate: '', dueTime: '17:00', notifyTime: '15m', done: false },
-    { id: 4, member: 'valentina', title: '🧸 Zimmer aufräumen & 15 Min. Lesen',      due: 'Heute', dueDate: '', dueTime: '16:30', notifyTime: '15m', done: false }
+    { id: 1, member: 'hans',      title: 'Todoist Team „Familie Richter“ verbinden', description: '', priority: 3, due: 'Heute', dueDate: '', dueTime: '', notifyTime: '30m', done: false },
+    { id: 2, member: 'sarah',     title: 'Essensplan für nächste Woche durchsehen',  description: '', priority: 2, due: 'Morgen', dueDate: '', dueTime: '', notifyTime: '30m', done: false },
+    { id: 3, member: 'dean',      title: '🎒 Schultasche & Sportzeug richten',       description: '', priority: 3, due: 'Bis 17:00 Uhr', dueDate: '', dueTime: '17:00', notifyTime: '15m', done: false },
+    { id: 4, member: 'valentina', title: '🧸 Zimmer aufräumen & 15 Min. Lesen',      description: '', priority: 2, due: 'Bis 16:30 Uhr', dueDate: '', dueTime: '16:30', notifyTime: '15m', done: false }
   ]);
 
   // Modals & Kopier-Speicher
@@ -80,8 +80,8 @@ export default function TouchwallApp() {
     notifyUsers: ['hans', 'sarah', 'dean', 'valentina']
   });
   const [taskModal, setTaskModal] = useState({
-    open: false, id: null, title: '', member: 'hans',
-    dueDate: '', dueTime: '16:00', notifyTime: '15m', syncToCalendar: false
+    open: false, id: null, todoistId: null, title: '', description: '', member: 'hans',
+    priority: 3, dueDate: '', dueTime: '17:00', notifyTime: '15m', syncToCalendar: false
   });
   const [yearDayModal, setYearDayModal] = useState({ open: false, dateStr: '', newTitle: '', newTime: 'Ganztägig', newMember: 'all' });
   const [schoolModal, setSchoolModal] = useState({ open: false, dayIdx: 0, periodIdx: 0, subject: '', room: '', status: 'normal' });
@@ -135,12 +135,17 @@ export default function TouchwallApp() {
   };
 
   // =========================================================
-  // 1. UHRZEIT & BROWSER-PUSH ALARM
+  // 1. UHRZEIT & BROWSER-PUSH ALARM (FÜR TERMINE UND AUFGABEN-FRISTEN)
   // =========================================================
   useEffect(() => {
     if (typeof window !== 'undefined' && 'Notification' in window) {
       setPushPermission(Notification.permission);
     }
+    try {
+      const savedTrig = localStorage.getItem('richter_tw_triggered_alarms');
+      if (savedTrig) triggeredAlarmsRef.current = JSON.parse(savedTrig);
+    } catch (e) {}
+
     const updateClock = () => {
       const now = new Date();
       setClockStr(`${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`);
@@ -184,7 +189,7 @@ export default function TouchwallApp() {
       time: evObj.time || 'Jetzt',
       date: evObj.date || todayStr,
       who: whoNames,
-      notifyTime: evObj.notifyTime || '30m',
+      notifyTime: evObj.notifyTime || '15m',
       isTest
     });
     if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
@@ -193,6 +198,62 @@ export default function TouchwallApp() {
       } catch (e) {}
     }
   };
+
+  // Hintergrund-Wächter für Termin- UND Aufgaben-Erinnerungen
+  useEffect(() => {
+    const offsetMinutesMap = { '0m': 0, '5m': 5, '10m': 10, '15m': 15, '30m': 30, '1h': 60, '2h': 120, '1d': 1440 };
+    const checkAlarms = () => {
+      const now = new Date();
+      const nowMs = now.getTime();
+
+      events.forEach(ev => {
+        if (!ev?.date || !ev.notifyTime || ev.notifyTime === 'none') return;
+        const offsetMins = offsetMinutesMap[ev.notifyTime] ?? 30;
+        const parts = String(ev.date).split('-');
+        if (parts.length !== 3) return;
+        let sh = 8, sm = 0;
+        const tm = String(ev.time || '').match(/(\d{1,2}):(\d{2})/);
+        if (tm && String(ev.time).toLowerCase() !== 'ganztägig') {
+          sh = Number(tm[1]); sm = Number(tm[2]);
+        }
+        const evStart = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]), sh, sm, 0);
+        const diffMs = nowMs - (evStart.getTime() - offsetMins * 60000);
+        const key = `ev_${ev.id}_${ev.date}_${ev.time}_${ev.notifyTime}`;
+        if (diffMs >= 0 && diffMs <= 180000 && !triggeredAlarmsRef.current[key]) {
+          triggeredAlarmsRef.current[key] = nowMs;
+          try { localStorage.setItem('richter_tw_triggered_alarms', JSON.stringify(triggeredAlarmsRef.current)); } catch (e) {}
+          triggerEventAlarmNow(ev, false);
+        }
+      });
+
+      familyTasks.forEach(task => {
+        if (!task || task.done || !task.dueTime || !task.notifyTime || task.notifyTime === 'none') return;
+        const dStr = task.dueDate || todayStr;
+        const offsetMins = offsetMinutesMap[task.notifyTime] ?? 15;
+        const parts = String(dStr).split('-');
+        const tm = String(task.dueTime).match(/(\d{1,2}):(\d{2})/);
+        if (parts.length !== 3 || !tm) return;
+        const tDue = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]), Number(tm[1]), Number(tm[2]), 0);
+        const diffMs = nowMs - (tDue.getTime() - offsetMins * 60000);
+        const key = `task_${task.id}_${dStr}_${task.dueTime}_${task.notifyTime}`;
+        if (diffMs >= 0 && diffMs <= 180000 && !triggeredAlarmsRef.current[key]) {
+          triggeredAlarmsRef.current[key] = nowMs;
+          try { localStorage.setItem('richter_tw_triggered_alarms', JSON.stringify(triggeredAlarmsRef.current)); } catch (e) {}
+          triggerEventAlarmNow({
+            id: task.id,
+            title: `✅ Aufgabe fällig: ${task.title}`,
+            date: dStr,
+            time: `Bis ${task.dueTime} Uhr`,
+            notifyTime: task.notifyTime,
+            notifyUsers: [task.member]
+          }, false);
+        }
+      });
+    };
+
+    const timer = setInterval(checkAlarms, 15000);
+    return () => clearInterval(timer);
+  }, [events, familyTasks, members, todayStr]);
 
   // =========================================================
   // 2. TODOIST 2-WEGE-SYNC (TEAM "FAMILIE RICHTER")
@@ -214,7 +275,6 @@ export default function TouchwallApp() {
       };
       setTodoistConfig(nextCfg);
 
-      // Automatischer Namensabgleich der Team-Mitglieder (Hans, Sarah, Dean, Valentina)
       if (disc.collaborators.length > 0) {
         setMembers(prev => prev.map(m => {
           if (m.id === 'all' || m.todoistUserId) return m;
@@ -389,7 +449,7 @@ export default function TouchwallApp() {
   }, [members, mealPlan, familyNotes, schoolData, familyTasks, currentTheme, customLogoUrl, todoistConfig, appsScriptUrl]);
 
   // =========================================================
-  // 4. AUFGABEN & EINKAUFSLISTEN AKTIONEN (DIREKT AN TODOIST!)
+  // 4. AUFGABEN & EINKAUFSLISTEN AKTIONEN (MIT FRIST, ERINNERUNG & TODOIST)
   // =========================================================
   const shoppingNoteBlock = useMemo(() => familyNotes[0] || { id: 1, title: '🛒 Einkaufsliste', items: [] }, [familyNotes]);
 
@@ -399,7 +459,7 @@ export default function TouchwallApp() {
     let todoistId = null;
     if (todoistConfig.apiToken && todoistConfig.shoppingProjectId) {
       try {
-        const created = await createTodoistTaskItem(todoistConfig.apiToken, todoistConfig.shoppingProjectId, clean, null, '', '');
+        const created = await createTodoistTaskItem(todoistConfig.apiToken, todoistConfig.shoppingProjectId, clean, null, '', '', 1, '', 'none');
         if (created?.id) todoistId = String(created.id);
       } catch (e) {}
     }
@@ -447,20 +507,41 @@ export default function TouchwallApp() {
     } : n));
   };
 
-  const addNewTaskWithSettings = async (titleStr, memberId, dueDateStr = '', dueTimeStr = '', notifyStr = '15m') => {
+  const addNewTaskWithSettings = async (
+    titleStr,
+    memberId,
+    dueDateStr = '',
+    dueTimeStr = '',
+    notifyStr = '15m',
+    pushToCal = false,
+    priorityNum = 3,
+    descriptionStr = ''
+  ) => {
     const clean = String(titleStr || '').trim();
     if (!clean) return;
     const memberObj = members.find(m => m.id === memberId);
     const dueLabel = dueDateStr
-      ? `${dueDateStr.slice(8, 10)}.${dueDateStr.slice(5, 7)}.${dueTimeStr ? ' ' + dueTimeStr : ''}`
-      : (dueTimeStr ? `Heute ${dueTimeStr}` : 'Heute');
+      ? `Bis ${dueDateStr.slice(8, 10)}.${dueDateStr.slice(5, 7)}.${dueTimeStr ? ' ' + dueTimeStr + ' Uhr' : ''}`
+      : (dueTimeStr ? `Heute bis ${dueTimeStr} Uhr` : 'Offen');
 
     let todoistId = null;
     if (todoistConfig.apiToken && todoistConfig.tasksProjectId) {
       try {
-        const created = await createTodoistTaskItem(todoistConfig.apiToken, todoistConfig.tasksProjectId, clean, memberObj, dueDateStr, dueTimeStr);
+        const created = await createTodoistTaskItem(
+          todoistConfig.apiToken,
+          todoistConfig.tasksProjectId,
+          clean,
+          memberObj,
+          dueDateStr,
+          dueTimeStr,
+          priorityNum,
+          descriptionStr,
+          notifyStr
+        );
         if (created?.id) todoistId = String(created.id);
-      } catch (e) {}
+      } catch (err) {
+        showToast('Todoist-Hinweis', err.message, '⚠️');
+      }
     }
 
     const newTask = {
@@ -468,6 +549,8 @@ export default function TouchwallApp() {
       todoistId,
       member: memberId,
       title: clean,
+      description: descriptionStr,
+      priority: Number(priorityNum || 1),
       due: dueLabel,
       dueDate: dueDateStr,
       dueTime: dueTimeStr,
@@ -475,7 +558,23 @@ export default function TouchwallApp() {
       done: false
     };
     setFamilyTasks(prev => [newTask, ...prev]);
-    showToast('Aufgabe zugewiesen', `${clean} → ${memberObj?.name || memberId}`, '📲');
+    showToast('Aufgabe & Frist angelegt', `${clean} → ${memberObj?.name || memberId} (${dueLabel})`, '📲');
+
+    if (pushToCal) {
+      const calEv = {
+        id: String(Date.now() + 500),
+        title: `✅ Aufgabe: ${clean}`,
+        date: dueDateStr || todayStr,
+        time: dueTimeStr ? `${dueTimeStr} - ${dueTimeStr}` : 'Ganztägig',
+        member: memberId,
+        notifyTime: notifyStr === 'none' ? '15m' : notifyStr,
+        notifyChannel: 'push',
+        notifyUsers: [memberId],
+        fromGoogle: true
+      };
+      setEvents(prev => [...prev, calEv]);
+      await sendCalendarApiAction({ action: 'createEvent', event: calEv }, '📲 Sende zusätzlichen Kalender-Wecker...');
+    }
   };
 
   const toggleTaskDone = async (taskId, makeDone) => {
@@ -795,7 +894,7 @@ export default function TouchwallApp() {
             </div>
           )}
 
-          {/* HAUPT-VIEWPORT MIT DEN AUSGELAGERTEN KOMPONENTEN */}
+          {/* HAUPT-VIEWPORT */}
           <main className={`flex-1 overflow-auto ${themeStyles.viewport}`}>
             {activeSection === 'kalender' && (
               <CalendarSection
@@ -839,7 +938,19 @@ export default function TouchwallApp() {
                 clearCompletedMemberTasks={clearCompletedMemberTasks}
                 openEditTaskModal={(e, task) => {
                   if (e) e.stopPropagation();
-                  setTaskModal({ open: true, id: task.id, title: task.title, member: task.member, dueDate: task.dueDate || todayStr, dueTime: task.dueTime || '16:00', notifyTime: task.notifyTime || '15m', syncToCalendar: false });
+                  setTaskModal({
+                    open: true,
+                    id: task.id,
+                    todoistId: task.todoistId || null,
+                    title: task.title || '',
+                    description: task.description || '',
+                    member: task.member || 'hans',
+                    priority: task.priority || 3,
+                    dueDate: task.dueDate || todayStr,
+                    dueTime: task.dueTime || '17:00',
+                    notifyTime: task.notifyTime || '15m',
+                    syncToCalendar: false
+                  });
                 }}
                 addShoppingItem={addShoppingItem}
                 toggleShoppingItem={toggleShoppingItem}
@@ -1021,31 +1132,180 @@ export default function TouchwallApp() {
         </div>
       )}
 
-      {/* MODAL 1B: AUFGABEN-FRIST BEARBEITEN */}
+      {/* MODAL 1B: AUFGABEN-FRIST ("BIS WANN"), ERINNERUNG & PRIORITÄT BEARBEITEN */}
       {taskModal.open && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
           <form
             onSubmit={async (e) => {
               e.preventDefault();
-              const dueLabel = taskModal.dueDate ? `${taskModal.dueDate.slice(8, 10)}.${taskModal.dueDate.slice(5, 7)}. ${taskModal.dueTime || ''}` : 'Heute';
-              setFamilyTasks(prev => prev.map(t => t.id === taskModal.id ? { ...t, title: taskModal.title, member: taskModal.member, due: dueLabel, dueDate: taskModal.dueDate, dueTime: taskModal.dueTime, notifyTime: taskModal.notifyTime } : t));
+              const dueLabel = taskModal.dueDate
+                ? `Bis ${taskModal.dueDate.slice(8, 10)}.${taskModal.dueDate.slice(5, 7)}.${taskModal.dueTime ? ' ' + taskModal.dueTime + ' Uhr' : ''}`
+                : (taskModal.dueTime ? `Heute bis ${taskModal.dueTime} Uhr` : 'Offen');
+
+              setFamilyTasks(prev => prev.map(t => t.id === taskModal.id ? {
+                ...t,
+                title: taskModal.title,
+                description: taskModal.description,
+                member: taskModal.member,
+                priority: Number(taskModal.priority || 1),
+                due: dueLabel,
+                dueDate: taskModal.dueDate,
+                dueTime: taskModal.dueTime,
+                notifyTime: taskModal.notifyTime
+              } : t));
+
+              const targetMemberObj = members.find(m => m.id === taskModal.member);
+              if (taskModal.todoistId && todoistConfig.apiToken) {
+                try {
+                  await updateTodoistTaskItem(todoistConfig.apiToken, taskModal.todoistId, {
+                    title: taskModal.title,
+                    description: taskModal.description,
+                    priority: taskModal.priority,
+                    assigneeId: targetMemberObj?.todoistUserId,
+                    dueDate: taskModal.dueDate,
+                    dueTime: taskModal.dueTime,
+                    notifyTime: taskModal.notifyTime
+                  });
+                } catch (err) {}
+              }
+
+              if (taskModal.syncToCalendar) {
+                const calEv = {
+                  id: String(Date.now()),
+                  title: `✅ Aufgabe: ${taskModal.title}`,
+                  date: taskModal.dueDate || todayStr,
+                  time: taskModal.dueTime ? `${taskModal.dueTime} - ${taskModal.dueTime}` : 'Ganztägig',
+                  member: taskModal.member,
+                  notifyTime: taskModal.notifyTime === 'none' ? '15m' : taskModal.notifyTime,
+                  notifyChannel: 'push',
+                  notifyUsers: [taskModal.member],
+                  fromGoogle: true
+                };
+                setEvents(prev => [...prev, calEv]);
+                await sendCalendarApiAction({ action: 'createEvent', event: calEv });
+              }
+
               setTaskModal({ ...taskModal, open: false });
-              showToast('Frist aktualisiert', taskModal.title, '⏰');
+              showToast('Frist & Erinnerung gespeichert', `${taskModal.title} (${dueLabel})`, '⏰');
             }}
-            className={`w-full max-w-md rounded-3xl border-2 p-6 shadow-2xl space-y-4 ${themeStyles.modal}`}
+            className={`w-full max-w-lg rounded-3xl border-2 p-6 shadow-2xl space-y-4 ${themeStyles.modal}`}
           >
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-extrabold flex items-center gap-2"><Clock className="w-5 h-5 text-indigo-400" /> Aufgaben-Frist & Zuweisung</h3>
+              <h3 className="text-lg font-extrabold flex items-center gap-2">
+                <Clock className="w-5 h-5 text-amber-400" />
+                Aufgabe: Bis wann erledigen & Erinnerung
+              </h3>
               <button type="button" onClick={() => setTaskModal({ ...taskModal, open: false })}><X className="w-5 h-5" /></button>
             </div>
-            <input type="text" required value={taskModal.title} onChange={(e) => setTaskModal({ ...taskModal, title: e.target.value })} className={`w-full px-4 py-2.5 rounded-xl border text-sm font-bold ${themeStyles.input}`} />
-            <div className="grid grid-cols-2 gap-3">
-              <input type="date" value={taskModal.dueDate} onChange={(e) => setTaskModal({ ...taskModal, dueDate: e.target.value })} className={`px-3 py-2 rounded-xl border text-xs font-bold ${themeStyles.input}`} />
-              <input type="time" value={taskModal.dueTime} onChange={(e) => setTaskModal({ ...taskModal, dueTime: e.target.value })} className={`px-3 py-2 rounded-xl border text-xs font-bold ${themeStyles.input}`} />
+
+            <div className="space-y-2">
+              <label className={`block text-[11px] font-extrabold uppercase ${themeStyles.textMuted}`}>Aufgabe</label>
+              <input
+                type="text"
+                required
+                value={taskModal.title}
+                onChange={(e) => setTaskModal({ ...taskModal, title: e.target.value })}
+                className={`w-full px-4 py-2.5 rounded-xl border text-sm font-bold ${themeStyles.input}`}
+              />
+              <input
+                type="text"
+                value={taskModal.description}
+                onChange={(e) => setTaskModal({ ...taskModal, description: e.target.value })}
+                placeholder="Notiz / Beschreibung zur Aufgabe..."
+                className={`w-full px-4 py-2 rounded-xl border text-xs font-semibold ${themeStyles.input}`}
+              />
             </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={`block text-[11px] font-extrabold uppercase mb-1 ${themeStyles.textMuted}`}>Zuständig</label>
+                <select
+                  value={taskModal.member}
+                  onChange={(e) => setTaskModal({ ...taskModal, member: e.target.value })}
+                  className={`w-full px-3 py-2.5 rounded-xl border text-xs font-extrabold ${themeStyles.input}`}
+                >
+                  {members.filter(m => m.id !== 'all').map(m => (
+                    <option key={m.id} value={m.id} className="bg-slate-800 text-white">👤 {m.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className={`block text-[11px] font-extrabold uppercase mb-1 ${themeStyles.textMuted}`}>Priorität</label>
+                <select
+                  value={taskModal.priority}
+                  onChange={(e) => setTaskModal({ ...taskModal, priority: Number(e.target.value) })}
+                  className={`w-full px-3 py-2.5 rounded-xl border text-xs font-extrabold ${themeStyles.input}`}
+                >
+                  <option value={4} className="bg-slate-800 text-white">🔥 P1 - Sehr dringend</option>
+                  <option value={3} className="bg-slate-800 text-white">🟠 P2 - Wichtig</option>
+                  <option value={2} className="bg-slate-800 text-white">🔵 P3 - Mittel</option>
+                  <option value={1} className="bg-slate-800 text-white">⚪ P4 - Normal</option>
+                </select>
+              </div>
+            </div>
+
+            {/* SCHNELLWAHL FÜR "BIS WANN ERLEDIGEN?" */}
+            <div className={`p-3.5 rounded-2xl border space-y-2.5 ${themeStyles.subtle}`}>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-black uppercase text-amber-400">⏳ Bis wann muss es erledigt sein?</span>
+                <div className="flex gap-1">
+                  <button type="button" onClick={() => setTaskModal({ ...taskModal, dueDate: todayStr, dueTime: '18:00' })} className={`px-2 py-1 rounded-lg border text-[11px] font-bold cursor-pointer ${themeStyles.card}`}>Heute</button>
+                  <button type="button" onClick={() => setTaskModal({ ...taskModal, dueDate: formatDateStr(addDays(new Date(), 1)), dueTime: '17:00' })} className={`px-2 py-1 rounded-lg border text-[11px] font-bold cursor-pointer ${themeStyles.card}`}>Morgen</button>
+                  <button type="button" onClick={() => setTaskModal({ ...taskModal, dueDate: formatDateStr(addDays(new Date(), 7)), dueTime: '17:00' })} className={`px-2 py-1 rounded-lg border text-[11px] font-bold cursor-pointer ${themeStyles.card}`}>+1 Woche</button>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <input type="date" value={taskModal.dueDate} onChange={(e) => setTaskModal({ ...taskModal, dueDate: e.target.value })} className={`px-3 py-2 rounded-xl border text-xs font-bold ${themeStyles.input}`} />
+                <input type="time" value={taskModal.dueTime} onChange={(e) => setTaskModal({ ...taskModal, dueTime: e.target.value })} className={`px-3 py-2 rounded-xl border text-xs font-bold ${themeStyles.input}`} />
+              </div>
+            </div>
+
+            {/* ERINNERUNG & TEST-ALARM */}
+            <div className={`p-3.5 rounded-2xl border space-y-2.5 ${themeStyles.subtle}`}>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-black uppercase">🔔 Wann erinnern?</span>
+                <button
+                  type="button"
+                  onClick={() => triggerEventAlarmNow({
+                    title: `✅ Aufgabe: ${taskModal.title}`,
+                    time: `Bis ${taskModal.dueTime || '17:00'} Uhr`,
+                    date: taskModal.dueDate || todayStr,
+                    notifyTime: taskModal.notifyTime,
+                    notifyUsers: [taskModal.member]
+                  }, true)}
+                  className="px-3 py-1 rounded-full bg-amber-400 text-slate-950 text-xs font-extrabold flex items-center gap-1 cursor-pointer"
+                >
+                  <Volume2 className="w-3.5 h-3.5" /> Test-Alarm
+                </button>
+              </div>
+              <select
+                value={taskModal.notifyTime}
+                onChange={(e) => setTaskModal({ ...taskModal, notifyTime: e.target.value })}
+                className={`w-full px-3 py-2 rounded-xl border text-xs font-bold ${themeStyles.input}`}
+              >
+                <option value="none" className="bg-slate-800 text-white">🔕 Keine Erinnerung</option>
+                <option value="0m" className="bg-slate-800 text-white">🔔 Pünktlich zur Frist</option>
+                <option value="5m" className="bg-slate-800 text-white">🔔 5 Min. vorher</option>
+                <option value="15m" className="bg-slate-800 text-white">🔔 15 Min. vorher</option>
+                <option value="30m" className="bg-slate-800 text-white">🔔 30 Min. vorher</option>
+                <option value="1h" className="bg-slate-800 text-white">🔔 1 Std. vorher</option>
+                <option value="1d" className="bg-slate-800 text-white">🔔 1 Tag vorher</option>
+              </select>
+
+              <label className="flex items-center gap-2 pt-1 text-xs font-bold cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={taskModal.syncToCalendar}
+                  onChange={(e) => setTaskModal({ ...taskModal, syncToCalendar: e.target.checked })}
+                  className="w-4 h-4 accent-amber-400 rounded"
+                />
+                <span>📅 Zusätzlich als Termin-Wecker in Google Kalender eintragen</span>
+              </label>
+            </div>
+
             <div className="flex justify-end gap-2">
-              <button type="button" onClick={() => setTaskModal({ ...taskModal, open: false })} className={`px-4 py-2 rounded-xl border text-xs font-bold ${themeStyles.subtle}`}>Abbrechen</button>
-              <button type="submit" className="px-5 py-2 rounded-xl bg-indigo-600 text-white text-xs font-extrabold cursor-pointer">Speichern</button>
+              <button type="button" onClick={() => setTaskModal({ ...taskModal, open: false })} className={`px-4 py-2.5 rounded-xl border text-xs font-bold ${themeStyles.subtle}`}>Abbrechen</button>
+              <button type="submit" className="px-6 py-2.5 rounded-xl bg-indigo-600 text-white text-xs font-extrabold cursor-pointer">💾 Speichern & Synchronisieren</button>
             </div>
           </form>
         </div>
@@ -1132,7 +1392,11 @@ export default function TouchwallApp() {
           <div className={`w-full max-w-md rounded-3xl border-2 border-amber-400 p-6 shadow-2xl space-y-4 text-center ${themeStyles.modal}`}>
             <h3 className="text-2xl font-extrabold">🔔 {activeAlarmBanner.title}</h3>
             <p className="text-sm font-bold">{activeAlarmBanner.time} ({activeAlarmBanner.date})</p>
-            <button onClick={() => setActiveAlarmBanner(null)} className="px-6 py-2.5 rounded-2xl bg-amber-400 text-slate-950 text-sm font-black cursor-pointer">✅ Verstanden</button>
+            <p className="text-xs font-extrabold text-indigo-400">👤 Für: {activeAlarmBanner.who}</p>
+            <div className="flex gap-2 justify-center">
+              <button onClick={() => playTouchwallAlarmSound()} className={`px-4 py-2.5 rounded-2xl border text-xs font-extrabold cursor-pointer ${themeStyles.subtle}`}>🔊 Ton testen</button>
+              <button onClick={() => setActiveAlarmBanner(null)} className="px-6 py-2.5 rounded-2xl bg-amber-400 text-slate-950 text-sm font-black cursor-pointer">✅ Verstanden</button>
+            </div>
           </div>
         </div>
       )}
