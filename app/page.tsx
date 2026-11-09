@@ -3,12 +3,11 @@
 /* eslint-disable @next/next/no-img-element */
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Calendar, GraduationCap, CheckSquare, Utensils, FileText,
   Palette, Cloud, Plus, ChevronLeft, ChevronRight, Maximize2,
-  Smartphone, RefreshCw, Trash2, Edit2, Download, Upload,
-  QrCode, Share2, ExternalLink, Check, X, Bell, Copy, Sparkles
+  Smartphone, RefreshCw, Download, Upload, QrCode, X
 } from 'lucide-react';
 
 // =========================================================
@@ -240,7 +239,6 @@ const DEFAULT_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyY2AOK
 // 4. HAUPTKOMPONENTE: TOUCHWALL APP
 // =========================================================
 export default function TouchwallApp() {
-  // Dynamisches Tagesdatum & aktuelle Woche (aktualisiert sich automatisch um Mitternacht & beim Laden)
   const [todayStr, setTodayStr] = useState(() => formatDateStr(new Date()));
   const [currentBaseDate, setCurrentBaseDate] = useState(() => getMonday(new Date()));
   const [currentView, setCurrentView] = useState('1w');
@@ -254,6 +252,12 @@ export default function TouchwallApp() {
   const [appsScriptUrl, setAppsScriptUrl] = useState(DEFAULT_APPS_SCRIPT_URL);
   const [syncStatusText, setSyncStatusText] = useState('☁️ Auto-Sync aktiv');
   const [isSyncing, setIsSyncing] = useState(false);
+
+  // Refs für sauberen Hintergrund-Sync ohne Endlosschleifen
+  const isInitialLoadDone = useRef(false);
+  const isApplyingRemoteState = useRef(false);
+  const isMutatingCalendar = useRef(false);
+  const autoSaveTimer = useRef(null);
 
   // Kerndaten
   const [members, setMembers] = useState(DEFAULT_MEMBERS);
@@ -271,7 +275,11 @@ export default function TouchwallApp() {
 
   // Modals & Drag-and-Drop
   const [toast, setToast] = useState(null);
-  const [eventModal, setEventModal] = useState({ open: false, id: null, title: '', date: '', time: '15:00 - 16:00', member: 'hans', notifyTime: '30m', notifyChannel: 'wall_push', notifyUsers: ['hans'] });
+  const [eventModal, setEventModal] = useState({
+    open: false, id: null, origMember: '', origTitle: '', origDate: '',
+    title: '', date: '', time: '15:00 - 16:00', member: 'hans',
+    notifyTime: '30m', notifyChannel: 'wall_push', notifyUsers: ['hans']
+  });
   const [yearDayModal, setYearDayModal] = useState({ open: false, dateStr: '', newTitle: '', newTime: 'Ganztägig', newMember: 'all' });
   const [schoolModal, setSchoolModal] = useState({ open: false, dayIdx: 0, periodIdx: 0, subject: '', room: '', status: 'normal' });
   const [qrModalOpen, setQrModalOpen] = useState(false);
@@ -293,6 +301,38 @@ export default function TouchwallApp() {
   const showToast = (title, message, icon = '🔔') => {
     setToast({ title, message, icon });
     setTimeout(() => setToast(null), 3800);
+  };
+
+  // Zentrale Hilfsfunktion für POST-Aufrufe an Google Apps Script
+  const sendCalendarApiAction = async (bodyData, statusLabel = '⏳ Synchronisiere mit Google...') => {
+    const targetUrl = (appsScriptUrl || DEFAULT_APPS_SCRIPT_URL).trim();
+    if (!targetUrl) return;
+    isMutatingCalendar.current = true;
+    setIsSyncing(true);
+    setSyncStatusText(statusLabel);
+
+    try {
+      const res = await fetch(targetUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(bodyData)
+      });
+      const json = await res.json();
+      if (json && json.result && Array.isArray(json.result.events)) {
+        setEvents(json.result.events);
+        try { localStorage.setItem('richter_touchwall_events_cache', JSON.stringify(json.result.events)); } catch (e) {}
+      } else {
+        // Fallback: Kurz danach aktuellen Stand abrufen
+        setTimeout(() => pullFromCloud(targetUrl, false), 800);
+      }
+      const now = new Date();
+      setSyncStatusText(`☁️ Synchron (${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')})`);
+    } catch (err) {
+      setSyncStatusText('⚠️ Sync-Hinweis');
+    } finally {
+      isMutatingCalendar.current = false;
+      setIsSyncing(false);
+    }
   };
 
   // 1. Uhrzeit & automatischer Mitternachts-/Datums-Wechsel
@@ -325,6 +365,7 @@ export default function TouchwallApp() {
 
       const raw = localStorage.getItem('richter_touchwall_v6');
       if (raw) {
+        isApplyingRemoteState.current = true;
         const data = JSON.parse(raw);
         if (Array.isArray(data.members) && data.members.length >= 5) setMembers(data.members);
         if (Array.isArray(data.mealPlan) && data.mealPlan.length > 0) setMealPlan(data.mealPlan);
@@ -333,6 +374,7 @@ export default function TouchwallApp() {
         if (Array.isArray(data.familyTasks)) setFamilyTasks(data.familyTasks);
         if (data.currentTheme) setCurrentTheme(data.currentTheme);
         if (data.customLogoUrl) setCustomLogoUrl(data.customLogoUrl);
+        setTimeout(() => { isApplyingRemoteState.current = false; }, 200);
       }
       const savedEvents = localStorage.getItem('richter_touchwall_events_cache');
       if (savedEvents) {
@@ -341,16 +383,41 @@ export default function TouchwallApp() {
     } catch (e) {}
   }, []);
 
-  // 3. Lokalen Zustand automatisch im Browser sichern
+  // 3. Automatischer Hintergrund-Sync bei jeder Änderung an Aufgaben (Google Tasks!), Essensplan, Notizen, Schule oder Design
   useEffect(() => {
+    const payload = { members, mealPlan, familyNotes, schoolData, familyTasks, currentTheme, customLogoUrl };
     try {
-      const payload = { members, mealPlan, familyNotes, schoolData, familyTasks, currentTheme, customLogoUrl };
       localStorage.setItem('richter_touchwall_v6', JSON.stringify(payload));
     } catch (e) {}
-  }, [members, mealPlan, familyNotes, schoolData, familyTasks, currentTheme, customLogoUrl]);
 
-  // 4. Daten aus Google Apps Script laden (inkl. Zusammenführung der Kalender-IDs!)
+    if (!isInitialLoadDone.current || isApplyingRemoteState.current) return;
+
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    autoSaveTimer.current = setTimeout(async () => {
+      const targetUrl = (appsScriptUrl || DEFAULT_APPS_SCRIPT_URL).trim();
+      if (!targetUrl) return;
+      setSyncStatusText('⏳ Speichere in Google...');
+      try {
+        await fetch(targetUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({ action: 'saveState', payload })
+        });
+        const now = new Date();
+        setSyncStatusText(`☁️ Cloud gespeichert (${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')})`);
+      } catch (e) {
+        setSyncStatusText('💾 Lokal gesichert');
+      }
+    }, 550);
+
+    return () => {
+      if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    };
+  }, [members, mealPlan, familyNotes, schoolData, familyTasks, currentTheme, customLogoUrl, appsScriptUrl]);
+
+  // 4. Daten aus Google Apps Script laden (inkl. Zusammenführung der Kalender-IDs & Tasks!)
   const pullFromCloud = async (urlOverride, showFeedback = true) => {
+    if (isMutatingCalendar.current && !showFeedback) return;
     const targetUrl = (urlOverride !== undefined ? urlOverride : appsScriptUrl).trim();
     if (!targetUrl) {
       if (showFeedback) showToast('Keine URL', 'Bitte Apps-Script-URL unter Konten eintragen.', '⚠️');
@@ -363,10 +430,10 @@ export default function TouchwallApp() {
       const res = await fetch(`${targetUrl}${sep}action=json`, { method: 'GET', cache: 'no-store' });
       const bundle = await res.json();
 
+      isApplyingRemoteState.current = true;
       const calMap = (bundle && bundle.calendarData && bundle.calendarData.calendars) || {};
       const statusMap = (bundle && bundle.calendarData && bundle.calendarData.status) || {};
 
-      // State & Mitglieder mit den in Google gespeicherten Kalender-IDs zusammenführen
       if (bundle && bundle.state) {
         const s = bundle.state;
         const baseMembers = (Array.isArray(s.members) && s.members.length >= 5) ? s.members : members;
@@ -406,10 +473,17 @@ export default function TouchwallApp() {
         try { localStorage.setItem('richter_touchwall_events_cache', JSON.stringify(bundle.calendarData.events)); } catch (e) {}
       }
 
+      setTimeout(() => {
+        isApplyingRemoteState.current = false;
+        isInitialLoadDone.current = true;
+      }, 250);
+
       const now = new Date();
       setSyncStatusText(`☁️ Auto-Sync (${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')})`);
       if (showFeedback) showToast('Google-Sync erfolgreich', 'Kalender, Konten, Aufgaben & Listen sind aktuell.', '☁️');
     } catch (err) {
+      isInitialLoadDone.current = true;
+      isApplyingRemoteState.current = false;
       setSyncStatusText('⚠️ Offline / Lokal');
       if (showFeedback) showToast('Verbindungs-Hinweis', 'Prüfe, ob die Apps-Script-Bereitstellung auf „Jeder“ steht.', '⚠️');
     } finally {
@@ -422,6 +496,8 @@ export default function TouchwallApp() {
     const initialUrl = localStorage.getItem('richter_tw_gas_url') || DEFAULT_APPS_SCRIPT_URL;
     if (initialUrl) {
       pullFromCloud(initialUrl, false);
+    } else {
+      isInitialLoadDone.current = true;
     }
     const syncTimer = setInterval(() => {
       const currentUrl = localStorage.getItem('richter_tw_gas_url') || DEFAULT_APPS_SCRIPT_URL;
@@ -430,7 +506,7 @@ export default function TouchwallApp() {
     return () => clearInterval(syncTimer);
   }, []);
 
-  // 5. In Google Cloud & Google Drive speichern (inkl. Kalender-Konten)
+  // 5. Manuell Konten & Komplettstand in Google sichern
   const pushToCloudAndDrive = async (customMembersList, showFeedback = true) => {
     const targetUrl = appsScriptUrl.trim();
     const listToSave = customMembersList || members;
@@ -458,23 +534,11 @@ export default function TouchwallApp() {
       return;
     }
 
-    setIsSyncing(true);
-    setSyncStatusText('⏳ Speichere in Google...');
-    try {
-      await fetch(targetUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action: 'saveDriveAndSync', payload, calendars: calMap })
-      });
-      const now = new Date();
-      setSyncStatusText(`☁️ Gespeichert (${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')})`);
-      if (showFeedback) showToast('In Google gespeichert', 'Daten & Kalender-IDs wurden mit Google synchronisiert.', '✅');
-    } catch (err) {
-      setSyncStatusText('💾 Lokal gesichert');
-      if (showFeedback) showToast('Lokal gesichert', 'Daten lokal gespeichert.', '💾');
-    } finally {
-      setIsSyncing(false);
-    }
+    await sendCalendarApiAction(
+      { action: 'saveDriveAndSync', payload, calendars: calMap },
+      '⏳ Speichere Konten & Daten...'
+    );
+    if (showFeedback) showToast('In Google gespeichert', 'Daten, Aufgaben & Kalender-IDs wurden synchronisiert.', '✅');
   };
 
   // Theme-Styling
@@ -654,7 +718,6 @@ export default function TouchwallApp() {
     );
   };
 
-  // Zeitraum-Anzeige & Navigation
   const periodLabel = useMemo(() => {
     if (currentView === 'year') return `Jahreswand ${currentBaseDate.getFullYear()} (BW)`;
     const start = getMonday(currentBaseDate);
@@ -698,10 +761,13 @@ export default function TouchwallApp() {
     reader.readAsDataURL(file);
   };
 
-  // Termin speichern / löschen / verschieben
+  // =========================================================
+  // 5. KALENDER-TERMINE SPEICHERN, BEARBEITEN, LÖSCHEN & VERSCHIEBEN (MIT GOOGLE SYNC!)
+  // =========================================================
   const openNewEventModal = (dateStr = todayStr, memberId = 'hans') => {
     setEventModal({
-      open: true, id: null, title: '', date: dateStr, time: '15:00 - 16:00',
+      open: true, id: null, origMember: '', origTitle: '', origDate: '',
+      title: '', date: dateStr, time: '15:00 - 16:00',
       member: memberId, notifyTime: '30m', notifyChannel: 'wall_push',
       notifyUsers: memberId === 'all' ? ['hans', 'sarah', 'dean', 'valentina'] : [memberId]
     });
@@ -710,36 +776,104 @@ export default function TouchwallApp() {
   const openEditEventModal = (e, ev) => {
     if (e) e.stopPropagation();
     setEventModal({
-      open: true, id: ev.id, title: ev.title, date: ev.date, time: ev.time || 'Ganztägig',
+      open: true, id: ev.id,
+      origMember: ev.member, origTitle: ev.title, origDate: ev.date,
+      title: ev.title, date: ev.date, time: ev.time || 'Ganztägig',
       member: ev.member, notifyTime: ev.notifyTime || '30m', notifyChannel: ev.notifyChannel || 'wall_push',
       notifyUsers: ev.notifyUsers || [ev.member]
     });
   };
 
-  const saveEventModal = (e) => {
+  const saveEventModal = async (e) => {
     e.preventDefault();
     if (!eventModal.title.trim()) return;
+
     if (eventModal.id) {
-      setEvents(prev => prev.map(item => item.id === eventModal.id ? { ...item, ...eventModal } : item));
-      showToast('Termin aktualisiert', eventModal.title, '✅');
+      const updatedEv = {
+        id: eventModal.id,
+        title: eventModal.title.trim(),
+        date: eventModal.date,
+        time: eventModal.time.trim(),
+        member: eventModal.member,
+        notifyTime: eventModal.notifyTime,
+        notifyChannel: eventModal.notifyChannel,
+        notifyUsers: eventModal.notifyUsers,
+        fromGoogle: true
+      };
+      setEvents(prev => prev.map(item => String(item.id) === String(eventModal.id) ? updatedEv : item));
+      setEventModal({ ...eventModal, open: false });
+      showToast('Termin aktualisiert', updatedEv.title, '✅');
+
+      await sendCalendarApiAction({
+        action: 'updateEvent',
+        event: updatedEv,
+        oldMember: eventModal.origMember || updatedEv.member,
+        oldTitle: eventModal.origTitle || updatedEv.title,
+        oldDate: eventModal.origDate || updatedEv.date
+      }, '⏳ Aktualisiere in Google Kalender...');
     } else {
-      const newEv = { ...eventModal, id: String(Date.now()) };
+      const newEv = {
+        id: String(Date.now()),
+        title: eventModal.title.trim(),
+        date: eventModal.date,
+        time: eventModal.time.trim(),
+        member: eventModal.member,
+        notifyTime: eventModal.notifyTime,
+        notifyChannel: eventModal.notifyChannel,
+        notifyUsers: eventModal.notifyUsers,
+        fromGoogle: true
+      };
       setEvents(prev => [...prev, newEv]);
-      showToast('Termin eingetragen', eventModal.title, '✅');
+      setEventModal({ ...eventModal, open: false });
+      showToast('Termin eingetragen', newEv.title, '✅');
+
+      await sendCalendarApiAction({
+        action: 'createEvent',
+        event: newEv
+      }, '⏳ Erstelle in Google Kalender...');
     }
-    setEventModal({ ...eventModal, open: false });
   };
 
-  const deleteEventById = (id) => {
-    setEvents(prev => prev.filter(ev => ev.id !== id));
+  const deleteEventById = async (id) => {
+    const targetEv = events.find(ev => String(ev.id) === String(id));
+    setEvents(prev => prev.filter(ev => String(ev.id) !== String(id)));
     setEventModal({ ...eventModal, open: false });
-    showToast('Termin gelöscht', 'Der Eintrag wurde entfernt.', '🗑️');
+    showToast('Termin gelöscht', targetEv ? `„${targetEv.title}“ wurde entfernt.` : 'Eintrag entfernt.', '🗑️');
+
+    if (targetEv) {
+      await sendCalendarApiAction({
+        action: 'deleteEvent',
+        eventId: String(targetEv.id),
+        member: targetEv.member,
+        title: targetEv.title,
+        date: targetEv.date
+      }, '⏳ Lösche im Google Kalender...');
+    }
   };
 
-  const transferEvent = (evId, targetMemberId, targetDateStr) => {
-    setEvents(prev => prev.map(ev => ev.id === evId ? { ...ev, member: targetMemberId, date: targetDateStr || ev.date } : ev));
+  const transferEvent = async (evId, targetMemberId, targetDateStr) => {
+    const targetEv = events.find(ev => String(ev.id) === String(evId));
+    if (!targetEv) return;
+
+    const oldMember = targetEv.member;
+    const oldDate = targetEv.date;
+    const newDate = targetDateStr || targetEv.date;
+    if (oldMember === targetMemberId && oldDate === newDate) return;
+
+    const snapshot = { ...targetEv };
+    setEvents(prev => prev.map(ev => String(ev.id) === String(evId) ? { ...ev, member: targetMemberId, date: newDate } : ev));
     const targetM = members.find(m => m.id === targetMemberId);
     showToast('Termin verschoben', `Übertragen auf ${targetM ? targetM.name : targetMemberId}`, '🔄');
+
+    await sendCalendarApiAction({
+      action: 'moveEvent',
+      eventId: String(snapshot.id),
+      oldMember: oldMember,
+      targetMember: targetMemberId,
+      newDate: newDate,
+      eventSnapshot: snapshot,
+      oldDate: oldDate
+    }, '⏳ Verschiebe im Google Kalender...');
   };
 
   const addExtraCalendarAccount = () => {
@@ -1526,13 +1660,13 @@ export default function TouchwallApp() {
               );
             })()}
 
-            {/* ANSICHT 5: AUFGABEN */}
+            {/* ANSICHT 5: AUFGABEN (MIT AUTOMATISCHEM GOOGLE TASKS SYNC) */}
             {activeSection === 'aufgaben' && (
               <div className="p-6 flex flex-col gap-6">
                 <div className={`p-6 rounded-3xl border shadow-sm flex flex-wrap items-center justify-between gap-4 ${themeStyles.card}`}>
                   <div>
                     <h2 className="text-2xl font-extrabold">✅ Familien-Aufgaben & Ämtli</h2>
-                    <p className={`text-sm font-semibold ${themeStyles.textMuted}`}>Direkt antippen zum Abhaken – inklusive 2-Wege Google Tasks Sync.</p>
+                    <p className={`text-sm font-semibold ${themeStyles.textMuted}`}>Direkt antippen zum Abhaken – wird automatisch mit Google Tasks synchronisiert.</p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2.5">
                     <input
@@ -2127,7 +2261,7 @@ export default function TouchwallApp() {
                       </span>
                       <h2 className="text-2xl font-extrabold mt-2">Google Synchronisation & Kalender-Konten</h2>
                       <p className="text-sm text-slate-300 mt-1">
-                        Verbinde hier deine bestehende Google Apps Script URL. Alle Kalender-IDs werden beim Laden und Speichern automatisch synchronisiert.
+                        Verbinde hier deine bestehende Google Apps Script URL. Alle Termine, Aufgaben und Kalender-IDs synchronisieren in beide Richtungen.
                       </p>
                     </div>
                     <div className="flex flex-wrap gap-2.5">
@@ -2412,18 +2546,24 @@ export default function TouchwallApp() {
               </div>
 
               <form
-                onSubmit={(e) => {
+                onSubmit={async (e) => {
                   e.preventDefault();
                   if (!yearDayModal.newTitle.trim()) return;
-                  setEvents(prev => [...prev, {
+                  const newEv = {
                     id: String(Date.now()),
                     title: yearDayModal.newTitle.trim(),
                     date: yearDayModal.dateStr,
                     time: yearDayModal.newTime || 'Ganztägig',
                     member: yearDayModal.newMember,
-                    notifyTime: '30m'
-                  }]);
+                    notifyTime: '30m',
+                    notifyChannel: 'wall_push',
+                    notifyUsers: [yearDayModal.newMember],
+                    fromGoogle: true
+                  };
+                  setEvents(prev => [...prev, newEv]);
                   setYearDayModal({ ...yearDayModal, newTitle: '' });
+                  showToast('Termin eingetragen', newEv.title, '✅');
+                  await sendCalendarApiAction({ action: 'createEvent', event: newEv }, '⏳ Erstelle in Google Kalender...');
                 }}
                 className={`p-4 rounded-2xl border space-y-3 ${themeStyles.subtle}`}
               >
