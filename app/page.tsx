@@ -8,7 +8,7 @@ import {
   Calendar, GraduationCap, CheckSquare, Utensils, FileText,
   Palette, Cloud, Plus, ChevronLeft, ChevronRight, Maximize2,
   Smartphone, RefreshCw, Download, Upload, QrCode, X, Volume2,
-  ShieldCheck, BellRing, Copy, ClipboardPaste
+  ShieldCheck, BellRing, Copy, ClipboardPaste, ShoppingCart, Clock, Bell
 } from 'lucide-react';
 
 // =========================================================
@@ -311,10 +311,10 @@ export default function TouchwallApp() {
   const [schoolData, setSchoolData] = useState(DEFAULT_SCHOOL);
   const [activeSchoolChild, setActiveSchoolChild] = useState('dean');
   const [familyTasks, setFamilyTasks] = useState([
-    { id: 1, member: 'hans',      title: 'Touchwall Vollbild & Google Sync prüfen', due: 'Heute', done: false },
-    { id: 2, member: 'sarah',     title: 'Essensplan für nächste Woche durchsehen', due: 'Morgen', done: false },
-    { id: 3, member: 'dean',      title: '🎒 Schultasche & Sportzeug richten',      due: 'Heute', done: false },
-    { id: 4, member: 'valentina', title: '🧸 Zimmer aufräumen & 15 Min. Lesen',     due: 'Heute', done: false }
+    { id: 1, member: 'hans',      title: 'Touchwall Vollbild & Google Sync prüfen', due: 'Heute', dueDate: '', dueTime: '', notifyTime: '30m', notifyChannel: 'wall_push', done: false },
+    { id: 2, member: 'sarah',     title: 'Essensplan für nächste Woche durchsehen', due: 'Morgen', dueDate: '', dueTime: '', notifyTime: '30m', notifyChannel: 'wall_push', done: false },
+    { id: 3, member: 'dean',      title: '🎒 Schultasche & Sportzeug richten',      due: 'Heute', dueDate: '', dueTime: '17:00', notifyTime: '15m', notifyChannel: 'wall_push', done: false },
+    { id: 4, member: 'valentina', title: '🧸 Zimmer aufräumen & 15 Min. Lesen',     due: 'Heute', dueDate: '', dueTime: '16:30', notifyTime: '15m', notifyChannel: 'wall_push', done: false }
   ]);
 
   // Modals, Drag-and-Drop & Kopieren/Einfügen
@@ -325,11 +325,15 @@ export default function TouchwallApp() {
     notifyTime: '30m', notifyChannel: 'wall_push',
     notifyUsers: ['hans', 'sarah', 'dean', 'valentina']
   });
+  const [taskModal, setTaskModal] = useState({
+    open: false, id: null, title: '', member: 'hans',
+    dueDate: '', dueTime: '16:00', notifyTime: '15m', notifyChannel: 'wall_push', syncToCalendar: false
+  });
   const [yearDayModal, setYearDayModal] = useState({ open: false, dateStr: '', newTitle: '', newTime: 'Ganztägig', newMember: 'all' });
   const [schoolModal, setSchoolModal] = useState({ open: false, dayIdx: 0, periodIdx: 0, subject: '', room: '', status: 'normal' });
   const [qrModalOpen, setQrModalOpen] = useState(false);
 
-  // Neu: Verbessertes Drag & Drop + Termin-Kopierspeicher
+  // Flackerfreies Drag & Drop + Termin-Kopierspeicher
   const [draggedEv, setDraggedEv] = useState(null);
   const [dragOverCell, setDragOverCell] = useState(null);
   const [copiedEvent, setCopiedEvent] = useState(null);
@@ -338,6 +342,10 @@ export default function TouchwallApp() {
   const [newSchoolNote, setNewSchoolNote] = useState('');
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newTaskMember, setNewTaskMember] = useState('hans');
+  const [newTaskDueDate, setNewTaskDueDate] = useState('');
+  const [newTaskDueTime, setNewTaskDueTime] = useState('');
+  const [newTaskNotify, setNewTaskNotify] = useState('15m');
+  const [shoppingQuickInput, setShoppingQuickInput] = useState('');
   const [colTaskInputs, setColTaskInputs] = useState({});
   const [ingInputs, setIngInputs] = useState({});
   const [noteInputs, setNoteInputs] = useState({});
@@ -353,7 +361,7 @@ export default function TouchwallApp() {
   };
 
   // =========================================================
-  // BROWSER-PUSH & SOUND-ALARM ENGINE
+  // BROWSER-PUSH & SOUND-ALARM ENGINE (FÜR TERMINE UND TASKS!)
   // =========================================================
   useEffect(() => {
     if (typeof window !== 'undefined' && 'Notification' in window) {
@@ -375,7 +383,7 @@ export default function TouchwallApp() {
     setPushPermission(perm);
     if (perm === 'granted') {
       new Notification('🔔 Familien-Touchwall Push aktiv!', {
-        body: 'Browser-Push-Benachrichtigungen & Sound-Alarme sind jetzt eingeschaltet.',
+        body: 'Browser-Push-Benachrichtigungen & Sound-Alarme für Termine & Tasks sind eingeschaltet.',
         tag: 'touchwall-init'
       });
       showToast('Browser-Push aktiviert', 'Du erhältst jetzt echte Push- & Sound-Alarme!', '🔔');
@@ -404,7 +412,7 @@ export default function TouchwallApp() {
 
     if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
       try {
-        new Notification(`🔔 Termin-Erinnerung: ${evObj.title || 'Termin'}`, {
+        new Notification(`🔔 Erinnerung: ${evObj.title || 'Termin'}`, {
           body: `⏰ ${evObj.time || 'Heute'} • Für: ${whoNames} (${evObj.notifyTime} vorher)`,
           tag: `tw-alarm-${evObj.id || Date.now()}`
         });
@@ -412,12 +420,14 @@ export default function TouchwallApp() {
     }
   };
 
+  // Prüft alle 20 Sekunden sowohl Kalender-Termine ALS AUCH Aufgaben mit Frist/Uhrzeit
   useEffect(() => {
     const offsetMinutesMap = { '0m': 0, '5m': 5, '15m': 15, '30m': 30, '1h': 60, '2h': 120, '1d': 1440 };
-    const checkUpcomingEventAlarms = () => {
+    const checkUpcomingAlarms = () => {
       const now = new Date();
       const nowMs = now.getTime();
 
+      // A) Kalender-Termine prüfen
       events.forEach(ev => {
         if (!ev || !ev.date || !ev.notifyTime || ev.notifyTime === 'none') return;
         const offsetMins = offsetMinutesMap[ev.notifyTime];
@@ -438,20 +448,48 @@ export default function TouchwallApp() {
         const alarmTriggerMs = eventStart.getTime() - offsetMins * 60 * 1000;
         const diffMs = nowMs - alarmTriggerMs;
 
-        const alarmKey = `${ev.id || ev.title}_${ev.date}_${ev.time}_${ev.notifyTime}`;
+        const alarmKey = `ev_${ev.id || ev.title}_${ev.date}_${ev.time}_${ev.notifyTime}`;
         if (diffMs >= 0 && diffMs <= 180000 && !triggeredAlarmsRef.current[alarmKey]) {
           triggeredAlarmsRef.current[alarmKey] = nowMs;
-          try {
-            localStorage.setItem('richter_tw_triggered_alarms', JSON.stringify(triggeredAlarmsRef.current));
-          } catch (e) {}
+          try { localStorage.setItem('richter_tw_triggered_alarms', JSON.stringify(triggeredAlarmsRef.current)); } catch (e) {}
           triggerEventAlarmNow(ev, false);
+        }
+      });
+
+      // B) Aufgaben (Tasks) mit Frist & Uhrzeit prüfen
+      familyTasks.forEach(task => {
+        if (!task || task.done || !task.dueTime || !task.notifyTime || task.notifyTime === 'none') return;
+        const targetDateStr = task.dueDate || todayStr;
+        const offsetMins = offsetMinutesMap[task.notifyTime] !== undefined ? offsetMinutesMap[task.notifyTime] : 0;
+        const parts = String(targetDateStr).split('-');
+        if (parts.length !== 3) return;
+
+        const timeMatch = String(task.dueTime).match(/(\d{1,2}):(\d{2})/);
+        if (!timeMatch) return;
+
+        const taskDue = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]), Number(timeMatch[1]), Number(timeMatch[2]), 0);
+        const alarmTriggerMs = taskDue.getTime() - offsetMins * 60 * 1000;
+        const diffMs = nowMs - alarmTriggerMs;
+
+        const alarmKey = `task_${task.id}_${targetDateStr}_${task.dueTime}_${task.notifyTime}`;
+        if (diffMs >= 0 && diffMs <= 180000 && !triggeredAlarmsRef.current[alarmKey]) {
+          triggeredAlarmsRef.current[alarmKey] = nowMs;
+          try { localStorage.setItem('richter_tw_triggered_alarms', JSON.stringify(triggeredAlarmsRef.current)); } catch (e) {}
+          triggerEventAlarmNow({
+            id: task.id,
+            title: `✅ Aufgabe fällig: ${task.title}`,
+            date: targetDateStr,
+            time: `${task.dueTime} Uhr`,
+            notifyTime: task.notifyTime,
+            notifyUsers: [task.member]
+          }, false);
         }
       });
     };
 
-    const alarmTimer = setInterval(checkUpcomingEventAlarms, 20000);
+    const alarmTimer = setInterval(checkUpcomingAlarms, 20000);
     return () => clearInterval(alarmTimer);
-  }, [events, members, todayStr]);
+  }, [events, familyTasks, members, todayStr]);
 
   // Zentrale Hilfsfunktion für POST-Aufrufe an Google Apps Script
   const sendCalendarApiAction = async (bodyData, statusLabel = '⏳ Synchronisiere mit Google...') => {
@@ -690,7 +728,7 @@ export default function TouchwallApp() {
       { action: 'saveDriveAndSync', payload, calendars: calMap },
       '⏳ Speichere Konten & Tasks...'
     );
-    if (showFeedback) showToast('In Google gespeichert', 'Kalender, Google Tasks & Listen sind synchronisiert.', '✅');
+    if (showFeedback) showToast('In Google gespeichert', 'Namen, Kalender, Google Tasks & Listen sind synchronisiert.', '✅');
   };
 
   const runAllPermissionsTest = async () => {
@@ -838,7 +876,7 @@ export default function TouchwallApp() {
     }
   }, [currentTheme]);
 
-  // Abgemilderte, harmonische Termin- & Zeilenfarben (nicht mehr grell übersteuert)
+  // Angenehm gedämpfte Termin- & Zeilenfarben
   const getMemberStyles = (member) => {
     const p = COLOR_PALETTES[member.color] || COLOR_PALETTES.royal_bold;
     const dark = themeStyles.dark;
@@ -970,7 +1008,143 @@ export default function TouchwallApp() {
   };
 
   // =========================================================
-  // 5. KALENDER-TERMINE SPEICHERN, KOPIEREN, EINFÜGEN & VERSCHIEBEN
+  // 5. EINKAUFSLISTE ALS TASKS-KACHEL & AUFGABEN-FRISTEN
+  // =========================================================
+  const shoppingNoteBlock = useMemo(() => {
+    return familyNotes[0] || { id: 1, title: '🛒 Einkaufsliste (Geteilt)', color: 'amber', author: 'Familie', items: [] };
+  }, [familyNotes]);
+
+  const addShoppingItem = (textStr) => {
+    const clean = String(textStr || '').trim();
+    if (!clean) return;
+    setFamilyNotes(prev => {
+      if (prev.length === 0) {
+        return [{ id: 1, title: '🛒 Einkaufsliste (Geteilt)', color: 'amber', author: 'Familie', items: [{ text: clean, done: false }] }];
+      }
+      return prev.map((n, idx) => idx === 0 ? {
+        ...n,
+        items: [{ text: clean, done: false }, ...(n.items || [])]
+      } : n);
+    });
+  };
+
+  const toggleShoppingItem = (itemIdx) => {
+    setFamilyNotes(prev => prev.map((n, idx) => idx === 0 ? {
+      ...n,
+      items: (n.items || []).map((it, i) => i === itemIdx ? { ...it, done: !it.done } : it)
+    } : n));
+  };
+
+  const deleteShoppingItem = (itemIdx) => {
+    setFamilyNotes(prev => prev.map((n, idx) => idx === 0 ? {
+      ...n,
+      items: (n.items || []).filter((_, i) => i !== itemIdx)
+    } : n));
+  };
+
+  const clearCompletedShoppingItems = () => {
+    setFamilyNotes(prev => prev.map((n, idx) => idx === 0 ? {
+      ...n,
+      items: (n.items || []).filter(it => !it.done)
+    } : n));
+  };
+
+  // Neue Aufgabe inkl. Frist / Uhrzeit / Handy-Kalender-Push anlegen
+  const addNewTaskWithSettings = async (titleStr, memberId, dueDateStr = '', dueTimeStr = '', notifyStr = '15m', pushToCal = false) => {
+    const clean = String(titleStr || '').trim();
+    if (!clean) return;
+    const dueLabel = dueDateStr
+      ? `${dueDateStr.slice(8, 10)}.${dueDateStr.slice(5, 7)}.${dueTimeStr ? ' ' + dueTimeStr : ''}`
+      : (dueTimeStr ? `Heute ${dueTimeStr}` : 'Heute');
+
+    const newTask = {
+      id: Date.now() + Math.floor(Math.random() * 1000),
+      member: memberId,
+      title: clean,
+      due: dueLabel,
+      dueDate: dueDateStr,
+      dueTime: dueTimeStr,
+      notifyTime: notifyStr,
+      notifyChannel: pushToCal ? 'cal_push' : 'wall_push',
+      done: false
+    };
+
+    setFamilyTasks(prev => [newTask, ...prev]);
+    showToast('Aufgabe angelegt', `${clean} (${dueLabel})`, '✅');
+
+    // Optional direkt als Kalender-Erinnerung auf das Handy des Familienmitglieds pushen
+    if (pushToCal) {
+      const calEv = {
+        id: String(Date.now() + 500),
+        title: `✅ Aufgabe: ${clean}`,
+        date: dueDateStr || todayStr,
+        time: dueTimeStr ? `${dueTimeStr} - ${dueTimeStr}` : 'Ganztägig',
+        member: memberId,
+        notifyTime: notifyStr === 'none' ? '15m' : notifyStr,
+        notifyChannel: 'push',
+        notifyUsers: [memberId],
+        fromGoogle: true
+      };
+      setEvents(prev => [...prev, calEv]);
+      await sendCalendarApiAction({ action: 'createEvent', event: calEv }, '📲 Sende Task-Alarm an Handy-Kalender...');
+    }
+  };
+
+  const openEditTaskModal = (e, task) => {
+    if (e) e.stopPropagation();
+    setTaskModal({
+      open: true,
+      id: task.id,
+      title: task.title || '',
+      member: task.member || 'hans',
+      dueDate: task.dueDate || todayStr,
+      dueTime: task.dueTime || '16:00',
+      notifyTime: task.notifyTime || '15m',
+      notifyChannel: task.notifyChannel || 'wall_push',
+      syncToCalendar: false
+    });
+  };
+
+  const saveTaskModal = async (e) => {
+    e.preventDefault();
+    if (!taskModal.title.trim()) return;
+    const dueLabel = taskModal.dueDate
+      ? `${taskModal.dueDate.slice(8, 10)}.${taskModal.dueDate.slice(5, 7)}.${taskModal.dueTime ? ' ' + taskModal.dueTime : ''}`
+      : (taskModal.dueTime ? `Heute ${taskModal.dueTime}` : 'Heute');
+
+    setFamilyTasks(prev => prev.map(t => t.id === taskModal.id ? {
+      ...t,
+      title: taskModal.title.trim(),
+      member: taskModal.member,
+      due: dueLabel,
+      dueDate: taskModal.dueDate,
+      dueTime: taskModal.dueTime,
+      notifyTime: taskModal.notifyTime,
+      notifyChannel: taskModal.notifyChannel
+    } : t));
+
+    setTaskModal({ ...taskModal, open: false });
+    showToast('Aufgaben-Frist gespeichert', `${taskModal.title} (${dueLabel})`, '⏰');
+
+    if (taskModal.syncToCalendar) {
+      const calEv = {
+        id: String(Date.now()),
+        title: `✅ Aufgabe: ${taskModal.title.trim()}`,
+        date: taskModal.dueDate || todayStr,
+        time: taskModal.dueTime ? `${taskModal.dueTime} - ${taskModal.dueTime}` : 'Ganztägig',
+        member: taskModal.member,
+        notifyTime: taskModal.notifyTime === 'none' ? '15m' : taskModal.notifyTime,
+        notifyChannel: 'push',
+        notifyUsers: [taskModal.member],
+        fromGoogle: true
+      };
+      setEvents(prev => [...prev, calEv]);
+      await sendCalendarApiAction({ action: 'createEvent', event: calEv }, '📲 Sende Task-Erinnerung an Google Kalender...');
+    }
+  };
+
+  // =========================================================
+  // 6. KALENDER-TERMINE SPEICHERN, KOPIEREN, EINFÜGEN & VERSCHIEBEN
   // =========================================================
   const duplicateEventToTarget = async (sourceEv, targetMemberId, targetDateStr) => {
     const newDate = targetDateStr || sourceEv.date || todayStr;
@@ -1347,7 +1521,7 @@ export default function TouchwallApp() {
                 </span>
 
                 <span className={`text-[11px] font-semibold ${themeStyles.textMuted} hidden xl:inline`}>
-                  📋 Tipp: Mit dem Kopieren-Symbol auf jedem Termin kannst du Termine bei anderen einfügen!
+                  🛒 Einkaufsliste als Tasks-Kachel aktiv • 📋 Termine per Klick kopierbar
                 </span>
               </div>
             </div>
@@ -1403,7 +1577,7 @@ export default function TouchwallApp() {
             </div>
           </header>
 
-          {/* LEISTE FÜR AKTIVEN KOPIER-MODUS (WENN EIN TERMIN KOPIERT WURDE) */}
+          {/* LEISTE FÜR AKTIVEN KOPIER-MODUS */}
           {copiedEvent && (
             <div className="bg-amber-400 text-slate-950 px-5 py-2.5 flex flex-wrap items-center justify-between gap-3 border-b-2 border-slate-900 shadow-md z-30 shrink-0">
               <div className="flex items-center gap-2.5 text-xs sm:text-sm font-black">
@@ -1424,7 +1598,7 @@ export default function TouchwallApp() {
           {/* HAUPT-VIEWPORT */}
           <main className={`flex-1 overflow-auto ${themeStyles.viewport}`}>
 
-            {/* ANSICHT 1: KALENDER (1W & 2W) */}
+            {/* ANSICHT 1: KALENDER (1W & 2W) - MIT BLAUEM GLOW & PULSIERENDEM ZOOM BEIM DRAG & DROP */}
             {activeSection === 'kalender' && (currentView === '1w' || currentView === '2w') && (() => {
               const numDays = currentView === '1w' ? 7 : 14;
               const startMonday = getMonday(currentBaseDate);
@@ -1535,12 +1709,19 @@ export default function TouchwallApp() {
                               <div
                                 key={dateStr}
                                 onClick={() => handleCalendarCellClick(dateStr, member.id)}
+                                onDragEnter={(e) => {
+                                  e.preventDefault();
+                                  if (draggedEv && dragOverCell !== cellKey) setDragOverCell(cellKey);
+                                }}
                                 onDragOver={(e) => {
                                   e.preventDefault();
-                                  if (dragOverCell !== cellKey) setDragOverCell(cellKey);
+                                  if (draggedEv && dragOverCell !== cellKey) setDragOverCell(cellKey);
                                 }}
-                                onDragLeave={() => {
-                                  if (dragOverCell === cellKey) setDragOverCell(null);
+                                onDragLeave={(e) => {
+                                  // Verhindert jegliches Flackern beim Ziehen über Kind-Elemente innerhalb der Zelle!
+                                  if (!e.currentTarget.contains(e.relatedTarget)) {
+                                    if (dragOverCell === cellKey) setDragOverCell(null);
+                                  }
                                 }}
                                 onDrop={(e) => {
                                   e.preventDefault();
@@ -1555,22 +1736,16 @@ export default function TouchwallApp() {
                                   }
                                 }}
                                 style={st.cellStyle(isWeekend)}
-                                className={`p-2 border-r-2 flex flex-col gap-1.5 transition-all cursor-pointer relative ${themeStyles.divider} ${
+                                className={`p-2 border-r-2 flex flex-col gap-1.5 transition-all duration-200 cursor-pointer relative ${themeStyles.divider} ${
                                   idx === 7 ? 'border-l-4' : ''
                                 } ${isToday ? 'ring-2 ring-inset ring-orange-400' : ''} ${
-                                  isDragTarget ? 'ring-4 ring-inset ring-amber-400 !bg-indigo-500/35 scale-[0.99] z-10' : 'hover:brightness-105'
+                                  isDragTarget
+                                    ? 'ring-4 ring-inset ring-sky-400 !bg-sky-500/25 shadow-[0_0_28px_rgba(56,189,248,0.75)] scale-[1.02] animate-pulse z-20 rounded-xl'
+                                    : 'hover:brightness-105'
                                 }`}
                               >
-                                {/* DEUTLICHE DRAG & DROP ZIEL-ANZEIGE */}
-                                {isDragTarget && draggedEv && (
-                                  <div className="p-2 rounded-xl border-2 border-dashed border-amber-300 bg-slate-900/90 text-amber-300 text-[11px] font-black text-center shadow-lg animate-pulse">
-                                    📥 Hier ablegen: „{draggedEv.title}“ ({member.name.split(' ')[0]})
-                                  </div>
-                                )}
-
-                                {/* KOPIER-MODUS EINFÜGE-HINWEIS */}
                                 {copiedEvent && (
-                                  <div className="px-2 py-0.5 rounded-lg bg-amber-400/20 border border-dashed border-amber-400/60 text-[10px] font-extrabold text-center opacity-75 hover:opacity-100">
+                                  <div className="px-2 py-0.5 rounded-lg bg-amber-400/20 border border-dashed border-amber-400/60 text-[10px] font-extrabold text-center opacity-75 hover:opacity-100 pointer-events-none">
                                     + 📋 Hier einfügen
                                   </div>
                                 )}
@@ -1589,7 +1764,7 @@ export default function TouchwallApp() {
                                       onClick={(e) => openEditEventModal(e, ev)}
                                       style={st.cardStyle}
                                       className={`group rounded-xl p-2 shadow-sm flex flex-col justify-between cursor-grab active:cursor-grabbing transition-all relative ${
-                                        isBeingDragged ? 'opacity-40 scale-95 ring-2 ring-amber-400' : 'hover:shadow-md'
+                                        isBeingDragged ? 'opacity-40 scale-95 ring-2 ring-sky-400' : 'hover:shadow-md'
                                       }`}
                                     >
                                       <div className="flex items-start justify-between gap-1">
@@ -1625,7 +1800,7 @@ export default function TouchwallApp() {
               );
             })()}
 
-            {/* ANSICHT 2: 4-WOCHEN-ÜBERSICHT */}
+            {/* ANSICHT 2: 4-WOCHEN-ÜBERSICHT (MIT BLAUEM GLOW & PULSIERENDEM ZOOM) */}
             {activeSection === 'kalender' && currentView === '4w' && (() => {
               const startMonday = getMonday(currentBaseDate);
               return (
@@ -1687,12 +1862,18 @@ export default function TouchwallApp() {
                                     <div
                                       key={d}
                                       onClick={() => handleCalendarCellClick(dateStr, member.id)}
+                                      onDragEnter={(e) => {
+                                        e.preventDefault();
+                                        if (draggedEv && dragOverCell !== cellKey) setDragOverCell(cellKey);
+                                      }}
                                       onDragOver={(e) => {
                                         e.preventDefault();
-                                        if (dragOverCell !== cellKey) setDragOverCell(cellKey);
+                                        if (draggedEv && dragOverCell !== cellKey) setDragOverCell(cellKey);
                                       }}
-                                      onDragLeave={() => {
-                                        if (dragOverCell === cellKey) setDragOverCell(null);
+                                      onDragLeave={(e) => {
+                                        if (!e.currentTarget.contains(e.relatedTarget)) {
+                                          if (dragOverCell === cellKey) setDragOverCell(null);
+                                        }
                                       }}
                                       onDrop={(e) => {
                                         e.preventDefault();
@@ -1703,8 +1884,10 @@ export default function TouchwallApp() {
                                         }
                                       }}
                                       style={st.cellStyle(isWeekend)}
-                                      className={`min-h-[58px] p-1.5 border-r-2 flex flex-col gap-1 cursor-pointer transition-all ${themeStyles.divider} ${
-                                        isDragTarget ? 'ring-4 ring-inset ring-amber-400 !bg-indigo-500/35' : ''
+                                      className={`min-h-[58px] p-1.5 border-r-2 flex flex-col gap-1 cursor-pointer transition-all duration-200 ${themeStyles.divider} ${
+                                        isDragTarget
+                                          ? 'ring-4 ring-inset ring-sky-400 !bg-sky-500/25 shadow-[0_0_25px_rgba(56,189,248,0.75)] scale-[1.02] animate-pulse z-20 rounded-xl'
+                                          : ''
                                       }`}
                                     >
                                       {cellEvents.map(ev => (
@@ -1870,13 +2053,13 @@ export default function TouchwallApp() {
                         onClick={() => setActiveSchoolChild('dean')}
                         className={`px-6 py-3 rounded-2xl font-extrabold text-sm cursor-pointer ${activeSchoolChild === 'dean' ? 'bg-indigo-600 text-white shadow-md' : themeStyles.subtle}`}
                       >
-                        👦 Dean
+                        👦 {members.find(m => m.id === 'dean')?.name || 'Dean'}
                       </button>
                       <button
                         onClick={() => setActiveSchoolChild('valentina')}
                         className={`px-6 py-3 rounded-2xl font-extrabold text-sm cursor-pointer ${activeSchoolChild === 'valentina' ? 'bg-indigo-600 text-white shadow-md' : themeStyles.subtle}`}
                       >
-                        👧 Valentina
+                        👧 {members.find(m => m.id === 'valentina')?.name || 'Valentina'}
                       </button>
                       <button
                         onClick={() => {
@@ -2054,187 +2237,388 @@ export default function TouchwallApp() {
               );
             })()}
 
-            {/* ANSICHT 5: AUFGABEN */}
-            {activeSection === 'aufgaben' && (
-              <div className="p-6 flex flex-col gap-6">
-                <div className={`p-6 rounded-3xl border shadow-sm flex flex-wrap items-center justify-between gap-4 ${themeStyles.card}`}>
-                  <div>
-                    <div className="flex items-center gap-3 flex-wrap">
-                      <h2 className="text-2xl font-extrabold">✅ Familien-Aufgaben & Ämtli</h2>
-                      <button
-                        onClick={() => pullFromCloud(undefined, true)}
-                        className="px-3.5 py-1.5 rounded-xl bg-emerald-600 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
-                      >
-                        <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} /> Handy-Tasks jetzt abrufen
-                      </button>
-                    </div>
-                    <p className={`text-sm font-semibold mt-1 ${themeStyles.textMuted}`}>
-                      2-Wege-Sync mit „TW Aufgaben: Hans / Sarah / Dean / Valentina“ – am Handy erledigte Aufgaben wandern automatisch nach unten in „Erledigt“.
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2.5">
-                    <input
-                      type="text"
-                      value={newTaskTitle}
-                      onChange={(e) => setNewTaskTitle(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && newTaskTitle.trim()) {
-                          setFamilyTasks(prev => [{ id: Date.now(), member: newTaskMember, title: newTaskTitle.trim(), due: 'Heute', done: false }, ...prev]);
-                          setNewTaskTitle('');
-                        }
-                      }}
-                      placeholder="Neue Aufgabe eintragen..."
-                      className={`px-4 py-3 rounded-xl border text-sm font-bold w-72 ${themeStyles.input}`}
-                    />
-                    <select
-                      value={newTaskMember}
-                      onChange={(e) => setNewTaskMember(e.target.value)}
-                      className={`px-4 py-3 rounded-xl border text-sm font-bold ${themeStyles.input}`}
-                    >
-                      {members.filter(m => m.id !== 'all').map(m => (
-                        <option key={m.id} value={m.id} className="bg-slate-800 text-white">{m.name}</option>
-                      ))}
-                    </select>
-                    <button
-                      onClick={() => {
-                        if (!newTaskTitle.trim()) return;
-                        setFamilyTasks(prev => [{ id: Date.now(), member: newTaskMember, title: newTaskTitle.trim(), due: 'Heute', done: false }, ...prev]);
-                        setNewTaskTitle('');
-                      }}
-                      className="px-6 py-3 bg-indigo-600 text-white rounded-xl font-extrabold text-sm cursor-pointer"
-                    >
-                      + Hinzufügen
-                    </button>
-                  </div>
-                </div>
+            {/* =========================================================
+                ANSICHT 5: AUFGABEN & EINKAUFSLISTE ALS GOOGLE TASKS KACHEL + FRISTEN
+               ========================================================= */}
+            {activeSection === 'aufgaben' && (() => {
+              const shopItems = shoppingNoteBlock.items || [];
+              const openShopItems = shopItems.map((it, idx) => ({ ...it, origIdx: idx })).filter(it => !it.done);
+              const doneShopItems = shopItems.map((it, idx) => ({ ...it, origIdx: idx })).filter(it => it.done);
 
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
-                  {members.filter(m => m.id !== 'all').map(member => {
-                    const mTasks = familyTasks.filter(t => t.member === member.id);
-                    const openTasks = mTasks.filter(t => !t.done);
-                    const doneTasks = mTasks.filter(t => t.done);
-                    const st = getMemberStyles(member);
-
-                    return (
-                      <div key={member.id} className={`rounded-3xl border-2 shadow-sm overflow-hidden flex flex-col justify-between min-h-[430px] ${themeStyles.card}`}>
-                        <div className="flex-1 flex flex-col">
-                          <div style={st.headerStyle} className={`p-5 border-b flex items-center justify-between ${themeStyles.divider}`}>
-                            <div className="flex items-center gap-3">
-                              {renderAvatar(member, 'w-11 h-11', 'text-lg')}
-                              <div>
-                                <div className="font-extrabold text-lg">{member.name}</div>
-                                <div className={`text-xs font-semibold ${themeStyles.textMuted}`}>{member.role}</div>
-                              </div>
-                            </div>
-                            <span className="px-3 py-1 rounded-full bg-black/25 text-xs font-extrabold">{openTasks.length} offen</span>
-                          </div>
-
-                          <div className="p-4 space-y-2.5 flex-1">
-                            {openTasks.length === 0 && (
-                              <div className="py-6 text-center text-xs font-bold opacity-50">
-                                🎉 Keine offenen Aufgaben!
-                              </div>
-                            )}
-                            {openTasks.map(task => (
-                              <div
-                                key={task.id}
-                                onClick={() => setFamilyTasks(prev => prev.map(t => t.id === task.id ? { ...t, done: true } : t))}
-                                className={`p-3.5 rounded-2xl border flex items-center justify-between gap-3 cursor-pointer ${themeStyles.subtle}`}
-                              >
-                                <div className="flex items-center gap-3 min-w-0">
-                                  <input type="checkbox" checked={false} readOnly className="w-5 h-5 accent-indigo-600 rounded cursor-pointer" />
-                                  <span className="text-sm font-bold break-words">{task.title}</span>
-                                </div>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setFamilyTasks(prev => prev.filter(t => t.id !== task.id));
-                                  }}
-                                  className="opacity-50 hover:opacity-100 hover:text-rose-400 font-bold cursor-pointer"
-                                >
-                                  ✕
-                                </button>
-                              </div>
-                            ))}
-
-                            {doneTasks.length > 0 && (
-                              <div className={`pt-3 mt-3 border-t space-y-2 ${themeStyles.divider}`}>
-                                <div className="flex items-center justify-between text-xs font-extrabold opacity-75">
-                                  <span>☑️ Erledigt ({doneTasks.length})</span>
-                                  <button
-                                    onClick={() => setFamilyTasks(prev => prev.filter(t => !(t.member === member.id && t.done)))}
-                                    className="text-rose-400 hover:underline cursor-pointer"
-                                  >
-                                    🗑️ Erledigte leeren
-                                  </button>
-                                </div>
-                                {doneTasks.map(task => (
-                                  <div
-                                    key={task.id}
-                                    onClick={() => setFamilyTasks(prev => prev.map(t => t.id === task.id ? { ...t, done: false } : t))}
-                                    className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 cursor-pointer opacity-55 ${themeStyles.subtle}`}
-                                  >
-                                    <div className="flex items-center gap-2.5 min-w-0">
-                                      <input type="checkbox" checked={true} readOnly className="w-4 h-4 accent-emerald-600 rounded cursor-pointer" />
-                                      <span className="text-xs font-bold line-through break-words">{task.title}</span>
-                                    </div>
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setFamilyTasks(prev => prev.filter(t => t.id !== task.id));
-                                      }}
-                                      className="text-xs opacity-60 hover:opacity-100 hover:text-rose-400 font-bold cursor-pointer"
-                                    >
-                                      ✕
-                                    </button>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className={`p-4 border-t flex gap-2 ${themeStyles.subtle} ${themeStyles.divider}`}>
-                          <input
-                            type="text"
-                            value={colTaskInputs[member.id] || ''}
-                            onChange={(e) => setColTaskInputs({ ...colTaskInputs, [member.id]: e.target.value })}
-                            onKeyDown={(e) => {
-                              const val = (colTaskInputs[member.id] || '').trim();
-                              if (e.key === 'Enter' && val) {
-                                setFamilyTasks(prev => [...prev, { id: Date.now(), member: member.id, title: val, due: 'Heute', done: false }]);
-                                setColTaskInputs({ ...colTaskInputs, [member.id]: '' });
-                              }
-                            }}
-                            placeholder={`Aufgabe für ${member.name}...`}
-                            className={`flex-1 px-4 py-2 rounded-xl border text-sm font-semibold ${themeStyles.input}`}
-                          />
+              return (
+                <div className="p-6 flex flex-col gap-6">
+                  <div className={`p-6 rounded-3xl border shadow-sm space-y-4 ${themeStyles.card}`}>
+                    <div className="flex flex-wrap items-center justify-between gap-4">
+                      <div>
+                        <div className="flex items-center gap-3 flex-wrap">
+                          <h2 className="text-2xl font-extrabold">✅ Familien-Aufgaben & 🛒 Einkaufsliste (Google Tasks)</h2>
                           <button
-                            onClick={() => {
-                              const val = (colTaskInputs[member.id] || '').trim();
-                              if (!val) return;
-                              setFamilyTasks(prev => [...prev, { id: Date.now(), member: member.id, title: val, due: 'Heute', done: false }]);
-                              setColTaskInputs({ ...colTaskInputs, [member.id]: '' });
-                            }}
-                            className="w-10 h-10 rounded-xl bg-indigo-600 text-white font-bold cursor-pointer"
+                            onClick={() => pullFromCloud(undefined, true)}
+                            className="px-3.5 py-1.5 rounded-xl bg-emerald-600 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
                           >
-                            +
+                            <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} /> Handy-Tasks abrufen
                           </button>
                         </div>
+                        <p className={`text-sm font-semibold mt-1 ${themeStyles.textMuted}`}>
+                          Inklusive zeitlicher Fristen, Touchwall-Alarm & direkter Einkaufslisten-Kachel (synchron mit Essensplan & Google Tasks).
+                        </p>
                       </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
+                    </div>
 
-            {/* ANSICHT 6: ESSENSPLAN */}
+                    {/* KOMFORT-LEISTE ZUM ANLEGEN MIT FRIST & ERINNERUNG */}
+                    <div className={`p-4 rounded-2xl border flex flex-wrap items-center gap-2.5 ${themeStyles.subtle}`}>
+                      <input
+                        type="text"
+                        value={newTaskTitle}
+                        onChange={(e) => setNewTaskTitle(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && newTaskTitle.trim()) {
+                            addNewTaskWithSettings(newTaskTitle, newTaskMember, newTaskDueDate, newTaskDueTime, newTaskNotify, false);
+                            setNewTaskTitle('');
+                          }
+                        }}
+                        placeholder="Neue Aufgabe mit Frist eintragen..."
+                        className={`flex-1 min-w-[220px] px-4 py-2.5 rounded-xl border text-sm font-bold ${themeStyles.input}`}
+                      />
+                      <select
+                        value={newTaskMember}
+                        onChange={(e) => setNewTaskMember(e.target.value)}
+                        className={`px-3.5 py-2.5 rounded-xl border text-xs font-extrabold ${themeStyles.input}`}
+                      >
+                        {members.filter(m => m.id !== 'all').map(m => (
+                          <option key={m.id} value={m.id} className="bg-slate-800 text-white">👤 {m.name}</option>
+                        ))}
+                      </select>
+                      <input
+                        type="date"
+                        value={newTaskDueDate}
+                        onChange={(e) => setNewTaskDueDate(e.target.value)}
+                        title="Fälligkeitsdatum (optional)"
+                        className={`px-3 py-2 rounded-xl border text-xs font-bold ${themeStyles.input}`}
+                      />
+                      <input
+                        type="time"
+                        value={newTaskDueTime}
+                        onChange={(e) => setNewTaskDueTime(e.target.value)}
+                        title="Uhrzeit für Erinnerung (optional)"
+                        className={`px-3 py-2 rounded-xl border text-xs font-bold ${themeStyles.input}`}
+                      />
+                      <select
+                        value={newTaskNotify}
+                        onChange={(e) => setNewTaskNotify(e.target.value)}
+                        className={`px-3 py-2.5 rounded-xl border text-xs font-extrabold ${themeStyles.input}`}
+                      >
+                        <option value="none" className="bg-slate-800 text-white">🔕 Kein Alarm</option>
+                        <option value="0m" className="bg-slate-800 text-white">🔔 Pünktlich</option>
+                        <option value="15m" className="bg-slate-800 text-white">🔔 15m vorher</option>
+                        <option value="30m" className="bg-slate-800 text-white">🔔 30m vorher</option>
+                        <option value="1h" className="bg-slate-800 text-white">🔔 1h vorher</option>
+                      </select>
+                      <button
+                        onClick={() => {
+                          if (!newTaskTitle.trim()) return;
+                          addNewTaskWithSettings(newTaskTitle, newTaskMember, newTaskDueDate, newTaskDueTime, newTaskNotify, false);
+                          setNewTaskTitle('');
+                        }}
+                        className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-extrabold text-xs cursor-pointer shadow-sm"
+                      >
+                        + Aufgabe anlegen
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (!newTaskTitle.trim()) return;
+                          addNewTaskWithSettings(newTaskTitle, newTaskMember, newTaskDueDate || todayStr, newTaskDueTime || '16:00', newTaskNotify, true);
+                          setNewTaskTitle('');
+                        }}
+                        title="Legt die Aufgabe an UND sendet einen Push-Termin an den Google-Kalender der Person"
+                        className="px-4 py-2.5 bg-amber-400 hover:bg-amber-300 text-slate-950 rounded-xl font-extrabold text-xs cursor-pointer shadow-sm"
+                      >
+                        📲 + Handy-Kalender-Push
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* KACHEL-GRID: 1. KACHEL = EINKAUFSLISTE (TASKS), DANACH ALLE MITGLIEDER */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-5">
+
+                    {/* KACHEL 0: 🛒 EINKAUFSLISTE (GOOGLE TASKS KACHEL) */}
+                    <div className={`rounded-3xl border-2 border-amber-400/60 shadow-lg overflow-hidden flex flex-col justify-between min-h-[450px] ${themeStyles.card}`}>
+                      <div className="flex-1 flex flex-col">
+                        <div
+                          style={{
+                            background: themeStyles.dark
+                              ? 'linear-gradient(90deg, rgba(245, 158, 11, 0.35) 0%, rgba(217, 119, 6, 0.12) 100%)'
+                              : 'linear-gradient(90deg, rgba(254, 243, 199, 1) 0%, rgba(253, 230, 138, 0.5) 100%)',
+                            borderLeft: '6px solid #f59e0b'
+                          }}
+                          className={`p-4 border-b flex items-center justify-between ${themeStyles.divider}`}
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="w-11 h-11 rounded-full bg-amber-500 text-slate-950 flex items-center justify-center text-xl font-black shadow-sm shrink-0">
+                              🛒
+                            </div>
+                            <div className="min-w-0">
+                              <div className="font-extrabold text-base truncate">Einkaufsliste</div>
+                              <div className={`text-[11px] font-bold truncate ${themeStyles.textMuted}`}>
+                                Google Tasks & Essensplan
+                              </div>
+                            </div>
+                          </div>
+                          <span className="px-2.5 py-1 rounded-full bg-amber-500 text-slate-950 text-xs font-black shrink-0">
+                            {openShopItems.length} offen
+                          </span>
+                        </div>
+
+                        <div className="p-4 space-y-2 flex-1">
+                          {openShopItems.length === 0 && (
+                            <div className="py-6 text-center text-xs font-bold opacity-55">
+                              🛒 Einkaufsliste ist leer!
+                            </div>
+                          )}
+                          {openShopItems.map(item => (
+                            <div
+                              key={item.origIdx}
+                              onClick={() => toggleShoppingItem(item.origIdx)}
+                              className={`p-3 rounded-2xl border flex items-center justify-between gap-2.5 cursor-pointer hover:border-amber-400/60 ${themeStyles.subtle}`}
+                            >
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                <input type="checkbox" checked={false} readOnly className="w-5 h-5 accent-amber-500 rounded cursor-pointer" />
+                                <span className="text-sm font-bold break-words">{item.text}</span>
+                              </div>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  deleteShoppingItem(item.origIdx);
+                                }}
+                                className="opacity-50 hover:opacity-100 hover:text-rose-400 font-bold cursor-pointer"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          ))}
+
+                          {doneShopItems.length > 0 && (
+                            <div className={`pt-3 mt-3 border-t space-y-1.5 ${themeStyles.divider}`}>
+                              <div className="flex items-center justify-between text-xs font-extrabold opacity-75">
+                                <span>☑️ Im Einkaufswagen ({doneShopItems.length})</span>
+                                <button
+                                  onClick={clearCompletedShoppingItems}
+                                  className="text-rose-400 hover:underline cursor-pointer"
+                                >
+                                  🗑️ Leeren
+                                </button>
+                              </div>
+                              {doneShopItems.map(item => (
+                                <div
+                                  key={item.origIdx}
+                                  onClick={() => toggleShoppingItem(item.origIdx)}
+                                  className={`p-2 rounded-xl border flex items-center justify-between gap-2 cursor-pointer opacity-55 ${themeStyles.subtle}`}
+                                >
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <input type="checkbox" checked={true} readOnly className="w-4 h-4 accent-emerald-600 rounded cursor-pointer" />
+                                    <span className="text-xs font-bold line-through break-words">{item.text}</span>
+                                  </div>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      deleteShoppingItem(item.origIdx);
+                                    }}
+                                    className="text-xs opacity-60 hover:opacity-100 hover:text-rose-400 font-bold cursor-pointer"
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className={`p-3.5 border-t flex gap-2 ${themeStyles.subtle} ${themeStyles.divider}`}>
+                        <input
+                          type="text"
+                          value={shoppingQuickInput}
+                          onChange={(e) => setShoppingQuickInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && shoppingQuickInput.trim()) {
+                              addShoppingItem(shoppingQuickInput);
+                              setShoppingQuickInput('');
+                            }
+                          }}
+                          placeholder="Artikel zur Einkaufsliste..."
+                          className={`flex-1 px-3.5 py-2 rounded-xl border text-xs font-bold ${themeStyles.input}`}
+                        />
+                        <button
+                          onClick={() => {
+                            if (!shoppingQuickInput.trim()) return;
+                            addShoppingItem(shoppingQuickInput);
+                            setShoppingQuickInput('');
+                          }}
+                          className="w-10 h-9 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black cursor-pointer"
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* KACHELN 1..N: MITGLIEDER-AUFGABEN MIT FRISTEN & ERINNERUNGEN */}
+                    {members.filter(m => m.id !== 'all').map(member => {
+                      const mTasks = familyTasks.filter(t => t.member === member.id);
+                      const openTasks = mTasks.filter(t => !t.done);
+                      const doneTasks = mTasks.filter(t => t.done);
+                      const st = getMemberStyles(member);
+
+                      return (
+                        <div key={member.id} className={`rounded-3xl border-2 shadow-sm overflow-hidden flex flex-col justify-between min-h-[450px] ${themeStyles.card}`}>
+                          <div className="flex-1 flex flex-col">
+                            <div style={st.headerStyle} className={`p-4 border-b flex items-center justify-between ${themeStyles.divider}`}>
+                              <div className="flex items-center gap-3 min-w-0">
+                                {renderAvatar(member, 'w-11 h-11', 'text-lg')}
+                                <div className="min-w-0">
+                                  <div className="font-extrabold text-base truncate">{member.name}</div>
+                                  <div className={`text-xs font-semibold truncate ${themeStyles.textMuted}`}>{member.role}</div>
+                                </div>
+                              </div>
+                              <span className="px-2.5 py-1 rounded-full bg-black/25 text-xs font-extrabold shrink-0">{openTasks.length} offen</span>
+                            </div>
+
+                            <div className="p-4 space-y-2.5 flex-1">
+                              {openTasks.length === 0 && (
+                                <div className="py-6 text-center text-xs font-bold opacity-50">
+                                  🎉 Keine offenen Aufgaben!
+                                </div>
+                              )}
+                              {openTasks.map(task => (
+                                <div
+                                  key={task.id}
+                                  onClick={() => setFamilyTasks(prev => prev.map(t => t.id === task.id ? { ...t, done: true } : t))}
+                                  className={`p-3 rounded-2xl border flex flex-col gap-1.5 cursor-pointer hover:border-indigo-400/60 ${themeStyles.subtle}`}
+                                >
+                                  <div className="flex items-start justify-between gap-2">
+                                    <div className="flex items-start gap-2.5 min-w-0">
+                                      <input type="checkbox" checked={false} readOnly className="w-5 h-5 mt-0.5 accent-indigo-600 rounded cursor-pointer shrink-0" />
+                                      <span className="text-sm font-bold break-words leading-snug">{task.title}</span>
+                                    </div>
+                                    <div className="flex items-center gap-1 shrink-0">
+                                      <button
+                                        type="button"
+                                        title="Frist, Uhrzeit & Erinnerung einstellen"
+                                        onClick={(e) => openEditTaskModal(e, task)}
+                                        className="p-1 rounded-lg hover:bg-indigo-500/20 text-indigo-400 cursor-pointer"
+                                      >
+                                        <Clock className="w-3.5 h-3.5" />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setFamilyTasks(prev => prev.filter(t => t.id !== task.id));
+                                        }}
+                                        className="opacity-50 hover:opacity-100 hover:text-rose-400 font-bold px-1 cursor-pointer"
+                                      >
+                                        ✕
+                                      </button>
+                                    </div>
+                                  </div>
+
+                                  {(task.due || task.dueTime || (task.notifyTime && task.notifyTime !== 'none')) && (
+                                    <div className="flex items-center gap-1.5 pl-7 flex-wrap">
+                                      {task.due && (
+                                        <span className="px-2 py-0.5 rounded-md bg-indigo-500/20 text-indigo-300 text-[10px] font-extrabold">
+                                          📅 {task.due}
+                                        </span>
+                                      )}
+                                      {task.notifyTime && task.notifyTime !== 'none' && (
+                                        <span className="px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 text-[10px] font-extrabold">
+                                          🔔 {task.notifyTime}
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+
+                              {doneTasks.length > 0 && (
+                                <div className={`pt-3 mt-3 border-t space-y-1.5 ${themeStyles.divider}`}>
+                                  <div className="flex items-center justify-between text-xs font-extrabold opacity-75">
+                                    <span>☑️ Erledigt ({doneTasks.length})</span>
+                                    <button
+                                      onClick={() => setFamilyTasks(prev => prev.filter(t => !(t.member === member.id && t.done)))}
+                                      className="text-rose-400 hover:underline cursor-pointer"
+                                    >
+                                      🗑️ Leeren
+                                    </button>
+                                  </div>
+                                  {doneTasks.map(task => (
+                                    <div
+                                      key={task.id}
+                                      onClick={() => setFamilyTasks(prev => prev.map(t => t.id === task.id ? { ...t, done: false } : t))}
+                                      className={`p-2 rounded-xl border flex items-center justify-between gap-2 cursor-pointer opacity-55 ${themeStyles.subtle}`}
+                                    >
+                                      <div className="flex items-center gap-2 min-w-0">
+                                        <input type="checkbox" checked={true} readOnly className="w-4 h-4 accent-emerald-600 rounded cursor-pointer" />
+                                        <span className="text-xs font-bold line-through break-words">{task.title}</span>
+                                      </div>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setFamilyTasks(prev => prev.filter(t => t.id !== task.id));
+                                        }}
+                                        className="text-xs opacity-60 hover:opacity-100 hover:text-rose-400 font-bold cursor-pointer"
+                                      >
+                                        ✕
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className={`p-3.5 border-t flex gap-2 ${themeStyles.subtle} ${themeStyles.divider}`}>
+                            <input
+                              type="text"
+                              value={colTaskInputs[member.id] || ''}
+                              onChange={(e) => setColTaskInputs({ ...colTaskInputs, [member.id]: e.target.value })}
+                              onKeyDown={(e) => {
+                                const val = (colTaskInputs[member.id] || '').trim();
+                                if (e.key === 'Enter' && val) {
+                                  addNewTaskWithSettings(val, member.id, '', '', 'none', false);
+                                  setColTaskInputs({ ...colTaskInputs, [member.id]: '' });
+                                }
+                              }}
+                              placeholder={`Aufgabe für ${member.name}...`}
+                              className={`flex-1 px-3.5 py-2 rounded-xl border text-xs font-bold ${themeStyles.input}`}
+                            />
+                            <button
+                              onClick={() => {
+                                const val = (colTaskInputs[member.id] || '').trim();
+                                if (!val) return;
+                                addNewTaskWithSettings(val, member.id, '', '', 'none', false);
+                                setColTaskInputs({ ...colTaskInputs, [member.id]: '' });
+                              }}
+                              className="w-10 h-9 rounded-xl bg-indigo-600 text-white font-bold cursor-pointer"
+                            >
+                              +
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* ANSICHT 6: ESSENSPLAN (ÜBERTRÄGT DIREKT IN DIE EINKAUFSLISTEN-TASKS-KACHEL) */}
             {activeSection === 'essen' && (
               <div className="p-6 flex flex-col gap-6">
                 <div className={`p-6 rounded-3xl border shadow-sm flex flex-wrap items-center justify-between gap-4 ${themeStyles.card}`}>
                   <div>
                     <h2 className="text-2xl font-extrabold">🍲 Familien-Essensplan & Zutaten-Listen</h2>
-                    <p className={`text-sm font-semibold ${themeStyles.textMuted}`}>Fehlende Zutaten mit 1 Klick auf die Einkaufsliste & in Google Tasks setzen.</p>
+                    <p className={`text-sm font-semibold ${themeStyles.textMuted}`}>
+                      Ein Klick auf „🛒 In Einkaufsliste“ legt fehlende Zutaten direkt in deine Einkaufslisten-Tasks-Kachel & in die Google Tasks App!
+                    </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2.5">
                     <input
@@ -2302,13 +2686,13 @@ export default function TouchwallApp() {
                                   }
                                   setFamilyNotes(prev => prev.map((n, idx) => idx === 0 ? {
                                     ...n,
-                                    items: [...n.items, ...missing.map(i => ({ text: `${i.name} (${meal.dayLabel})`, done: false }))]
+                                    items: [...missing.map(i => ({ text: `${i.name} (${meal.dayLabel})`, done: false })), ...(n.items || [])]
                                   } : n));
-                                  showToast('Einkaufsliste & Tasks ergänzt', `${missing.length} Zutaten übertragen.`, '🛒');
+                                  showToast('In Einkaufslisten-Tasks gelegt', `${missing.length} Zutaten sind jetzt in deiner Einkaufslisten-Kachel under „Aufgaben“!`, '🛒');
                                 }}
-                                className="px-3 py-1 rounded-xl bg-indigo-500/20 text-indigo-400 text-xs font-extrabold border border-indigo-400/30 cursor-pointer"
+                                className="px-3 py-1 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-extrabold cursor-pointer shadow-xs"
                               >
-                                🛒 In Einkaufsliste
+                                🛒 In Einkaufsliste (Tasks)
                               </button>
                             </div>
 
@@ -2380,7 +2764,7 @@ export default function TouchwallApp() {
               </div>
             )}
 
-            {/* ANSICHT 7: NOTIZEN & EINKAUFSLISTE IN TASKS */}
+            {/* ANSICHT 7: NOTIZEN */}
             {activeSection === 'listen' && (
               <div className="p-6 flex flex-col gap-6">
                 <div className={`p-6 rounded-3xl border shadow-sm flex flex-wrap items-center justify-between gap-4 ${themeStyles.card}`}>
@@ -2412,7 +2796,7 @@ export default function TouchwallApp() {
                       onChange={(e) => setNewNoteAuthor(e.target.value)}
                       className={`px-4 py-3 rounded-xl border text-sm font-bold ${themeStyles.input}`}
                     >
-                      {['Familie', 'Hans', 'Sarah', 'Sarah & Hans', 'Dean', 'Valentina'].map(a => (
+                      {['Familie', ...members.filter(m => m.id !== 'all').map(m => m.name)].map(a => (
                         <option key={a} value={a} className="bg-slate-800 text-white">👤 {a}</option>
                       ))}
                     </select>
@@ -2706,18 +3090,20 @@ export default function TouchwallApp() {
               );
             })()}
 
-            {/* ANSICHT 9: GOOGLE KONTEN, SYSTEMTEST & DRIVE SYNC (THEME-ADAPTIV) */}
+            {/* =========================================================
+                ANSICHT 9: KONTEN (MIT BEARBEITBAREN BENUTZERNAMEN & ROLLEN!)
+               ========================================================= */}
             {activeSection === 'google' && (
               <div className="p-6 flex flex-col gap-6">
                 <div className={`rounded-3xl p-6 shadow-xl border space-y-5 ${themeStyles.card}`}>
                   <div className="flex flex-wrap items-center justify-between gap-4">
                     <div>
                       <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-xs font-extrabold">
-                        ☁️ 2-Wege-Synchronisation (Kalender, Google Tasks, Einkaufsliste & Notizen)
+                        ☁️ 2-Wege-Synchronisation & Benutzerverwaltung
                       </span>
-                      <h2 className="text-2xl font-extrabold mt-2">Google Synchronisation & System-Prüfung</h2>
+                      <h2 className="text-2xl font-extrabold mt-2">Benutzernamen, Kalender-Konten & System-Prüfung</h2>
                       <p className={`text-sm mt-1 ${themeStyles.textMuted}`}>
-                        Verbinde hier deine Google Apps Script URL und prüfe mit 1 Klick alle Lese- und Schreibberechtigungen.
+                        Hier kannst du den Namen jedes Familienmitglieds frei ändern, Kalender-IDs zuweisen und alle Lese-/Schreibrechte testen.
                       </p>
                     </div>
                     <div className="flex flex-wrap gap-2.5">
@@ -2785,22 +3171,54 @@ export default function TouchwallApp() {
                   </div>
                 </div>
 
-                {/* KALENDER-KONTEN PRO PERSON + ZUSATZKALENDER */}
+                {/* BENUTZERNAMEN, ROLLE & KALENDER-ID PRO PERSON BEARBEITBAR */}
                 <div className={`rounded-3xl border overflow-hidden divide-y ${themeStyles.card} ${themeStyles.divider}`}>
                   {members.map(m => {
                     const isCustom = !['all', 'hans', 'sarah', 'dean', 'valentina'].includes(m.id);
                     const st = getMemberStyles(m);
                     return (
                       <div key={m.id} style={st.headerStyle} className="p-5 flex flex-wrap items-center justify-between gap-4">
-                        <div className="flex items-center gap-3.5 min-w-[210px]">
+                        <div className="flex items-center gap-3.5 min-w-[280px] flex-1">
                           {renderAvatar(m, 'w-12 h-12', 'text-xl')}
-                          <div>
-                            <div className="font-extrabold text-base">{m.name}</div>
-                            <div className={`text-xs font-semibold ${themeStyles.textMuted}`}>{m.role}</div>
+                          <div className="flex flex-col sm:flex-row gap-2 flex-1">
+                            <div className="flex-1">
+                              <label className={`block text-[10px] font-extrabold uppercase mb-0.5 ${themeStyles.textMuted}`}>
+                                Benutzername
+                              </label>
+                              <input
+                                type="text"
+                                value={m.name}
+                                onChange={(e) => {
+                                  const newName = e.target.value;
+                                  const newBadge = m.id === 'all' ? 'FR' : (newName.trim().charAt(0).toUpperCase() || m.badge);
+                                  setMembers(prev => prev.map(item => item.id === m.id ? { ...item, name: newName, badge: newBadge } : item));
+                                }}
+                                placeholder="Name..."
+                                className={`w-full px-3.5 py-2 rounded-xl border text-sm font-extrabold ${themeStyles.input}`}
+                              />
+                            </div>
+                            <div className="w-full sm:w-40">
+                              <label className={`block text-[10px] font-extrabold uppercase mb-0.5 ${themeStyles.textMuted}`}>
+                                Rolle / Beschreibung
+                              </label>
+                              <input
+                                type="text"
+                                value={m.role || ''}
+                                onChange={(e) => {
+                                  const newRole = e.target.value;
+                                  setMembers(prev => prev.map(item => item.id === m.id ? { ...item, role: newRole } : item));
+                                }}
+                                placeholder="Rolle..."
+                                className={`w-full px-3.5 py-2 rounded-xl border text-xs font-bold ${themeStyles.input}`}
+                              />
+                            </div>
                           </div>
                         </div>
 
                         <div className="flex-1 min-w-[260px]">
+                          <label className={`block text-[10px] font-extrabold uppercase mb-0.5 ${themeStyles.textMuted}`}>
+                            Google Kalender-ID / E-Mail-Adresse
+                          </label>
                           <input
                             type="text"
                             value={m.calendarId || ''}
@@ -2809,11 +3227,11 @@ export default function TouchwallApp() {
                               setMembers(prev => prev.map(item => item.id === m.id ? { ...item, calendarId: val, ok: Boolean(val.trim()), statusMsg: val.trim() ? 'Bereit zum Speichern' : 'Leer' } : item));
                             }}
                             placeholder={m.id === 'all' ? 'primary' : 'name@gmail.com oder ...@group.calendar.google.com'}
-                            className={`w-full px-4 py-3 rounded-xl border text-sm font-bold ${themeStyles.input}`}
+                            className={`w-full px-4 py-2 rounded-xl border text-sm font-bold ${themeStyles.input}`}
                           />
                         </div>
 
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 pt-3 sm:pt-4">
                           {isCustom && (
                             <button
                               onClick={() => {
@@ -2838,7 +3256,7 @@ export default function TouchwallApp() {
                 {/* + WEITEREN KALENDER HINZUFÜGEN */}
                 <div className={`p-6 rounded-3xl border flex flex-wrap items-center justify-between gap-4 ${themeStyles.card}`}>
                   <div>
-                    <div className="font-extrabold text-lg">➕ Weiteren Google-Kalender hinzufügen</div>
+                    <div className="font-extrabold text-lg">➕ Weiteren Google-Kalender / Benutzer hinzufügen</div>
                     <p className={`text-sm ${themeStyles.textMuted}`}>Fügt eine zusätzliche Zeile für Arbeitskalender, Ferienkalender oder Vereine hinzu.</p>
                   </div>
                   <button
@@ -2895,7 +3313,6 @@ export default function TouchwallApp() {
               </button>
             </div>
 
-            {/* WAS STEHT AN + SCHNELL-CHIPS */}
             <div className="space-y-2.5">
               <label className={`block text-xs font-extrabold uppercase tracking-wider ${themeStyles.textMuted}`}>
                 WAS STEHT AN?
@@ -2930,7 +3347,6 @@ export default function TouchwallApp() {
               </div>
             </div>
 
-            {/* FÜR WEN IST DER TERMIN (ZEILE)? */}
             <div>
               <label className={`block text-xs font-extrabold uppercase tracking-wider mb-2 ${themeStyles.textMuted}`}>
                 FÜR WEN IST DER TERMIN (ZEILE)?
@@ -2962,7 +3378,6 @@ export default function TouchwallApp() {
               </div>
             </div>
 
-            {/* NEU: DIREKT KOPIE BEI JEMAND ANDEREM EINFÜGEN */}
             {eventModal.title.trim() && (
               <div className={`p-3.5 rounded-2xl border flex flex-wrap items-center justify-between gap-2 ${themeStyles.subtle}`}>
                 <span className="text-xs font-extrabold flex items-center gap-1.5">
@@ -2985,7 +3400,6 @@ export default function TouchwallApp() {
               </div>
             )}
 
-            {/* DATUM & UHRZEIT */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
               <div>
                 <label className={`block text-xs font-extrabold uppercase tracking-wider mb-1.5 ${themeStyles.textMuted}`}>
@@ -3012,7 +3426,6 @@ export default function TouchwallApp() {
               </div>
             </div>
 
-            {/* 🔔 BENACHRICHTIGUNG & ERINNERUNG */}
             <div className={`p-4 sm:p-5 rounded-3xl border space-y-4 ${themeStyles.subtle}`}>
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="text-xs font-black uppercase tracking-wider flex items-center gap-1.5">
@@ -3103,7 +3516,6 @@ export default function TouchwallApp() {
               </div>
             </div>
 
-            {/* SPEICHERN / KOPIEREN / LÖSCHEN / ABBRECHEN */}
             <div className={`flex flex-wrap items-center justify-between gap-2 pt-2 border-t ${themeStyles.divider}`}>
               <div className="flex items-center gap-2">
                 {eventModal.id && (
@@ -3149,7 +3561,107 @@ export default function TouchwallApp() {
         </div>
       )}
 
-      {/* MODAL 2: JAHRESWAND TAGES-DETAILS (THEME-ADAPTIV + KOPIEREN) */}
+      {/* =========================================================
+          MODAL 1B: AUFGABEN-FRIST & BENACHRICHTIGUNG BEARBEITEN
+         ========================================================= */}
+      {taskModal.open && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
+          <form onSubmit={saveTaskModal} className={`w-full max-w-md rounded-3xl border-2 p-6 shadow-2xl space-y-4 ${themeStyles.modal}`}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-extrabold flex items-center gap-2">
+                <Clock className="w-5 h-5 text-indigo-400" />
+                Aufgabe, Frist & Alarm einstellen
+              </h3>
+              <button type="button" onClick={() => setTaskModal({ ...taskModal, open: false })}>
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div>
+              <label className={`block text-xs font-extrabold uppercase mb-1 ${themeStyles.textMuted}`}>Aufgabe</label>
+              <input
+                type="text"
+                required
+                value={taskModal.title}
+                onChange={(e) => setTaskModal({ ...taskModal, title: e.target.value })}
+                className={`w-full px-4 py-2.5 rounded-xl border text-sm font-bold ${themeStyles.input}`}
+              />
+            </div>
+
+            <div>
+              <label className={`block text-xs font-extrabold uppercase mb-1 ${themeStyles.textMuted}`}>Zuständiges Familienmitglied</label>
+              <select
+                value={taskModal.member}
+                onChange={(e) => setTaskModal({ ...taskModal, member: e.target.value })}
+                className={`w-full px-4 py-2.5 rounded-xl border text-sm font-bold ${themeStyles.input}`}
+              >
+                {members.filter(m => m.id !== 'all').map(m => (
+                  <option key={m.id} value={m.id} className="bg-slate-800 text-white">👤 {m.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={`block text-xs font-extrabold uppercase mb-1 ${themeStyles.textMuted}`}>Fälligkeitsdatum</label>
+                <input
+                  type="date"
+                  value={taskModal.dueDate}
+                  onChange={(e) => setTaskModal({ ...taskModal, dueDate: e.target.value })}
+                  className={`w-full px-3 py-2.5 rounded-xl border text-sm font-bold ${themeStyles.input}`}
+                />
+              </div>
+              <div>
+                <label className={`block text-xs font-extrabold uppercase mb-1 ${themeStyles.textMuted}`}>Uhrzeit (Frist)</label>
+                <input
+                  type="time"
+                  value={taskModal.dueTime}
+                  onChange={(e) => setTaskModal({ ...taskModal, dueTime: e.target.value })}
+                  className={`w-full px-3 py-2.5 rounded-xl border text-sm font-bold ${themeStyles.input}`}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className={`block text-xs font-extrabold uppercase mb-1 ${themeStyles.textMuted}`}>Touchwall- & Browser-Push-Alarm</label>
+              <select
+                value={taskModal.notifyTime}
+                onChange={(e) => setTaskModal({ ...taskModal, notifyTime: e.target.value })}
+                className={`w-full px-4 py-2.5 rounded-xl border text-sm font-bold ${themeStyles.input}`}
+              >
+                <option value="none" className="bg-slate-800 text-white">🔕 Keine Erinnerung</option>
+                <option value="0m" className="bg-slate-800 text-white">🔔 Pünktlich zur Frist</option>
+                <option value="15m" className="bg-slate-800 text-white">🔔 15 Min. vorher</option>
+                <option value="30m" className="bg-slate-800 text-white">🔔 30 Min. vorher</option>
+                <option value="1h" className="bg-slate-800 text-white">🔔 1 Std. vorher</option>
+              </select>
+            </div>
+
+            <label className={`p-3.5 rounded-2xl border flex items-center gap-3 cursor-pointer ${themeStyles.subtle}`}>
+              <input
+                type="checkbox"
+                checked={taskModal.syncToCalendar}
+                onChange={(e) => setTaskModal({ ...taskModal, syncToCalendar: e.target.checked })}
+                className="w-5 h-5 accent-amber-500 rounded cursor-pointer"
+              />
+              <span className="text-xs font-extrabold">
+                📲 Zusätzlich als Kalender-Push auf das Smartphone von {members.find(m => m.id === taskModal.member)?.name || 'dieser Person'} senden
+              </span>
+            </label>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button type="button" onClick={() => setTaskModal({ ...taskModal, open: false })} className={`px-4 py-2.5 rounded-xl border text-xs font-bold ${themeStyles.subtle}`}>
+                Abbrechen
+              </button>
+              <button type="submit" className="px-5 py-2.5 rounded-xl bg-indigo-600 text-white text-xs font-extrabold cursor-pointer">
+                💾 Frist speichern
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* MODAL 2: JAHRESWAND TAGES-DETAILS */}
       {yearDayModal.open && (() => {
         const dayEvents = events.filter(e => e.date === yearDayModal.dateStr);
         const hol = getBWHolidayName(yearDayModal.dateStr);
@@ -3268,7 +3780,7 @@ export default function TouchwallApp() {
         );
       })()}
 
-      {/* MODAL 3: SCHULSTUNDE BEARBEITEN (THEME-ADAPTIV) */}
+      {/* MODAL 3: SCHULSTUNDE BEARBEITEN */}
       {schoolModal.open && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
           <form
@@ -3342,7 +3854,7 @@ export default function TouchwallApp() {
         </div>
       )}
 
-      {/* MODAL 4: HANDY QR-CODE (THEME-ADAPTIV) */}
+      {/* MODAL 4: HANDY QR-CODE */}
       {qrModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
           <div className={`w-full max-w-md rounded-3xl border-2 p-6 shadow-2xl text-center space-y-4 ${themeStyles.modal}`}>
@@ -3364,7 +3876,7 @@ export default function TouchwallApp() {
         </div>
       )}
 
-      {/* GROSSES TOUCHWALL ALARM-BANNER (THEME-ADAPTIV) */}
+      {/* GROSSES TOUCHWALL ALARM-BANNER */}
       {activeAlarmBanner && (
         <div className="fixed inset-0 z-[60] bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
           <div className={`w-full max-w-md rounded-3xl border-2 border-amber-400 p-6 shadow-2xl space-y-4 text-center animate-bounce ${themeStyles.modal}`}>
@@ -3372,7 +3884,7 @@ export default function TouchwallApp() {
               <BellRing className="w-9 h-9" />
             </div>
             <div className="text-xs font-black uppercase tracking-widest text-amber-400">
-              {activeAlarmBanner.isTest ? '🔊 Touchwall Test-Alarm & Browser-Push' : '🔔 Termin-Erinnerung an der Touchwall'}
+              {activeAlarmBanner.isTest ? '🔊 Touchwall Test-Alarm & Browser-Push' : '🔔 Erinnerung an der Touchwall'}
             </div>
             <h3 className="text-2xl font-extrabold">{activeAlarmBanner.title}</h3>
             <p className={`text-sm font-bold ${themeStyles.textMuted}`}>
