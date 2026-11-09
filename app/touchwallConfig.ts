@@ -433,56 +433,80 @@ export function buildMemberStyles(member, isDark) {
 }
 
 // =========================================================
-// 4. TODOIST REST API v2 ENGINE (TEAM "FAMILIE RICHTER")
+// 4. TODOIST ENGINE ÜBER VERCEL SERVER-PROXY (/api/todoist)
 // =========================================================
-const TODOIST_BASE = 'https://api.todoist.com/rest/v2';
-
 async function todoistFetch(token, path, options = {}) {
-  if (!token || !token.trim()) throw new Error('Kein Todoist API-Token eingetragen.');
-  const headers = {
-    Authorization: `Bearer ${token.trim()}`,
-    ...(options.body ? { 'Content-Type': 'application/json' } : {}),
-    ...(options.headers || {})
-  };
-  const res = await fetch(`${TODOIST_BASE}${path}`, { ...options, headers, cache: 'no-store' });
-  if (res.status === 204) return true;
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Todoist API (${res.status}): ${errText}`);
+  const cleanToken = String(token || '').replace(/[^a-zA-Z0-9_-]/g, '');
+  if (!cleanToken) throw new Error('Kein Todoist API-Token eingetragen.');
+
+  const res = await fetch('/api/todoist', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      token: cleanToken,
+      path,
+      method: options.method || 'GET',
+      body: options.rawBody || undefined
+    }),
+    cache: 'no-store'
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data?.error) {
+    throw new Error(data?.error || `Todoist Verbindungsfehler (${res.status})`);
   }
-  return res.json();
+  return data;
+}
+
+export async function addTodoistRelativeReminder(token, itemId, notifyTimeStr) {
+  const offsetMap = { '0m': 0, '5m': 5, '10m': 10, '15m': 15, '30m': 30, '1h': 60, '2h': 120, '1d': 1440 };
+  const minuteOffset = offsetMap[notifyTimeStr];
+  if (minuteOffset === undefined || !token || !itemId) return;
+  try {
+    await fetch('/api/todoist', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        token: String(token).replace(/[^a-zA-Z0-9_-]/g, ''),
+        action: 'addReminder',
+        itemId: String(itemId),
+        minuteOffset
+      })
+    });
+  } catch (e) {}
 }
 
 // Lädt alle Todoist-Projekte & Team-Mitglieder (Collaborators) von "Familie Richter"
 export async function discoverTodoistWorkspace(token) {
   let projects = await todoistFetch(token, '/projects');
+  if (!Array.isArray(projects)) projects = [];
 
-  // Sucht nach Einkaufslisten- und Familien-Aufgaben-Projekt (oder legt sie an, falls nicht vorhanden)
   let shoppingProj = projects.find(p => /einkauf|shopping|supermarkt/i.test(p.name));
   let tasksProj = projects.find(p => /aufgaben|familie|touchwall|tasks|richter/i.test(p.name) && (!shoppingProj || p.id !== shoppingProj.id));
 
   if (!shoppingProj) {
     shoppingProj = await todoistFetch(token, '/projects', {
       method: 'POST',
-      body: JSON.stringify({ name: '🛒 Einkaufsliste' })
+      rawBody: { name: '🛒 Einkaufsliste' }
     });
     projects.push(shoppingProj);
   }
   if (!tasksProj) {
     tasksProj = await todoistFetch(token, '/projects', {
       method: 'POST',
-      body: JSON.stringify({ name: '✅ Familien-Aufgaben' })
+      rawBody: { name: '✅ Familien-Aufgaben' }
     });
     projects.push(tasksProj);
   }
 
-  // Lädt alle Team-Mitglieder (Collaborators) aus den geteilten Projekten
   const collaboratorMap = {};
   for (const p of projects) {
     if (p.is_shared || p.id === tasksProj.id || p.id === shoppingProj.id) {
       try {
         const cols = await todoistFetch(token, `/projects/${p.id}/collaborators`);
-        (cols || []).forEach(c => { collaboratorMap[c.id] = c; });
+        if (Array.isArray(cols)) {
+          cols.forEach(c => { collaboratorMap[c.id] = c; });
+        }
       } catch (e) {}
     }
   }
@@ -495,20 +519,21 @@ export async function discoverTodoistWorkspace(token) {
   };
 }
 
-// 2-Wege-Pull: Holt aktive Aufgaben & Einkaufsliste aus Todoist (inkl. abgehakter Handy-Status!)
+// 2-Wege-Pull: Holt aktive Aufgaben & Einkaufsliste aus Todoist (inkl. Fristen, Priorität & Beschreibungen)
 export async function pullFromTodoistTwoWay(token, config, currentTasks, currentShoppingItems, members) {
   if (!token || !config?.tasksProjectId) return null;
 
-  const [remoteTasks, remoteShop] = await Promise.all([
+  const [remoteTasksRaw, remoteShopRaw] = await Promise.all([
     todoistFetch(token, `/tasks?project_id=${config.tasksProjectId}`),
     config.shoppingProjectId ? todoistFetch(token, `/tasks?project_id=${config.shoppingProjectId}`) : Promise.resolve([])
   ]);
 
-  // 1. Familien-Aufgaben abgleichen
+  const remoteTasks = Array.isArray(remoteTasksRaw) ? remoteTasksRaw : [];
+  const remoteShop = Array.isArray(remoteShopRaw) ? remoteShopRaw : [];
+
   const activeTaskIds = new Set(remoteTasks.map(rt => String(rt.id)));
   const updatedTasks = currentTasks.map(lt => {
     if (lt.todoistId && !activeTaskIds.has(String(lt.todoistId))) {
-      // Wurde in der Todoist-Handy-App abgehakt!
       return { ...lt, done: true };
     }
     return lt;
@@ -521,7 +546,6 @@ export async function pullFromTodoistTwoWay(token, config, currentTasks, current
       String(lt.title || '').trim().toLowerCase() === cleanContent.toLowerCase()
     );
 
-    // Zugewiesenes Familienmitglied über Todoist assignee_id oder [Name]-Präfix erkennen
     let memberKey = 'hans';
     if (rt.assignee_id) {
       const matchedMem = members.find(m => String(m.todoistUserId) === String(rt.assignee_id));
@@ -537,14 +561,18 @@ export async function pullFromTodoistTwoWay(token, config, currentTasks, current
     const dueDate = rt.due?.date ? rt.due.date.slice(0, 10) : '';
     const dueTime = rt.due?.datetime ? rt.due.datetime.slice(11, 16) : '';
     const dueLabel = dueDate
-      ? `${dueDate.slice(8, 10)}.${dueDate.slice(5, 7)}.${dueTime ? ' ' + dueTime : ''}`
-      : (rt.due?.string || 'Heute');
+      ? `Bis ${dueDate.slice(8, 10)}.${dueDate.slice(5, 7)}.${dueTime ? ' ' + dueTime + ' Uhr' : ''}`
+      : (rt.due?.string || 'Offen');
+
+    const priorityNum = Number(rt.priority || 1);
 
     if (existingIdx > -1) {
       updatedTasks[existingIdx] = {
         ...updatedTasks[existingIdx],
         todoistId: String(rt.id),
         title: cleanContent,
+        description: rt.description || updatedTasks[existingIdx].description || '',
+        priority: priorityNum,
         member: memberKey,
         due: dueLabel,
         dueDate: dueDate || updatedTasks[existingIdx].dueDate,
@@ -557,6 +585,8 @@ export async function pullFromTodoistTwoWay(token, config, currentTasks, current
         todoistId: String(rt.id),
         member: memberKey,
         title: cleanContent,
+        description: rt.description || '',
+        priority: priorityNum,
         due: dueLabel,
         dueDate,
         dueTime,
@@ -566,7 +596,6 @@ export async function pullFromTodoistTwoWay(token, config, currentTasks, current
     }
   });
 
-  // 2. Einkaufsliste abgleichen
   const activeShopIds = new Set(remoteShop.map(rs => String(rs.id)));
   const updatedShop = (currentShoppingItems || []).map(item => {
     if (item.todoistId && !activeShopIds.has(String(item.todoistId))) {
@@ -592,28 +621,76 @@ export async function pullFromTodoistTwoWay(token, config, currentTasks, current
   return { tasks: updatedTasks, shoppingItems: updatedShop };
 }
 
-// Erstellt eine neue Aufgabe in Todoist inkl. echter Zuweisung (assignee_id) & Frist für Handy-Push!
-export async function createTodoistTaskItem(token, projectId, title, memberObj, dueDate, dueTime) {
+// Erstellt oder aktualisiert eine Aufgabe in Todoist inkl. Zuweisung, Frist ("Bis wann"), Priorität, Notiz & Reminder
+export async function createTodoistTaskItem(
+  token,
+  projectId,
+  title,
+  memberObj,
+  dueDate,
+  dueTime,
+  priority = 1,
+  description = '',
+  notifyTime = '15m'
+) {
   if (!token || !projectId) return null;
-  const body = {
-    content: memberObj?.todoistUserId ? title : `[${memberObj?.name || 'Familie'}] ${title}`,
-    project_id: projectId
+  const rawBody = {
+    content: memberObj?.todoistUserId ? title : (memberObj?.name ? `[${memberObj.name}] ${title}` : title),
+    project_id: projectId,
+    priority: Number(priority || 1)
   };
+
+  if (description && description.trim()) {
+    rawBody.description = description.trim();
+  }
   if (memberObj?.todoistUserId) {
-    body.assignee_id = String(memberObj.todoistUserId);
+    rawBody.assignee_id = String(memberObj.todoistUserId);
   }
   if (dueDate && dueTime) {
-    body.due_datetime = `${dueDate}T${dueTime}:00`;
+    rawBody.due_datetime = `${dueDate}T${dueTime}:00`;
   } else if (dueDate) {
-    body.due_date = dueDate;
+    rawBody.due_date = dueDate;
   } else if (dueTime) {
     const today = formatDateStr(new Date());
-    body.due_datetime = `${today}T${dueTime}:00`;
+    rawBody.due_datetime = `${today}T${dueTime}:00`;
   }
-  return todoistFetch(token, '/tasks', {
+
+  const created = await todoistFetch(token, '/tasks', {
     method: 'POST',
-    body: JSON.stringify(body)
+    rawBody
   });
+
+  // Falls eine Erinnerung gewünscht ist und eine Uhrzeit vorliegt, zusätzlich Todoist-Reminder setzen
+  if (created?.id && notifyTime && notifyTime !== 'none' && (dueTime || dueDate)) {
+    await addTodoistRelativeReminder(token, created.id, notifyTime);
+  }
+
+  return created;
+}
+
+export async function updateTodoistTaskItem(token, todoistId, updates) {
+  if (!token || !todoistId) return null;
+  const rawBody = {};
+  if (updates.title) rawBody.content = updates.title;
+  if (updates.description !== undefined) rawBody.description = updates.description;
+  if (updates.priority) rawBody.priority = Number(updates.priority);
+  if (updates.assigneeId) rawBody.assignee_id = String(updates.assigneeId);
+
+  if (updates.dueDate && updates.dueTime) {
+    rawBody.due_datetime = `${updates.dueDate}T${updates.dueTime}:00`;
+  } else if (updates.dueDate) {
+    rawBody.due_date = updates.dueDate;
+  }
+
+  const res = await todoistFetch(token, `/tasks/${todoistId}`, {
+    method: 'POST',
+    rawBody
+  });
+
+  if (updates.notifyTime && updates.notifyTime !== 'none') {
+    await addTodoistRelativeReminder(token, todoistId, updates.notifyTime);
+  }
+  return res;
 }
 
 export async function closeOrReopenTodoistTask(token, todoistId, makeDone) {
