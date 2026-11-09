@@ -1,16 +1,17 @@
 // @ts-nocheck
 import { NextResponse } from 'next/server';
 
+const TODOIST_V1_BASE = 'https://api.todoist.com/api/v1';
+
 export async function POST(req) {
   try {
     const payload = await req.json();
-    // Entfernt unsichtbare Leerzeichen oder Zeilenumbrüche aus dem kopierten Token
     const rawToken = String(payload.token || '').replace(/[^a-zA-Z0-9_-]/g, '');
     if (!rawToken) {
       return NextResponse.json({ error: 'Kein gültiges Todoist API-Token übergeben.' }, { status: 400 });
     }
 
-    // Spezial-Aktion: Nativen Todoist-Reminder über Sync API v9 setzen
+    // 1. Nativen Todoist-Reminder über den neuen /api/v1/sync Endpunkt setzen
     if (payload.action === 'addReminder' && payload.itemId) {
       const uuid = 'tw-' + Date.now() + '-' + Math.floor(Math.random() * 100000);
       const cmd = {
@@ -23,7 +24,7 @@ export async function POST(req) {
           minute_offset: Number(payload.minuteOffset || 15)
         }
       };
-      const syncRes = await fetch('https://api.todoist.com/sync/v9/sync', {
+      const syncRes = await fetch(`${TODOIST_V1_BASE}/sync`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${rawToken}`,
@@ -36,22 +37,28 @@ export async function POST(req) {
       return NextResponse.json({ ok: true, syncData });
     }
 
-    // Standard Todoist REST API v2 Aufruf über den Vercel-Server (verhindert "Failed to fetch")
+    // 2. Alle Projekt- und Aufgaben-Aufrufe über den neuen /api/v1/ Endpunkt
     const path = payload.path || '/projects';
     const method = payload.method || 'GET';
-    const url = `https://api.todoist.com/rest/v2${path}`;
+    const url = `${TODOIST_V1_BASE}${path}`;
+
+    // Falls eine Aufgabe mit Uhrzeit (due_datetime) angelegt wird: RFC3339-Zeitzone ergänzen
+    let cleanBody = payload.body ? { ...payload.body } : null;
+    if (cleanBody && cleanBody.due_datetime && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(cleanBody.due_datetime)) {
+      cleanBody.due_datetime = `${cleanBody.due_datetime}+01:00`;
+    }
 
     const fetchOptions = {
       method,
       headers: {
         Authorization: `Bearer ${rawToken}`,
-        ...(payload.body ? { 'Content-Type': 'application/json' } : {})
+        ...(cleanBody ? { 'Content-Type': 'application/json' } : {})
       },
       cache: 'no-store'
     };
 
-    if (payload.body && method !== 'GET') {
-      fetchOptions.body = JSON.stringify(payload.body);
+    if (cleanBody && method !== 'GET') {
+      fetchOptions.body = JSON.stringify(cleanBody);
     }
 
     const res = await fetch(url, fetchOptions);
@@ -65,11 +72,47 @@ export async function POST(req) {
     }
 
     const data = text ? JSON.parse(text) : {};
-    return NextResponse.json(data);
-  } catch (err) {
-    return NextResponse.json(
-      { error: err.message || 'Server-Fehler beim Todoist-Aufruf' },
-      { status: 500 }
-    );
-  }
-}
+
+    // Todoist API v1 liefert Listen als { results: [...] } zurück -> direkt als Array entpacken
+    let unwrapped = data;
+    if (method === 'GET' && data && !Array.isArray(data) && Array.isArray(data.results)) {
+      unwrapped = data.results;
+    }
+
+    // Lädt für das Team "Familie Richter" zusätzlich alle Team-/Workspace-Mitglieder über /api/v1/sync
+    if (method === 'GET' && path.includes('/collaborators')) {
+      try {
+        const syncColRes = await fetch(`${TODOIST_V1_BASE}/sync`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${rawToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            sync_token: '*',
+            resource_types: ['collaborators', 'user']
+          }),
+          cache: 'no-store'
+        });
+        if (syncColRes.ok) {
+          const syncColData = await syncColRes.json();
+          const combined = Array.isArray(unwrapped) ? [...unwrapped] : [];
+          if (syncColData?.user?.id) {
+            combined.push({
+              id: String(syncColData.user.id),
+              name: syncColData.user.full_name || 'Hauptkonto',
+              email: syncColData.user.email || ''
+            });
+          }
+          if (Array.isArray(syncColData?.collaborators)) {
+            syncColData.collaborators.forEach(c => {
+              combined.push({
+                id: String(c.id),
+                name: c.full_name || c.name || c.email || 'Team-Mitglied',
+                email: c.email || ''
+              });
+            });
+          }
+          return NextResponse.json(combined);
+        }
+      } catch (e) {}
