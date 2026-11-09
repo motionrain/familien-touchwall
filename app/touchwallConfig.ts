@@ -433,93 +433,200 @@ export function buildMemberStyles(member, isDark) {
 }
 
 // =========================================================
-// 4. TODOIST ENGINE ÜBER VERCEL SERVER-PROXY (/api/todoist)
+// 4. TODOIST API v1 ENGINE (DIREKT-AUFRUF /api/v1 + PROXY-FALLBACK)
 // =========================================================
+const TODOIST_V1_DIRECT = 'https://api.todoist.com/api/v1';
+
 async function todoistFetch(token, path, options = {}) {
   const cleanToken = String(token || '').replace(/[^a-zA-Z0-9_-]/g, '');
   if (!cleanToken) throw new Error('Kein Todoist API-Token eingetragen.');
 
-  const res = await fetch('/api/todoist', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      token: cleanToken,
-      path,
-      method: options.method || 'GET',
-      body: options.rawBody || undefined
-    }),
-    cache: 'no-store'
-  });
-
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok || data?.error) {
-    throw new Error(data?.error || `Todoist Verbindungsfehler (${res.status})`);
+  const method = options.method || 'GET';
+  let cleanBody = options.rawBody ? { ...options.rawBody } : null;
+  if (cleanBody && cleanBody.due_datetime && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(cleanBody.due_datetime)) {
+    cleanBody.due_datetime = new Date(cleanBody.due_datetime).toISOString();
   }
-  return data;
+
+  // Stufe 1: Direkter Aufruf von https://api.todoist.com/api/v1 (umgeht jeglichen alten Server-Cache!)
+  try {
+    const directRes = await fetch(`${TODOIST_V1_DIRECT}${path}`, {
+      method,
+      headers: {
+        Authorization: `Bearer ${cleanToken}`,
+        ...(cleanBody ? { 'Content-Type': 'application/json' } : {})
+      },
+      body: cleanBody && method !== 'GET' ? JSON.stringify(cleanBody) : undefined,
+      cache: 'no-store'
+    });
+
+    if (directRes.status === 204) return { ok: true };
+    const text = await directRes.text();
+    if (!directRes.ok) {
+      throw new Error(`Todoist-v1 (${directRes.status}): ${text}`);
+    }
+    const data = text ? JSON.parse(text) : {};
+    return (method === 'GET' && data && !Array.isArray(data) && Array.isArray(data.results))
+      ? data.results
+      : data;
+  } catch (directErr) {
+    // Falls es ein echter Todoist-Statusfehler (z.B. 401/403 falsches Token) war, direkt melden:
+    if (String(directErr.message || '').startsWith('Todoist-v1 (')) {
+      throw directErr;
+    }
+
+    // Stufe 2: Fallback über den Vercel Server-Proxy /api/todoist
+    const proxyRes = await fetch(`/api/todoist?_t=${Date.now()}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        token: cleanToken,
+        path,
+        method,
+        body: cleanBody || undefined
+      }),
+      cache: 'no-store'
+    });
+    const proxyData = await proxyRes.json().catch(() => ({}));
+    if (!proxyRes.ok || proxyData?.error) {
+      throw new Error(proxyData?.error || directErr.message);
+    }
+    return (method === 'GET' && proxyData && !Array.isArray(proxyData) && Array.isArray(proxyData.results))
+      ? proxyData.results
+      : proxyData;
+  }
 }
 
 export async function addTodoistRelativeReminder(token, itemId, notifyTimeStr) {
   const offsetMap = { '0m': 0, '5m': 5, '10m': 10, '15m': 15, '30m': 30, '1h': 60, '2h': 120, '1d': 1440 };
   const minuteOffset = offsetMap[notifyTimeStr];
   if (minuteOffset === undefined || !token || !itemId) return;
+  const cleanToken = String(token).replace(/[^a-zA-Z0-9_-]/g, '');
+  const cmd = [{
+    type: 'reminder_add',
+    temp_id: 'rem-' + Date.now(),
+    uuid: 'tw-' + Date.now() + '-' + Math.floor(Math.random() * 100000),
+    args: {
+      item_id: String(itemId),
+      type: 'relative',
+      minute_offset: Number(minuteOffset)
+    }
+  }];
+
   try {
-    await fetch('/api/todoist', {
+    const formBody = new URLSearchParams({ commands: JSON.stringify(cmd) });
+    await fetch(`${TODOIST_V1_DIRECT}/sync`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        token: String(token).replace(/[^a-zA-Z0-9_-]/g, ''),
-        action: 'addReminder',
-        itemId: String(itemId),
-        minuteOffset
-      })
+      headers: {
+        Authorization: `Bearer ${cleanToken}`,
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: formBody.toString(),
+      cache: 'no-store'
     });
-  } catch (e) {}
+  } catch (e) {
+    try {
+      await fetch(`/api/todoist?_t=${Date.now()}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: cleanToken, action: 'addReminder', itemId: String(itemId), minuteOffset })
+      });
+    } catch (err) {}
+  }
 }
 
-// Lädt alle Todoist-Projekte & Team-Mitglieder (Collaborators) von "Familie Richter"
+// Lädt alle Todoist-Projekte & Team-Mitglieder (Collaborators) von "Familie Richter" über /api/v1
 export async function discoverTodoistWorkspace(token) {
-  let projects = await todoistFetch(token, '/projects');
+  const cleanToken = String(token || '').replace(/[^a-zA-Z0-9_-]/g, '');
+  let projects = await todoistFetch(cleanToken, '/projects');
   if (!Array.isArray(projects)) projects = [];
 
   let shoppingProj = projects.find(p => /einkauf|shopping|supermarkt/i.test(p.name));
   let tasksProj = projects.find(p => /aufgaben|familie|touchwall|tasks|richter/i.test(p.name) && (!shoppingProj || p.id !== shoppingProj.id));
 
   if (!shoppingProj) {
-    shoppingProj = await todoistFetch(token, '/projects', {
+    shoppingProj = await todoistFetch(cleanToken, '/projects', {
       method: 'POST',
       rawBody: { name: '🛒 Einkaufsliste' }
     });
-    projects.push(shoppingProj);
+    if (shoppingProj?.id) projects.push(shoppingProj);
   }
   if (!tasksProj) {
-    tasksProj = await todoistFetch(token, '/projects', {
+    tasksProj = await todoistFetch(cleanToken, '/projects', {
       method: 'POST',
       rawBody: { name: '✅ Familien-Aufgaben' }
     });
-    projects.push(tasksProj);
+    if (tasksProj?.id) projects.push(tasksProj);
   }
 
   const collaboratorMap = {};
+
+  // 1. Collaborators pro Projekt über /api/v1/projects/{id}/collaborators abrufen
   for (const p of projects) {
-    if (p.is_shared || p.id === tasksProj.id || p.id === shoppingProj.id) {
+    if (p.is_shared || p.id === tasksProj?.id || p.id === shoppingProj?.id) {
       try {
-        const cols = await todoistFetch(token, `/projects/${p.id}/collaborators`);
+        const cols = await todoistFetch(cleanToken, `/projects/${p.id}/collaborators`);
         if (Array.isArray(cols)) {
-          cols.forEach(c => { collaboratorMap[c.id] = c; });
+          cols.forEach(c => {
+            if (c?.id) {
+              collaboratorMap[String(c.id)] = {
+                id: String(c.id),
+                name: c.name || c.full_name || c.email || 'Team-Mitglied',
+                email: c.email || ''
+              };
+            }
+          });
         }
       } catch (e) {}
     }
   }
 
+  // 2. Zusätzlich alle Workspace-/Team-Mitglieder über /api/v1/sync laden
+  try {
+    const formBody = new URLSearchParams({
+      sync_token: '*',
+      resource_types: JSON.stringify(['collaborators', 'user'])
+    });
+    const syncRes = await fetch(`${TODOIST_V1_DIRECT}/sync`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${cleanToken}`,
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: formBody.toString(),
+      cache: 'no-store'
+    });
+    if (syncRes.ok) {
+      const syncData = await syncRes.json();
+      if (syncData?.user?.id) {
+        collaboratorMap[String(syncData.user.id)] = {
+          id: String(syncData.user.id),
+          name: syncData.user.full_name || 'Hauptkonto',
+          email: syncData.user.email || ''
+        };
+      }
+      if (Array.isArray(syncData?.collaborators)) {
+        syncData.collaborators.forEach(c => {
+          if (c?.id) {
+            collaboratorMap[String(c.id)] = {
+              id: String(c.id),
+              name: c.full_name || c.name || c.email || 'Team-Mitglied',
+              email: c.email || ''
+            };
+          }
+        });
+      }
+    }
+  } catch (e) {}
+
   return {
     projects,
-    shoppingProjectId: shoppingProj.id,
-    tasksProjectId: tasksProj.id,
+    shoppingProjectId: shoppingProj?.id || projects[0]?.id || '',
+    tasksProjectId: tasksProj?.id || projects[0]?.id || '',
     collaborators: Object.values(collaboratorMap)
   };
 }
 
-// 2-Wege-Pull: Holt aktive Aufgaben & Einkaufsliste aus Todoist (inkl. Fristen, Priorität & Beschreibungen)
+// 2-Wege-Pull über /api/v1
 export async function pullFromTodoistTwoWay(token, config, currentTasks, currentShoppingItems, members) {
   if (!token || !config?.tasksProjectId) return null;
 
@@ -546,9 +653,11 @@ export async function pullFromTodoistTwoWay(token, config, currentTasks, current
       String(lt.title || '').trim().toLowerCase() === cleanContent.toLowerCase()
     );
 
+    // Todoist v1 nutzt responsible_uid oder assignee_id
+    const assignedUid = rt.assignee_id || rt.responsible_uid || null;
     let memberKey = 'hans';
-    if (rt.assignee_id) {
-      const matchedMem = members.find(m => String(m.todoistUserId) === String(rt.assignee_id));
+    if (assignedUid) {
+      const matchedMem = members.find(m => String(m.todoistUserId) === String(assignedUid));
       if (matchedMem) memberKey = matchedMem.id;
     } else {
       const prefix = String(rt.content || '').match(/^\[(.*?)\]/);
@@ -559,7 +668,7 @@ export async function pullFromTodoistTwoWay(token, config, currentTasks, current
     }
 
     const dueDate = rt.due?.date ? rt.due.date.slice(0, 10) : '';
-    const dueTime = rt.due?.datetime ? rt.due.datetime.slice(11, 16) : '';
+    const dueTime = rt.due?.datetime ? rt.due.datetime.slice(11, 16) : (rt.due?.date && rt.due.date.length >= 16 ? rt.due.date.slice(11, 16) : '');
     const dueLabel = dueDate
       ? `Bis ${dueDate.slice(8, 10)}.${dueDate.slice(5, 7)}.${dueTime ? ' ' + dueTime + ' Uhr' : ''}`
       : (rt.due?.string || 'Offen');
@@ -621,7 +730,6 @@ export async function pullFromTodoistTwoWay(token, config, currentTasks, current
   return { tasks: updatedTasks, shoppingItems: updatedShop };
 }
 
-// Erstellt oder aktualisiert eine Aufgabe in Todoist inkl. Zuweisung, Frist ("Bis wann"), Priorität, Notiz & Reminder
 export async function createTodoistTaskItem(
   token,
   projectId,
@@ -647,12 +755,12 @@ export async function createTodoistTaskItem(
     rawBody.assignee_id = String(memberObj.todoistUserId);
   }
   if (dueDate && dueTime) {
-    rawBody.due_datetime = `${dueDate}T${dueTime}:00`;
+    rawBody.due_datetime = new Date(`${dueDate}T${dueTime}:00`).toISOString();
   } else if (dueDate) {
     rawBody.due_date = dueDate;
   } else if (dueTime) {
     const today = formatDateStr(new Date());
-    rawBody.due_datetime = `${today}T${dueTime}:00`;
+    rawBody.due_datetime = new Date(`${today}T${dueTime}:00`).toISOString();
   }
 
   const created = await todoistFetch(token, '/tasks', {
@@ -660,7 +768,6 @@ export async function createTodoistTaskItem(
     rawBody
   });
 
-  // Falls eine Erinnerung gewünscht ist und eine Uhrzeit vorliegt, zusätzlich Todoist-Reminder setzen
   if (created?.id && notifyTime && notifyTime !== 'none' && (dueTime || dueDate)) {
     await addTodoistRelativeReminder(token, created.id, notifyTime);
   }
@@ -677,7 +784,7 @@ export async function updateTodoistTaskItem(token, todoistId, updates) {
   if (updates.assigneeId) rawBody.assignee_id = String(updates.assigneeId);
 
   if (updates.dueDate && updates.dueTime) {
-    rawBody.due_datetime = `${updates.dueDate}T${updates.dueTime}:00`;
+    rawBody.due_datetime = new Date(`${updates.dueDate}T${updates.dueTime}:00`).toISOString();
   } else if (updates.dueDate) {
     rawBody.due_date = updates.dueDate;
   }
