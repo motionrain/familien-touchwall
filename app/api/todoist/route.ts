@@ -9,12 +9,55 @@ const TODOIST_V1_BASE = 'https://api.todoist.com/api/v1';
 export async function POST(req) {
   try {
     const payload = await req.json();
+
+    // =========================================================
+    // A) SERVER-BRÜCKE FÜR GOOGLE APPS SCRIPT (CODE.GS) -> KEIN CORS MEHR!
+    // =========================================================
+    if (payload.action === 'googleGet' && payload.url) {
+      const sep = payload.url.includes('?') ? '&' : '?';
+      const targetUrl = `${payload.url}${sep}action=json&_t=${Date.now()}`;
+      const gRes = await fetch(targetUrl, {
+        method: 'GET',
+        redirect: 'follow',
+        cache: 'no-store'
+      });
+      const text = await gRes.text();
+      try {
+        const json = JSON.parse(text);
+        return NextResponse.json(json);
+      } catch (parseErr) {
+        return NextResponse.json(
+          { error: 'Code.gs hat HTML statt JSON geliefert. Bitte in Apps Script prüfen, ob Bereitstellung auf "Jeder" steht.' },
+          { status: 502 }
+        );
+      }
+    }
+
+    if (payload.action === 'googlePost' && payload.url) {
+      const gRes = await fetch(payload.url, {
+        method: 'POST',
+        redirect: 'follow',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payload.bodyData || {}),
+        cache: 'no-store'
+      });
+      const text = await gRes.text();
+      try {
+        const json = JSON.parse(text);
+        return NextResponse.json(json);
+      } catch (parseErr) {
+        return NextResponse.json({ ok: true, raw: text.slice(0, 200) });
+      }
+    }
+
+    // =========================================================
+    // B) SERVER-BRÜCKE FÜR TODOIST API v1
+    // =========================================================
     const rawToken = String(payload.token || '').replace(/[^a-zA-Z0-9_-]/g, '');
     if (!rawToken) {
       return NextResponse.json({ error: 'Kein gültiges Todoist API-Token übergeben.' }, { status: 400 });
     }
 
-    // 1. Nativen Todoist-Reminder über /api/v1/sync setzen (Form-UrlEncoded für 100% v1-Kompatibilität)
     if (payload.action === 'addReminder' && payload.itemId) {
       const uuid = 'tw-' + Date.now() + '-' + Math.floor(Math.random() * 100000);
       const cmd = [{
@@ -41,7 +84,6 @@ export async function POST(req) {
       return NextResponse.json({ ok: true, syncData });
     }
 
-    // 2. Team-Mitglieder (Collaborators) über /api/v1/sync laden
     if (payload.action === 'syncCollaborators') {
       const formBody = new URLSearchParams({
         sync_token: '*',
@@ -77,7 +119,6 @@ export async function POST(req) {
       return NextResponse.json(combined);
     }
 
-    // 3. Standard /api/v1 Aufruf
     const path = payload.path || '/projects';
     const method = payload.method || 'GET';
     const url = `${TODOIST_V1_BASE}${path}`;
@@ -118,7 +159,7 @@ export async function POST(req) {
     return NextResponse.json(unwrapped);
   } catch (err) {
     return NextResponse.json(
-      { error: err.message || 'Server-Fehler beim Todoist-v1-Aufruf' },
+      { error: err.message || 'Server-Fehler in der API-Brücke' },
       { status: 500 }
     );
   }
