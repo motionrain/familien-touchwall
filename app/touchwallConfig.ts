@@ -40,10 +40,33 @@ export function getISOWeek(d) {
   return 1 + Math.round(((date.getTime() - week1.getTime()) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7);
 }
 
+export function playTouchwallAlarmSound() {
+  if (typeof window === 'undefined') return;
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const notes = [523.25, 659.25, 783.99, 1046.5];
+    notes.forEach((freq, idx) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, ctx.currentTime + idx * 0.16);
+      gain.gain.setValueAtTime(0.001, ctx.currentTime + idx * 0.16);
+      gain.gain.exponentialRampToValueAtTime(0.22, ctx.currentTime + idx * 0.16 + 0.04);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + idx * 0.16 + 0.45);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(ctx.currentTime + idx * 0.16);
+      osc.stop(ctx.currentTime + idx * 0.16 + 0.48);
+    });
+  } catch (e) {}
+}
+
 export function hexToRgba(hex, alpha) {
   const clean = String(hex || '#0284c7').replace('#', '');
   const num = parseInt(clean, 16);
-  return `rgba(${(num >> 16) & 255}, ${(num >> 8) & 255},${num & 255}, ${alpha})`; }  export function playTouchwallAlarmSound() { if (typeof window === 'undefined') return; try { const AudioCtx = window.AudioContext \vert{}\vert{} window.webkitAudioContext; if (!AudioCtx) return; const ctx = new AudioCtx(); const notes = [523.25, 659.25, 783.99, 1046.5];
+  return `rgba(${(num >> 16) & 255}, ${(num >> 8) & 255},${num & 255}, ${alpha})`; } 
     notes.forEach((freq, idx) => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
