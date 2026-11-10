@@ -4,7 +4,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { QrCode, ShieldCheck, RefreshCw, Cloud, Upload, Download, Check } from 'lucide-react';
+import { QrCode, ShieldCheck, RefreshCw, Cloud, Upload, Download, Check, FolderKanban } from 'lucide-react';
 import { COLOR_PALETTES, PAGE_THEMES, AVATAR_EMOJIS } from './touchwallConfig';
 
 export default function OtherSections({
@@ -20,6 +20,9 @@ export default function OtherSections({
   setMealPlan,
   familyNotes,
   setFamilyNotes,
+  addItemToNoteTile,
+  toggleItemInNoteTile,
+  deleteItemInNoteTile,
   currentTheme,
   setCurrentTheme,
   customLogoUrl,
@@ -32,6 +35,7 @@ export default function OtherSections({
   todoistConfig,
   setTodoistConfig,
   connectAndDiscoverTodoist,
+  createAndSelectTodoistProject,
   addShoppingItemsBatch,
   runAllPermissionsTest,
   isTestingDiag,
@@ -52,8 +56,13 @@ export default function OtherSections({
   const [noteInputs, setNoteInputs] = useState({});
   const [newMealDay, setNewMealDay] = useState('');
   const [newMealDish, setNewMealDish] = useState('');
+
+  // Für neue Notiz-Kacheln (inkl. direkter Todoist-Projekt-Auswahl!)
   const [newNoteTitle, setNewNoteTitle] = useState('');
   const [newNoteAuthor, setNewNoteAuthor] = useState('Familie');
+  const [newNoteProjectId, setNewNoteProjectId] = useState('');
+
+  const projectsList = todoistConfig?.projects || [];
 
   // =========================================================
   // ANSICHT 4: SCHULE
@@ -76,13 +85,13 @@ export default function OtherSections({
           <div className="flex items-center gap-3 flex-wrap">
             <button
               onClick={() => setActiveSchoolChild('dean')}
-              className={`px-6 py-3 rounded-2xl font-extrabold text-sm cursor-pointer ${activeSchoolChild === 'dean' ? 'bg-indigo-600 text-white shadow-md' : themeStyles.subtle}`}
+              className={`tw-glow-btn px-6 py-3 rounded-2xl font-extrabold text-sm cursor-pointer ${activeSchoolChild === 'dean' ? 'bg-indigo-600 text-white shadow-md' : themeStyles.subtle}`}
             >
               👦 {members.find(m => m.id === 'dean')?.name || 'Dean'}
             </button>
             <button
               onClick={() => setActiveSchoolChild('valentina')}
-              className={`px-6 py-3 rounded-2xl font-extrabold text-sm cursor-pointer ${activeSchoolChild === 'valentina' ? 'bg-indigo-600 text-white shadow-md' : themeStyles.subtle}`}
+              className={`tw-glow-btn px-6 py-3 rounded-2xl font-extrabold text-sm cursor-pointer ${activeSchoolChild === 'valentina' ? 'bg-indigo-600 text-white shadow-md' : themeStyles.subtle}`}
             >
               👧 {members.find(m => m.id === 'valentina')?.name || 'Valentina'}
             </button>
@@ -96,7 +105,7 @@ export default function OtherSections({
                   }
                 }));
               }}
-              className="px-6 py-3 rounded-2xl bg-emerald-600 text-white font-extrabold text-sm cursor-pointer"
+              className="tw-glow-btn px-6 py-3 rounded-2xl bg-emerald-600 text-white font-extrabold text-sm cursor-pointer"
             >
               + Weitere Schulstunde
             </button>
@@ -156,7 +165,7 @@ export default function OtherSections({
                       <td
                         key={dIdx}
                         onClick={() => setSchoolModal({ open: true, dayIdx: dIdx, periodIdx: pIdx, subject: slot.subject || '', room: slot.room || '', status: slot.status || 'normal' })}
-                        className={`p-2 border-r-2 align-top cursor-pointer hover:bg-indigo-500/10 ${themeStyles.divider}`}
+                        className={`p-2 border-r-2 align-top cursor-pointer hover:bg-sky-500/15 transition-colors ${themeStyles.divider}`}
                       >
                         {slot.subject ? (
                           <div
@@ -228,7 +237,7 @@ export default function OtherSections({
                   }));
                   setNewSchoolNote('');
                 }}
-                className="px-6 py-3 rounded-xl bg-indigo-600 text-white text-sm font-extrabold cursor-pointer"
+                className="tw-glow-btn px-6 py-3 rounded-xl bg-indigo-600 text-white text-sm font-extrabold cursor-pointer"
               >
                 + Eintragen
               </button>
@@ -262,7 +271,7 @@ export default function OtherSections({
   }
 
   // =========================================================
-  // ANSICHT 6: ESSENSPLAN (DIREKT IN TODOIST-EINKAUFSLISTE)
+  // ANSICHT 6: ESSENSPLAN
   // =========================================================
   if (activeSection === 'essen') {
     return (
@@ -271,7 +280,7 @@ export default function OtherSections({
           <div>
             <h2 className="text-2xl font-extrabold">🍲 Familien-Essensplan & Todoist-Zutaten</h2>
             <p className={`text-sm font-semibold ${themeStyles.textMuted}`}>
-              Ein Klick auf „🛒 In Einkaufsliste“ überträgt alle fehlenden Zutaten sofort in eure Todoist-Einkaufsliste & Kachel!
+              Ein Klick auf „🛒 In Todoist-Einkaufsliste“ überträgt alle fehlenden Zutaten sofort in eure Einkaufslisten-Kachel!
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2.5">
@@ -295,7 +304,7 @@ export default function OtherSections({
                 setNewMealDay('');
                 setNewMealDish('');
               }}
-              className="px-6 py-3 rounded-xl bg-indigo-600 text-white text-sm font-extrabold cursor-pointer"
+              className="tw-glow-btn px-6 py-3 rounded-xl bg-indigo-600 text-white text-sm font-extrabold cursor-pointer"
             >
               + Essens-Block
             </button>
@@ -340,7 +349,7 @@ export default function OtherSections({
                           }
                           addShoppingItemsBatch(missing.map(i => `${i.name} (${meal.dayLabel})`));
                         }}
-                        className="px-3 py-1 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-extrabold cursor-pointer shadow-xs"
+                        className="tw-glow-btn px-3 py-1 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-extrabold cursor-pointer shadow-xs"
                       >
                         🛒 In Todoist-Einkaufsliste
                       </button>
@@ -402,7 +411,7 @@ export default function OtherSections({
                       setMealPlan(prev => prev.map(m => m.id === meal.id ? { ...m, ingredients: [...m.ingredients, { name: val, done: false }] } : m));
                       setIngInputs({ ...ingInputs, [meal.id]: '' });
                     }}
-                    className="w-10 h-10 rounded-xl bg-indigo-600 text-white font-bold cursor-pointer"
+                    className="tw-glow-btn w-10 h-10 rounded-xl bg-indigo-600 text-white font-bold cursor-pointer"
                   >
                     +
                   </button>
@@ -416,24 +425,46 @@ export default function OtherSections({
   }
 
   // =========================================================
-  // ANSICHT 7: NOTIZEN
+  // ANSICHT 7: NOTIZEN & LISTEN (MIT PROJEKT-AUSWAHL BEIM ANLEGEN & AUF JEDER KACHEL!)
   // =========================================================
   if (activeSection === 'listen') {
+    const handleCreateNoteTile = async () => {
+      const cleanTitle = newNoteTitle.trim() || '📌 Neue Liste';
+      let targetProjId = newNoteProjectId;
+      if (newNoteProjectId === '__NEW__') {
+        const created = await createAndSelectTodoistProject(cleanTitle);
+        if (created?.id) targetProjId = String(created.id);
+      }
+      setFamilyNotes(prev => [
+        ...prev,
+        {
+          id: Date.now(),
+          title: cleanTitle,
+          author: newNoteAuthor,
+          color: 'amber',
+          todoistProjectId: targetProjId || '',
+          items: []
+        }
+      ]);
+      setNewNoteTitle('');
+      setNewNoteProjectId('');
+    };
+
     return (
       <div className="p-6 flex flex-col gap-6">
         <div className={`p-6 rounded-3xl border shadow-sm flex flex-wrap items-center justify-between gap-4 ${themeStyles.card}`}>
           <div>
             <div className="flex items-center gap-3 flex-wrap">
-              <h2 className="text-2xl font-extrabold">📝 Familien-Notizen & Listen</h2>
+              <h2 className="text-2xl font-extrabold">📝 Familien-Notizen & Todoist-Projekt-Kacheln</h2>
               <button
                 onClick={() => setQrModalOpen(true)}
-                className="px-4 py-2 rounded-2xl bg-emerald-600 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
+                className="tw-glow-btn px-4 py-2 rounded-2xl bg-emerald-600 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
               >
                 <QrCode className="w-4 h-4" /> Handy-App & QR-Code
               </button>
             </div>
             <p className={`text-sm font-semibold mt-1 ${themeStyles.textMuted}`}>
-              Der erste Block ist live mit eurer Todoist-Einkaufsliste gekoppelt. Zudem kannst du jeden Punkt mit 1 Klick als Todoist-Aufgabe senden.
+              Wähle direkt beim Anlegen einer neuen Kachel (oder oben auf jeder bestehenden Kachel) das gewünschte <strong>Todoist-Projekt</strong> aus!
             </p>
           </div>
 
@@ -442,129 +473,161 @@ export default function OtherSections({
               type="text"
               value={newNoteTitle}
               onChange={(e) => setNewNoteTitle(e.target.value)}
-              placeholder="Titel (z.B. Baumarkt)"
+              onKeyDown={(e) => { if (e.key === 'Enter') handleCreateNoteTile(); }}
+              placeholder="Titel der neuen Kachel (z.B. Baumarkt)..."
               className={`px-4 py-3 rounded-xl border text-sm font-bold w-56 ${themeStyles.input}`}
             />
             <select
+              value={newNoteProjectId}
+              onChange={(e) => setNewNoteProjectId(e.target.value)}
+              className={`px-3.5 py-3 rounded-xl border text-xs font-extrabold ${themeStyles.input}`}
+            >
+              <option value="" className="bg-slate-800 text-white">📂 Nur lokal (Kein Todoist-Projekt)</option>
+              {projectsList.map(p => (
+                <option key={p.id} value={String(p.id)} className="bg-slate-800 text-white">
+                  📂 Todoist: {p.name}
+                </option>
+              ))}
+              <option value="__NEW__" className="bg-slate-800 text-amber-300 font-black">
+                ✨ Neues Projekt in Todoist erstellen
+              </option>
+            </select>
+            <select
               value={newNoteAuthor}
               onChange={(e) => setNewNoteAuthor(e.target.value)}
-              className={`px-4 py-3 rounded-xl border text-sm font-bold ${themeStyles.input}`}
+              className={`px-3.5 py-3 rounded-xl border text-xs font-bold ${themeStyles.input}`}
             >
               {['Familie', ...members.filter(m => m.id !== 'all').map(m => m.name)].map(a => (
                 <option key={a} value={a} className="bg-slate-800 text-white">👤 {a}</option>
               ))}
             </select>
             <button
-              onClick={() => {
-                setFamilyNotes(prev => [...prev, { id: Date.now(), title: newNoteTitle.trim() || '📌 Neue Liste', author: newNoteAuthor, color: 'amber', items: [] }]);
-                setNewNoteTitle('');
-              }}
-              className="px-6 py-3 rounded-xl bg-indigo-600 text-white text-sm font-extrabold cursor-pointer"
+              onClick={handleCreateNoteTile}
+              className="tw-glow-btn px-6 py-3 rounded-xl bg-indigo-600 text-white text-sm font-extrabold cursor-pointer"
             >
-              + Neuer Notizblock
+              + Neue Kachel anlegen
             </button>
           </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-          {familyNotes.map((note, noteIdx) => (
-            <div key={note.id} className={`rounded-3xl border-2 p-6 shadow-sm flex flex-col justify-between min-h-[450px] ${themeStyles.card}`}>
-              <div className="flex-1 flex flex-col">
-                <div className="flex items-center justify-between gap-2 mb-3">
-                  <input
-                    type="text"
-                    value={note.title}
-                    onChange={(e) => setFamilyNotes(prev => prev.map(n => n.id === note.id ? { ...n, title: e.target.value } : n))}
-                    className="font-extrabold text-xl bg-transparent focus:outline-none flex-1 min-w-0"
-                  />
-                  <span className={`px-3 py-1 rounded-full text-xs font-extrabold border ${themeStyles.subtle}`}>{note.author}</span>
-                  {noteIdx > 0 && (
-                    <button
-                      onClick={() => setFamilyNotes(prev => prev.filter(n => n.id !== note.id))}
-                      className="w-8 h-8 rounded-full hover:bg-rose-500/20 text-rose-400 font-bold cursor-pointer"
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
+          {familyNotes.map((note, noteIdx) => {
+            const activeProjId = noteIdx === 0
+              ? (note.todoistProjectId || todoistConfig.shoppingProjectId || '')
+              : (note.todoistProjectId || '');
 
-                <div className={`flex flex-wrap items-center gap-2 mb-3 pb-2.5 border-b ${themeStyles.divider}`}>
-                  <button
-                    onClick={() => {
-                      const openTexts = (note.items || []).filter(i => !i.done).map(i => i.text);
-                      if (openTexts.length === 0) return;
-                      addShoppingItemsBatch(openTexts);
-                    }}
-                    className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-extrabold cursor-pointer"
-                  >
-                    📲 Offene Punkte an Todoist senden
-                  </button>
-                </div>
-
-                <ul className="space-y-2 my-1 flex-1">
-                  {note.items.map((item, idx) => (
-                    <li key={idx} className={`flex items-center justify-between gap-3 px-4 py-3 rounded-2xl border text-sm font-bold ${themeStyles.subtle}`}>
-                      <label className="flex items-center gap-3 cursor-pointer flex-1 min-w-0">
-                        <input
-                          type="checkbox"
-                          checked={Boolean(item.done)}
-                          onChange={() => {
-                            setFamilyNotes(prev => prev.map(n => n.id === note.id ? {
-                              ...n,
-                              items: n.items.map((it, i) => i === idx ? { ...it, done: !it.done } : it)
-                            } : n));
-                          }}
-                          className="w-5 h-5 accent-indigo-600 rounded cursor-pointer"
-                        />
-                        <span className={`break-words ${item.done ? 'line-through opacity-50' : ''}`}>{item.text}</span>
-                      </label>
+            return (
+              <div key={note.id} className={`rounded-3xl border-2 p-6 shadow-sm flex flex-col justify-between min-h-[450px] ${themeStyles.card}`}>
+                <div className="flex-1 flex flex-col">
+                  <div className="flex items-center justify-between gap-2 mb-2.5">
+                    <input
+                      type="text"
+                      value={note.title}
+                      onChange={(e) => setFamilyNotes(prev => prev.map(n => n.id === note.id ? { ...n, title: e.target.value } : n))}
+                      className="font-extrabold text-xl bg-transparent focus:outline-none flex-1 min-w-0"
+                    />
+                    <span className={`px-3 py-1 rounded-full text-xs font-extrabold border ${themeStyles.subtle}`}>{note.author}</span>
+                    {noteIdx > 0 && (
                       <button
-                        onClick={() => {
-                          setFamilyNotes(prev => prev.map(n => n.id === note.id ? {
-                            ...n,
-                            items: n.items.filter((_, i) => i !== idx)
-                          } : n));
-                        }}
-                        className="opacity-50 hover:opacity-100 hover:text-rose-400 font-bold cursor-pointer"
+                        onClick={() => setFamilyNotes(prev => prev.filter(n => n.id !== note.id))}
+                        className="w-8 h-8 rounded-full hover:bg-rose-500/20 text-rose-400 font-bold cursor-pointer"
                       >
                         ✕
                       </button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
+                    )}
+                  </div>
 
-              <div className={`mt-4 pt-4 border-t flex gap-2 ${themeStyles.divider}`}>
-                <input
-                  type="text"
-                  value={noteInputs[note.id] || ''}
-                  onChange={(e) => setNoteInputs({ ...noteInputs, [note.id]: e.target.value })}
-                  onKeyDown={(e) => {
-                    const val = (noteInputs[note.id] || '').trim();
-                    if (e.key === 'Enter' && val) {
-                      if (noteIdx === 0) addShoppingItemsBatch([val]);
-                      else setFamilyNotes(prev => prev.map(n => n.id === note.id ? { ...n, items: [...n.items, { text: val, done: false }] } : n));
+                  {/* PROJEKT-AUSWAHL DIREKT AUF JEDER BESTEHENDEN NOTIZ-KACHEL */}
+                  <div className={`flex items-center gap-2 mb-3 pb-3 border-b ${themeStyles.divider}`}>
+                    <FolderKanban className="w-4 h-4 text-sky-400 shrink-0" />
+                    <span className="text-[11px] font-black uppercase opacity-75 shrink-0">Todoist-Projekt:</span>
+                    <select
+                      value={activeProjId}
+                      onChange={async (e) => {
+                        const val = e.target.value;
+                        if (val === '__NEW__') {
+                          const created = await createAndSelectTodoistProject(note.title);
+                          if (created?.id) {
+                            setFamilyNotes(prev => prev.map(n => n.id === note.id ? { ...n, todoistProjectId: String(created.id) } : n));
+                          }
+                        } else {
+                          setFamilyNotes(prev => prev.map(n => n.id === note.id ? { ...n, todoistProjectId: val } : n));
+                        }
+                      }}
+                      className={`flex-1 px-3 py-1.5 rounded-xl border text-xs font-extrabold cursor-pointer ${themeStyles.input}`}
+                    >
+                      <option value="" className="bg-slate-800 text-white">-- Lokal (Kein Todoist-Projekt) --</option>
+                      {projectsList.map(p => (
+                        <option key={p.id} value={String(p.id)} className="bg-slate-800 text-white">
+                          📂 {p.name}
+                        </option>
+                      ))}
+                      <option value="__NEW__" className="bg-slate-800 text-amber-300 font-black">
+                        ✨ Neues Todoist-Projekt für diese Kachel anlegen
+                      </option>
+                    </select>
+                  </div>
+
+                  <ul className="space-y-2 my-1 flex-1">
+                    {(note.items || []).map((item, idx) => (
+                      <li
+                        key={idx}
+                        onClick={() => toggleItemInNoteTile(note.id, idx)}
+                        className={`flex items-center justify-between gap-3 px-4 py-3 rounded-2xl border text-sm font-bold cursor-pointer ${themeStyles.subtle}`}
+                      >
+                        <div className="flex items-center gap-3 flex-1 min-w-0">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(item.done)}
+                            readOnly
+                            className="w-5 h-5 accent-indigo-600 rounded cursor-pointer"
+                          />
+                          <span className={`break-words ${item.done ? 'line-through opacity-50' : ''}`}>{item.text}</span>
+                        </div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteItemInNoteTile(note.id, idx);
+                          }}
+                          className="opacity-50 hover:opacity-100 hover:text-rose-400 font-bold cursor-pointer"
+                        >
+                          ✕
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div className={`mt-4 pt-4 border-t flex gap-2 ${themeStyles.divider}`}>
+                  <input
+                    type="text"
+                    value={noteInputs[note.id] || ''}
+                    onChange={(e) => setNoteInputs({ ...noteInputs, [note.id]: e.target.value })}
+                    onKeyDown={(e) => {
+                      const val = (noteInputs[note.id] || '').trim();
+                      if (e.key === 'Enter' && val) {
+                        addItemToNoteTile(note.id, val);
+                        setNoteInputs({ ...noteInputs, [note.id]: '' });
+                      }
+                    }}
+                    placeholder="Neuen Punkt eintragen..."
+                    className={`flex-1 px-4 py-3 rounded-2xl border text-sm font-semibold ${themeStyles.input}`}
+                  />
+                  <button
+                    onClick={() => {
+                      const val = (noteInputs[note.id] || '').trim();
+                      if (!val) return;
+                      addItemToNoteTile(note.id, val);
                       setNoteInputs({ ...noteInputs, [note.id]: '' });
-                    }
-                  }}
-                  placeholder="Neuen Punkt eintragen..."
-                  className={`flex-1 px-4 py-3 rounded-2xl border text-sm font-semibold ${themeStyles.input}`}
-                />
-                <button
-                  onClick={() => {
-                    const val = (noteInputs[note.id] || '').trim();
-                    if (!val) return;
-                    if (noteIdx === 0) addShoppingItemsBatch([val]);
-                    else setFamilyNotes(prev => prev.map(n => n.id === note.id ? { ...n, items: [...n.items, { text: val, done: false }] } : n));
-                    setNoteInputs({ ...noteInputs, [note.id]: '' });
-                  }}
-                  className="w-12 h-12 rounded-2xl bg-indigo-600 text-white text-xl font-bold cursor-pointer"
-                >
-                  +
-                </button>
+                    }}
+                    className="tw-glow-btn w-12 h-12 rounded-2xl bg-indigo-600 text-white text-xl font-bold cursor-pointer"
+                  >
+                    +
+                  </button>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     );
@@ -582,8 +645,8 @@ export default function OtherSections({
         <div className={`p-6 rounded-3xl border shadow-sm space-y-4 ${themeStyles.card}`}>
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
-              <h2 className="text-2xl font-extrabold">1. Seiten-Theme & Eigenes Touchwall-Logo</h2>
-              <p className={`text-sm font-semibold ${themeStyles.textMuted}`}>Wähle dein Seiten-Design (gilt für alle Fenster & Popups) und dein eigenes Logo für oben links.</p>
+              <h2 className="text-2xl font-extrabold">1. Seiten-Theme & Touch-Glow-Effekte</h2>
+              <p className={`text-sm font-semibold ${themeStyles.textMuted}`}>Wähle dein Seiten-Design (inklusive blauem Touch-Glow & Puls-Effekten) und dein eigenes Logo.</p>
             </div>
 
             <div className={`flex flex-wrap items-center gap-2 p-2.5 rounded-2xl border ${themeStyles.subtle}`}>
@@ -597,7 +660,7 @@ export default function OtherSections({
                 placeholder="Logo Bild-URL..."
                 className={`w-40 px-3 py-1.5 rounded-xl border text-xs font-semibold ${themeStyles.input}`}
               />
-              <label className="px-3 py-1.5 rounded-xl bg-indigo-600 text-white text-xs font-bold cursor-pointer hover:bg-indigo-500">
+              <label className="tw-glow-btn px-3 py-1.5 rounded-xl bg-indigo-600 text-white text-xs font-bold cursor-pointer hover:bg-indigo-500">
                 📁 Logo hochladen
                 <input type="file" accept="image/*" className="hidden" onChange={handleLogoUpload} />
               </label>
@@ -608,7 +671,7 @@ export default function OtherSections({
               )}
               <button
                 onClick={restoreScreenshotDefaults}
-                className="px-3 py-1.5 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-400/30 text-xs font-extrabold cursor-pointer"
+                className="tw-glow-btn px-3 py-1.5 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-400/30 text-xs font-extrabold cursor-pointer"
               >
                 🔄 Standard-Profil wiederherstellen
               </button>
@@ -620,10 +683,10 @@ export default function OtherSections({
               <button
                 key={t.id}
                 onClick={() => setCurrentTheme(t.id)}
-                className={`p-4 rounded-2xl border-2 text-left transition-all cursor-pointer flex flex-col justify-between ${
+                className={`tw-glow-btn p-4 rounded-2xl border-2 text-left transition-all cursor-pointer flex flex-col justify-between ${
                   currentTheme === t.id
-                    ? 'border-indigo-500 bg-indigo-500/20 ring-2 ring-indigo-400'
-                    : `${themeStyles.subtle} hover:border-indigo-400/50`
+                    ? 'border-sky-400 bg-sky-500/20 ring-2 ring-sky-400 shadow-[0_0_20px_rgba(56,189,248,0.4)]'
+                    : `${themeStyles.subtle}`
                 }`}
               >
                 <div className="font-extrabold text-sm">{t.name}</div>
@@ -634,7 +697,7 @@ export default function OtherSections({
         </div>
 
         <div className={`p-6 rounded-3xl border shadow-sm space-y-5 ${themeStyles.card}`}>
-          <h2 className="text-2xl font-extrabold">2. Persönliche Farbe (Harmonisch gedämpft & Pastell) & Avatar</h2>
+          <h2 className="text-2xl font-extrabold">2. Persönliche Farbe & Avatar pro Kachel</h2>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
             {members.map(m => {
               const st = getMemberStyles(m);
@@ -663,7 +726,7 @@ export default function OtherSections({
                   </div>
 
                   <div className="space-y-2">
-                    <div className="text-[11px] font-extrabold uppercase opacity-75">🔥 Vollton-Farben (im Kalender angenehm abgedämpft):</div>
+                    <div className="text-[11px] font-extrabold uppercase opacity-75">🔥 Vollton-Farben (harmonisch abgedämpft):</div>
                     <div className="flex flex-wrap gap-1.5">
                       {boldKeys.map(cKey => {
                         const pal = COLOR_PALETTES[cKey];
@@ -741,76 +804,43 @@ export default function OtherSections({
   }
 
   // =========================================================
-  // ANSICHT 9: KONTEN, TODOIST TEAM "FAMILIE RICHTER" & BENUTZERNAMEN
+  // ANSICHT 9: KONTEN (AUFGERÄUMT: NUR NOCH API-TOKEN + BENUTZERZUORDNUNG)
   // =========================================================
   return (
     <div className="p-6 flex flex-col gap-6">
 
-      {/* 1. TODOIST TEAM "FAMILIE RICHTER" ZENTRALE */}
-      <div className={`rounded-3xl p-6 shadow-xl border-2 border-rose-500/40 space-y-5 ${themeStyles.card}`}>
+      {/* 1. TODOIST TEAM "FAMILIE RICHTER" API-VERBINDUNG (OHNE PROJEKT-FELDER, DA DIREKT AUF DEN KACHELN!) */}
+      <div className={`rounded-3xl p-6 shadow-xl border-2 border-sky-500/40 space-y-4 ${themeStyles.card}`}>
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <span className="px-3 py-1 rounded-full bg-rose-500/20 text-rose-400 text-xs font-extrabold">
-              📲 Todoist Team „Familie Richter“ (Echte Handy-Push-Zuweisung)
+            <span className="px-3 py-1 rounded-full bg-sky-500/20 text-sky-300 text-xs font-extrabold">
+              ⚡ 8-Sekunden-Echtzeit-Sync • Todoist Team „Familie Richter“
             </span>
-            <h2 className="text-2xl font-extrabold mt-2">Todoist Team & Projekt-Verknüpfung</h2>
+            <h2 className="text-2xl font-extrabold mt-2">Todoist Team-Verbindung</h2>
             <p className={`text-sm mt-1 ${themeStyles.textMuted}`}>
-              Kopiere in Todoist unter <strong>Einstellungen → Integrationen → Entwickler</strong> dein API-Token hier hinein und klicke auf „Team & Projekte laden“.
+              Hier hinterlegst du nur einmalig dein API-Token. Welches Projekt eine Kachel nutzt, wählst du direkt oben auf der jeweiligen Kachel unter „Todoist“ oder „Notizen“!
             </p>
           </div>
           <button
             onClick={connectAndDiscoverTodoist}
-            className="px-6 py-3 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white font-extrabold text-sm flex items-center gap-2 cursor-pointer shadow-md"
+            className="tw-glow-btn px-6 py-3 rounded-2xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-black text-sm flex items-center gap-2 cursor-pointer shadow-md"
           >
-            <Check className="w-4 h-4" /> Team & Projekte automatisch verbinden
+            <Check className="w-4 h-4" /> Team & Projekte aktualisieren
           </button>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-          <div className={`p-3.5 rounded-2xl border ${themeStyles.subtle}`}>
-            <label className="block text-[10px] font-extrabold uppercase text-rose-400 mb-1">
-              🔑 Todoist API-Token:
-            </label>
-            <input
-              type="password"
-              value={todoistConfig.apiToken || ''}
-              onChange={(e) => setTodoistConfig(prev => ({ ...prev, apiToken: e.target.value }))}
-              placeholder="Dein Todoist API-Token..."
-              className={`w-full px-3.5 py-2 rounded-xl border text-xs font-mono ${themeStyles.input}`}
-            />
-          </div>
-
-          <div className={`p-3.5 rounded-2xl border ${themeStyles.subtle}`}>
-            <label className="block text-[10px] font-extrabold uppercase text-amber-400 mb-1">
-              🛒 Todoist Projekt für Einkaufsliste:
-            </label>
-            <select
-              value={todoistConfig.shoppingProjectId || ''}
-              onChange={(e) => setTodoistConfig(prev => ({ ...prev, shoppingProjectId: e.target.value }))}
-              className={`w-full px-3.5 py-2 rounded-xl border text-xs font-bold ${themeStyles.input}`}
-            >
-              <option value="" className="bg-slate-800 text-white">-- Automatisch / Nach Klick laden --</option>
-              {(todoistConfig.projects || []).map(p => (
-                <option key={p.id} value={p.id} className="bg-slate-800 text-white">{p.name}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className={`p-3.5 rounded-2xl border ${themeStyles.subtle}`}>
-            <label className="block text-[10px] font-extrabold uppercase text-emerald-400 mb-1">
-              ✅ Todoist Projekt für Familien-Aufgaben:
-            </label>
-            <select
-              value={todoistConfig.tasksProjectId || ''}
-              onChange={(e) => setTodoistConfig(prev => ({ ...prev, tasksProjectId: e.target.value }))}
-              className={`w-full px-3.5 py-2 rounded-xl border text-xs font-bold ${themeStyles.input}`}
-            >
-              <option value="" className="bg-slate-800 text-white">-- Automatisch / Nach Klick laden --</option>
-              {(todoistConfig.projects || []).map(p => (
-                <option key={p.id} value={p.id} className="bg-slate-800 text-white">{p.name}</option>
-              ))}
-            </select>
-          </div>
+        <div className={`p-4 rounded-2xl border flex flex-wrap items-center gap-4 ${themeStyles.subtle}`}>
+          <span className="text-xs font-extrabold uppercase text-sky-400 shrink-0">🔑 Todoist API-Token:</span>
+          <input
+            type="password"
+            value={todoistConfig.apiToken || ''}
+            onChange={(e) => setTodoistConfig(prev => ({ ...prev, apiToken: e.target.value }))}
+            placeholder="Dein Todoist API-Token..."
+            className={`flex-1 min-w-[260px] px-4 py-2.5 rounded-xl border text-xs font-mono ${themeStyles.input}`}
+          />
+          <span className="px-3.5 py-2 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-xs font-extrabold">
+            📂 {projectsList.length} Projekte & 👥 {(todoistConfig.collaborators || []).length} Team-Mitglieder aktiv
+          </span>
         </div>
       </div>
 
@@ -826,7 +856,7 @@ export default function OtherSections({
                 <div className="flex flex-col sm:flex-row gap-2 flex-1">
                   <div className="flex-1">
                     <label className={`block text-[10px] font-extrabold uppercase mb-0.5 ${themeStyles.textMuted}`}>
-                      Benutzername
+                      Benutzername / Kachelname
                     </label>
                     <input
                       type="text"
@@ -856,10 +886,9 @@ export default function OtherSections({
                 </div>
               </div>
 
-              {/* TODOIST TEAM-MITGLIED ZUORDNUNG */}
               {m.id !== 'all' && (
                 <div className="min-w-[200px]">
-                  <label className="block text-[10px] font-extrabold uppercase mb-0.5 text-rose-400">
+                  <label className="block text-[10px] font-extrabold uppercase mb-0.5 text-sky-400">
                     📲 Todoist Team-Account
                   </label>
                   <select
@@ -880,7 +909,6 @@ export default function OtherSections({
                 </div>
               )}
 
-              {/* GOOGLE KALENDER ID */}
               <div className="flex-1 min-w-[230px]">
                 <label className={`block text-[10px] font-extrabold uppercase mb-0.5 ${themeStyles.textMuted}`}>
                   Google Kalender-ID
@@ -924,34 +952,34 @@ export default function OtherSections({
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h3 className="text-lg font-extrabold">☁️ Google Kalender & Cloud-Speicher Brücke</h3>
-            <p className={`text-xs ${themeStyles.textMuted}`}>Speichert deine Einstellungen, Todoist-Zuordnungen und Google-Kalender-Termine.</p>
+            <p className={`text-xs ${themeStyles.textMuted}`}>Speichert deine Einstellungen, Kachel-Projekte und Google-Kalender-Termine.</p>
           </div>
           <div className="flex flex-wrap gap-2.5">
             <button
               onClick={runAllPermissionsTest}
               disabled={isTestingDiag}
-              className="px-4 py-2.5 rounded-2xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-xs flex items-center gap-1.5 cursor-pointer"
+              className="tw-glow-btn px-4 py-2.5 rounded-2xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-xs flex items-center gap-1.5 cursor-pointer"
             >
               <ShieldCheck className="w-4 h-4" />
               {isTestingDiag ? 'Prüfe...' : '🧪 Lese-/Schreibrechte testen'}
             </button>
             <button
               onClick={() => pullFromCloud(undefined, true)}
-              className={`px-4 py-2.5 rounded-2xl border font-bold text-xs flex items-center gap-1.5 cursor-pointer ${themeStyles.subtle}`}
+              className={`tw-glow-btn px-4 py-2.5 rounded-2xl border font-bold text-xs flex items-center gap-1.5 cursor-pointer ${themeStyles.subtle}`}
             >
               <RefreshCw className="w-4 h-4" /> Aus Google laden
             </button>
             <button
               onClick={() => pushToCloudAndDrive(members, true)}
-              className="px-5 py-2.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-xs flex items-center gap-1.5 cursor-pointer"
+              className="tw-glow-btn px-5 py-2.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-xs flex items-center gap-1.5 cursor-pointer"
             >
               <Cloud className="w-4 h-4" /> Alles in Cloud sichern
             </button>
             <button
               onClick={addExtraCalendarAccount}
-              className="px-4 py-2.5 rounded-2xl bg-indigo-600 text-white font-extrabold text-xs cursor-pointer"
+              className="tw-glow-btn px-4 py-2.5 rounded-2xl bg-indigo-600 text-white font-extrabold text-xs cursor-pointer"
             >
-              + Weiterer Kalender
+              + Weiterer Kalender / Person
             </button>
           </div>
         </div>
