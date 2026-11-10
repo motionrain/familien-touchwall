@@ -65,7 +65,7 @@ export default function OtherSections({
   const projectsList = todoistConfig?.projects || [];
 
   // =========================================================
-  // ANSICHT 4: SCHULE 1
+  // ANSICHT 4: SCHULE
   // =========================================================
   if (activeSection === 'schule') {
     const childMember = members.find(m => m.id === activeSchoolChild) || members[3];
