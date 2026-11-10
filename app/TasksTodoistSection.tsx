@@ -442,7 +442,7 @@ export default function TasksTodoistSection({
                       onClick={clearCompletedShoppingItems}
                       className="text-rose-400 hover:underline cursor-pointer"
                     >
-                      🗑️ Leeren
+                      🗑️ Leer
                     </button>
                   </div>
                   {doneShopItems.map(item => (
