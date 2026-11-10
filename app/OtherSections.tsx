@@ -65,7 +65,7 @@ export default function OtherSections({
   const projectsList = safeArr(todoistConfig?.projects);
 
   // =========================================================
-  // ANSICHT 4: SCHULE
+  // ANSICHT 4: SCHULE 1
   // =========================================================
   if (activeSection === 'schule') {
     const childMember = safeMembers.find(m => m.id === activeSchoolChild) || safeMembers[3] || safeMembers[0] || { name: 'Schule', color: 'royal_bold' };
