@@ -1,14 +1,6 @@
 // @ts-nocheck
 /* eslint-disable react/no-unescaped-entities */
 
-// Schützt jedes .map() und .filter() vor undefined-Abstürzen
-export function safeArr(val) {
-  return Array.isArray(val) ? val : [];
-}
-
-// =========================================================
-// 1. DATUMS- & HILFSFUNKTIONEN + SOUND-SYNTHESIZER
-// =========================================================
 export function formatDateStr(dateObj) {
   const d = new Date(dateObj);
   const y = d.getFullYear();
@@ -72,9 +64,6 @@ export function playTouchwallAlarmSound() {
 export const WEEKDAYS_SHORT = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
 export const MONTHS_NAMES = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
 
-// =========================================================
-// 2. BADEN-WÜRTTEMBERG FEIERTAGE & SCHULFERIEN (2025-2029)
-// =========================================================
 const bwHolidayCache = {};
 
 function computeEasterSunday(year) {
@@ -88,7 +77,6 @@ function computeEasterSunday(year) {
   return new Date(year, month - 1, day);
 }
 
-
 export function getBWHolidayName(dateStr) {
   if (!dateStr) return null;
   const year = Number(dateStr.slice(0, 4));
@@ -96,9 +84,12 @@ export function getBWHolidayName(dateStr) {
     const map = {};
     const easter = computeEasterSunday(year);
     map[`${year}-01-01`] = 'Neujahr';
-    map[`${year}-01-06`] = 'Heilige Drei Könige'; map[`${year}-05-01`] = 'Tag der Arbeit';
-    map[`${year}-10-03`] = 'Tag der Dt. Einheit'; map[`${year}-11-01`] = 'Allerheiligen';
-    map[`${year}-12-25`] = '1. Weihnachtstag'; map[`${year}-12-26`] = '2. Weihnachtstag';
+    map[`${year}-01-06`] = 'Heilige Drei Könige';
+    map[`${year}-05-01`] = 'Tag der Arbeit';
+    map[`${year}-10-03`] = 'Tag der Dt. Einheit';
+    map[`${year}-11-01`] = 'Allerheiligen';
+    map[`${year}-12-25`] = '1. Weihnachtstag';
+    map[`${year}-12-26`] = '2. Weihnachtstag';
     map[formatDateStr(addDays(easter, -2))] = 'Karfreitag';
     map[formatDateStr(addDays(easter, 1))] = 'Ostermontag';
     map[formatDateStr(addDays(easter, 39))] = 'Christi Himmelfahrt';
@@ -148,9 +139,6 @@ export function getBWVacationName(dateStr) {
   return info ? info.name : null;
 }
 
-// =========================================================
-// 3. FARBPALETTEN, THEMES & STANDARD-DATEN
-// =========================================================
 export const COLOR_PALETTES = {
   crimson_bold: { name: '🔥 Racing Rot',      hex: '#dc2626', border: '#991b1b', light: '#fee2e2', text: '#991b1b', bold: true },
   royal_bold:   { name: '⚡ Elektro Blau',    hex: '#2563eb', border: '#1e40af', light: '#dbeafe', text: '#1e40af', bold: true },
@@ -262,7 +250,7 @@ export const DEFAULT_SCHOOL = {
   }
 };
 
-export const DEFAULT_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwdbSP-zoHwk7Y_UqSG7qzC84OAKUeHGCGFuRvaaWq7D6Jh8PN6f7Fk_8m8h42a0YzG/exec';
+export const DEFAULT_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyY2AOKbYqdHNbdcjbTRGW2w-8xqjL3fDN7mdLpKQtmBaQfYcA54NIM97FxmLca7-1L/exec';
 
 export function buildThemeStyles(currentTheme) {
   switch (currentTheme) {
@@ -394,8 +382,8 @@ export function buildMemberStyles(member, isDark) {
     return {
       cardStyle: {
         background: isDark
-          ? `linear-gradient(135deg, ${hexToRgba(p.hex, 0.65)} 0\%,${hexToRgba(p.hex, 0.45)} 100%)`
-          : `linear-gradient(135deg, ${hexToRgba(p.hex, 0.82)} 0\%,${hexToRgba(p.hex, 0.68)} 100%)`,
+          ? `linear-gradient(135deg, ${hexToRgba(p.hex, 0.65)} 0%, ${hexToRgba(p.hex, 0.45)} 100%)`
+          : `linear-gradient(135deg, ${hexToRgba(p.hex, 0.82)} 0%, ${hexToRgba(p.hex, 0.68)} 100%)`,
         borderLeft: `5px solid ${p.hex}`,
         borderTop: `1px solid ${hexToRgba(p.hex, 0.5)}`,
         borderRight: `1px solid ${hexToRgba(p.hex, 0.35)}`,
@@ -404,8 +392,8 @@ export function buildMemberStyles(member, isDark) {
       },
       headerStyle: {
         background: isDark
-          ? `linear-gradient(90deg, ${hexToRgba(p.hex, 0.32)} 0\%,${hexToRgba(p.hex, 0.12)} 100%)`
-          : `linear-gradient(90deg, ${hexToRgba(p.hex, 0.20)} 0\%,${hexToRgba(p.hex, 0.08)} 100%)`,
+          ? `linear-gradient(90deg, ${hexToRgba(p.hex, 0.32)} 0%, ${hexToRgba(p.hex, 0.12)} 100%)`
+          : `linear-gradient(90deg, ${hexToRgba(p.hex, 0.20)} 0%, ${hexToRgba(p.hex, 0.08)} 100%)`,
         borderLeft: `6px solid ${p.hex}`
       },
       cellStyle: (isWeekend) => ({
@@ -424,41 +412,75 @@ export function buildMemberStyles(member, isDark) {
     },
     headerStyle: {
       backgroundColor: isDark ? hexToRgba(p.hex, 0.22) : p.light,
-      borderLeft: `6px solid ${p.hex}` }, cellStyle: (isWeekend) => ({ backgroundColor: isWeekend ? hexToRgba(p.hex, isDark ? 0.18 : 0.15) : hexToRgba(p.hex, isDark ? 0.10 : 0.08) }), badgeStyle: { backgroundColor: p.hex, color: '#ffffff' } }; }  // ========================================================= // 4. CORS-FREIE SERVER-BRÜCKE FÜR GOOGLE APPS SCRIPT (CODE.GS) // ========================================================= export async function callGoogleAppsScriptGet(targetUrl) { const res = await fetch(`/api/todoist?_t=${Date.now()}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'googleGet', url: targetUrl }),
-    cache: 'no-store'
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok || data?.error) {
-    throw new Error(data?.error || `Google Sync Fehler (${res.status})`); } return data; }  export async function callGoogleAppsScriptPost(targetUrl, bodyData) { const res = await fetch(`/api/todoist?_t=${Date.now()}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'googlePost', url: targetUrl, bodyData }),
-    cache: 'no-store'
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok || data?.error) {
-    throw new Error(data?.error || `Google Sync Schreibfehler (${res.status})`); } return data; }  // ========================================================= // 5. TODOIST API v1 ENGINE (ÜBER SERVER-PROXY & MULTI-PROJEKT) // ========================================================= export async function todoistFetch(token, path, options = {}) { const cleanToken = String(token \vert{}\vert{} '').replace(/[^a-zA-Z0-9_-]/g, ''); if (!cleanToken) throw new Error('Kein Todoist API-Token eingetragen.');  const method = options.method \vert{}\vert{} 'GET'; let cleanBody = options.rawBody ? { ...options.rawBody } : null; if (cleanBody && cleanBody.due_datetime && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(cleanBody.due_datetime)) { cleanBody.due_datetime = new Date(cleanBody.due_datetime).toISOString(); }  const proxyRes = await fetch(`/api/todoist?_t=${Date.now()}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      token: cleanToken,
-      path,
-      method,
-      body: cleanBody || undefined
+      borderLeft: `6px solid ${p.hex}`
+    },
+    cellStyle: (isWeekend) => ({
+      backgroundColor: isWeekend
+        ? hexToRgba(p.hex, isDark ? 0.18 : 0.15)
+        : hexToRgba(p.hex, isDark ? 0.10 : 0.08)
     }),
-    cache: 'no-store'
-  });
+    badgeStyle: { backgroundColor: p.hex, color: '#ffffff' }
+  };
+}
 
-  const proxyData = await proxyRes.json().catch(() => ({}));
-  if (!proxyRes.ok || proxyData?.error) {
-    throw new Error(proxyData?.error || `Todoist Verbindungsfehler (${proxyRes.status})`);
+const TODOIST_V1_DIRECT = 'https://api.todoist.com/api/v1';
+
+export async function todoistFetch(token, path, options = {}) {
+  const cleanToken = String(token || '').replace(/[^a-zA-Z0-9_-]/g, '');
+  if (!cleanToken) throw new Error('Kein Todoist API-Token eingetragen.');
+
+  const method = options.method || 'GET';
+  let cleanBody = options.rawBody ? { ...options.rawBody } : null;
+  if (cleanBody && cleanBody.due_datetime && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(cleanBody.due_datetime)) {
+    cleanBody.due_datetime = new Date(cleanBody.due_datetime).toISOString();
   }
-  return (method === 'GET' && proxyData && !Array.isArray(proxyData) && Array.isArray(proxyData.results))
-    ? proxyData.results
-    : proxyData;
+
+  try {
+    const sep = path.includes('?') ? '&' : '?';
+    const url = method === 'GET' ? `${TODOIST_V1_DIRECT}${path}${sep}_t=${Date.now()}` : `${TODOIST_V1_DIRECT}${path}`;
+    const directRes = await fetch(url, {
+      method,
+      headers: {
+        Authorization: `Bearer ${cleanToken}`,
+        ...(cleanBody ? { 'Content-Type': 'application/json' } : {})
+      },
+      body: cleanBody && method !== 'GET' ? JSON.stringify(cleanBody) : undefined,
+      cache: 'no-store'
+    });
+
+    if (directRes.status === 204) return { ok: true };
+    const text = await directRes.text();
+    if (!directRes.ok) {
+      throw new Error(`Todoist-v1 (${directRes.status}): ${text}`);
+    }
+    const data = text ? JSON.parse(text) : {};
+    return (method === 'GET' && data && !Array.isArray(data) && Array.isArray(data.results))
+      ? data.results
+      : data;
+  } catch (directErr) {
+    if (String(directErr.message || '').startsWith('Todoist-v1 (')) {
+      throw directErr;
+    }
+
+    const proxyRes = await fetch(`/api/todoist?_t=${Date.now()}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        token: cleanToken,
+        path,
+        method,
+        body: cleanBody || undefined
+      }),
+      cache: 'no-store'
+    });
+    const proxyData = await proxyRes.json().catch(() => ({}));
+    if (!proxyRes.ok || proxyData?.error) {
+      throw new Error(proxyData?.error || directErr.message);
+    }
+    return (method === 'GET' && proxyData && !Array.isArray(proxyData) && Array.isArray(proxyData.results))
+      ? proxyData.results
+      : proxyData;
+  }
 }
 
 export async function createNewTodoistProject(token, projectName) {
@@ -474,23 +496,216 @@ export async function addTodoistRelativeReminder(token, itemId, notifyTimeStr) {
   const minuteOffset = offsetMap[notifyTimeStr];
   if (minuteOffset === undefined || !token || !itemId) return;
   const cleanToken = String(token).replace(/[^a-zA-Z0-9_-]/g, '');
+  const cmd = [{
+    type: 'reminder_add',
+    temp_id: 'rem-' + Date.now(),
+    uuid: 'tw-' + Date.now() + '-' + Math.floor(Math.random() * 100000),
+    args: {
+      item_id: String(itemId),
+      type: 'relative',
+      minute_offset: Number(minuteOffset)
+    }
+  }];
+
   try {
-    await fetch(`/api/todoist?_t=${Date.now()}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: cleanToken, action: 'addReminder', itemId: String(itemId), minuteOffset }) }); } catch (err) {} }  export async function discoverTodoistWorkspace(token) { const cleanToken = String(token \vert{}\vert{} '').replace(/[^a-zA-Z0-9_-]/g, ''); let projects = safeArr(await todoistFetch(cleanToken, '/projects'));  let shoppingProj = projects.find(p => /einkauf\vert{}shopping\vert{}supermarkt/i.test(p.name)); let tasksProj = projects.find(p => /aufgaben\vert{}familie\vert{}touchwall\vert{}tasks\vert{}richter/i.test(p.name) && (!shoppingProj \vert{}\vert{} p.id !== shoppingProj.id));  if (!shoppingProj) { shoppingProj = await createNewTodoistProject(cleanToken, '🛒 Einkaufsliste'); if (shoppingProj?.id) projects.push(shoppingProj); } if (!tasksProj) { tasksProj = await createNewTodoistProject(cleanToken, '✅ Familien-Aufgaben'); if (tasksProj?.id) projects.push(tasksProj); }  const collaboratorMap = {}; for (const p of projects) { if (p.is_shared \vert{}\vert{} p.id === tasksProj?.id \vert{}\vert{} p.id === shoppingProj?.id) { try { const cols = safeArr(await todoistFetch(cleanToken, `/projects/${p.id}/collaborators`));
-        cols.forEach(c => {
-          if (c?.id) {
-            collaboratorMap[String(c.id)] = {
-              id: String(c.id),
-              name: c.name || c.full_name || c.email || 'Team-Mitglied',
-              email: c.email || ''
-            };
-          }
-        });
+    const formBody = new URLSearchParams({ commands: JSON.stringify(cmd) });
+    await fetch(`${TODOIST_V1_DIRECT}/sync`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${cleanToken}`,
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: formBody.toString(),
+      cache: 'no-store'
+    });
+  } catch (e) {}
+}
+
+export async function discoverTodoistWorkspace(token) {
+  const cleanToken = String(token || '').replace(/[^a-zA-Z0-9_-]/g, '');
+  let projects = await todoistFetch(cleanToken, '/projects');
+  if (!Array.isArray(projects)) projects = [];
+
+  let shoppingProj = projects.find(p => /einkauf|shopping|supermarkt/i.test(p.name));
+  let tasksProj = projects.find(p => /aufgaben|familie|touchwall|tasks|richter/i.test(p.name) && (!shoppingProj || p.id !== shoppingProj.id));
+
+  if (!shoppingProj) {
+    shoppingProj = await createNewTodoistProject(cleanToken, '🛒 Einkaufsliste');
+    if (shoppingProj?.id) projects.push(shoppingProj);
+  }
+  if (!tasksProj) {
+    tasksProj = await createNewTodoistProject(cleanToken, '✅ Familien-Aufgaben');
+    if (tasksProj?.id) projects.push(tasksProj);
+  }
+
+  const collaboratorMap = {};
+  for (const p of projects) {
+    if (p.is_shared || p.id === tasksProj?.id || p.id === shoppingProj?.id) {
+      try {
+        const cols = await todoistFetch(cleanToken, `/projects/${p.id}/collaborators`);
+        if (Array.isArray(cols)) {
+          cols.forEach(c => {
+            if (c?.id) {
+              collaboratorMap[String(c.id)] = {
+                id: String(c.id),
+                name: c.name || c.full_name || c.email || 'Team-Mitglied',
+                email: c.email || ''
+              };
+            }
+          });
+        }
       } catch (e) {}
     }
   }
 
   try {
-    const syncRes = await fetch(`/api/todoist?_t=${Date.now()}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: cleanToken, action: 'syncCollaborators' }), cache: 'no-store' }); if (syncRes.ok) { const syncCols = safeArr(await syncRes.json()); syncCols.forEach(c => { if (c?.id) { collaboratorMap[String(c.id)] = { id: String(c.id), name: c.name \vert{}\vert{} c.email \vert{}\vert{} 'Team-Mitglied', email: c.email \vert{}\vert{} '' }; } }); } } catch (e) {}  return { projects, shoppingProjectId: String(shoppingProj?.id \vert{}\vert{} projects[0]?.id \vert{}\vert{} ''), tasksProjectId: String(tasksProj?.id \vert{}\vert{} projects[0]?.id \vert{}\vert{} ''), collaborators: Object.values(collaboratorMap) }; }  export async function pullFromTodoistTwoWay(token, config, currentTasks, currentFamilyNotes, members) { if (!token \vert{}\vert{} !token.trim()) return null;  const allRemote = safeArr(await todoistFetch(token, '/tasks')); const activeRemoteIds = new Set(allRemote.map(rt => String(rt.id)));  const notesArr = safeArr(currentFamilyNotes); const tasksArr = safeArr(currentTasks); const membersArr = safeArr(members);  const defaultShopProjId = String( notesArr[0]?.todoistProjectId \vert{}\vert{} config?.shoppingProjectId \vert{}\vert{} '' ); const defaultTasksProjId = String(config?.tasksProjectId \vert{}\vert{} '');  const noteProjectIds = new Set(); notesArr.forEach((note, idx) => { const pid = idx === 0 ? (note?.todoistProjectId \vert{}\vert{} defaultShopProjId) : note?.todoistProjectId; if (pid) noteProjectIds.add(String(pid)); });  const updatedNotes = notesArr.map((note, idx) => { const pid = String((idx === 0 ? (note?.todoistProjectId \vert{}\vert{} defaultShopProjId) : note?.todoistProjectId) \vert{}\vert{} ''); const safeItems = safeArr(note?.items); if (!pid) return { ...note, items: safeItems };  const projRemoteItems = allRemote.filter(rt => String(rt.project_id) === pid); const nextItems = safeItems.map(item => { if (item?.todoistId && !activeRemoteIds.has(String(item.todoistId))) { return { ...item, done: true }; } return item; });  projRemoteItems.forEach(rs => { const cleanTxt = String(rs.content \vert{}\vert{} '').trim(); if (!cleanTxt) return; const existingIdx = nextItems.findIndex(it => (it?.todoistId && String(it.todoistId) === String(rs.id)) \vert{}\vert{} String(it?.text \vert{}\vert{} '').trim().toLowerCase() === cleanTxt.toLowerCase() ); if (existingIdx > -1) { nextItems[existingIdx] = { ...nextItems[existingIdx], text: cleanTxt, todoistId: String(rs.id), done: false }; } else { nextItems.unshift({ text: cleanTxt, done: false, todoistId: String(rs.id) }); } });  return { ...note, todoistProjectId: pid, items: nextItems }; });  const updatedTasks = tasksArr.map(lt => { if (lt?.todoistId && !activeRemoteIds.has(String(lt.todoistId))) { return { ...lt, done: true }; } return lt; });  allRemote.forEach(rt => { const rtProjId = String(rt.project_id \vert{}\vert{} ''); const memberWithThisProject = membersArr.find(m => m.id !== 'all' && String(m.todoistProjectId \vert{}\vert{} '') === rtProjId); if (noteProjectIds.has(rtProjId) && !memberWithThisProject && rtProjId !== defaultTasksProjId) { return; }  const cleanContent = String(rt.content \vert{}\vert{} '').replace(/^\[.*?\]\s*/, '').trim(); if (!cleanContent) return;  const existingIdx = updatedTasks.findIndex(lt => (lt?.todoistId && String(lt.todoistId) === String(rt.id)) \vert{}\vert{} (String(lt?.title \vert{}\vert{} '').trim().toLowerCase() === cleanContent.toLowerCase() && !lt?.done) );  const assignedUid = rt.assignee_id \vert{}\vert{} rt.responsible_uid \vert{}\vert{} null; let memberKey = 'hans';  if (assignedUid) { const matchedMem = membersArr.find(m => String(m.todoistUserId) === String(assignedUid)); if (matchedMem) memberKey = matchedMem.id; } else if (memberWithThisProject) { memberKey = memberWithThisProject.id; } else { const prefix = String(rt.content \vert{}\vert{} '').match(/^\[(.*?)\]/); if (prefix) { const byName = membersArr.find(m => String(m.name \vert{}\vert{} '').toLowerCase().startsWith(prefix[1].toLowerCase()) \vert{}\vert{} String(m.id \vert{}\vert{} '').toLowerCase() === prefix[1].toLowerCase() ); if (byName) memberKey = byName.id; } }  const dueDate = rt.due?.date ? rt.due.date.slice(0, 10) : ''; const dueTime = rt.due?.datetime ? rt.due.datetime.slice(11, 16) : (rt.due?.date && rt.due.date.length >= 16 ? rt.due.date.slice(11, 16) : ''); const dueLabel = dueDate ? `Bis ${dueDate.slice(8, 10)}.${dueDate.slice(5, 7)}.${dueTime ? ' ' + dueTime + ' Uhr' : ''}`
+    const formBody = new URLSearchParams({
+      sync_token: '*',
+      resource_types: JSON.stringify(['collaborators', 'user'])
+    });
+    const syncRes = await fetch(`${TODOIST_V1_DIRECT}/sync`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${cleanToken}`,
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: formBody.toString(),
+      cache: 'no-store'
+    });
+    if (syncRes.ok) {
+      const syncData = await syncRes.json();
+      if (syncData?.user?.id) {
+        collaboratorMap[String(syncData.user.id)] = {
+          id: String(syncData.user.id),
+          name: syncData.user.full_name || 'Hauptkonto',
+          email: syncData.user.email || ''
+        };
+      }
+      if (Array.isArray(syncData?.collaborators)) {
+        syncData.collaborators.forEach(c => {
+          if (c?.id) {
+            collaboratorMap[String(c.id)] = {
+              id: String(c.id),
+              name: c.full_name || c.name || c.email || 'Team-Mitglied',
+              email: c.email || ''
+            };
+          }
+        });
+      }
+    }
+  } catch (e) {}
+
+  return {
+    projects,
+    shoppingProjectId: String(shoppingProj?.id || projects[0]?.id || ''),
+    tasksProjectId: String(tasksProj?.id || projects[0]?.id || ''),
+    collaborators: Object.values(collaboratorMap)
+  };
+}
+
+export async function pullFromTodoistTwoWay(token, config, currentTasks, currentFamilyNotes, members) {
+  if (!token || !token.trim()) return null;
+
+  const allRemoteRaw = await todoistFetch(token, '/tasks');
+  const allRemote = Array.isArray(allRemoteRaw) ? allRemoteRaw : [];
+  const activeRemoteIds = new Set(allRemote.map(rt => String(rt.id)));
+
+  const defaultShopProjId = String(
+    currentFamilyNotes?.[0]?.todoistProjectId || config?.shoppingProjectId || ''
+  );
+  const defaultTasksProjId = String(config?.tasksProjectId || '');
+
+  const noteProjectIds = new Set();
+  (currentFamilyNotes || []).forEach((note, idx) => {
+    const pid = idx === 0 ? (note.todoistProjectId || defaultShopProjId) : note.todoistProjectId;
+    if (pid) noteProjectIds.add(String(pid));
+  });
+
+  const updatedNotes = (currentFamilyNotes || []).map((note, idx) => {
+    const pid = String((idx === 0 ? (note.todoistProjectId || defaultShopProjId) : note.todoistProjectId) || '');
+    if (!pid) return note;
+
+    const projRemoteItems = allRemote.filter(rt => String(rt.project_id) === pid);
+    const nextItems = (Array.isArray(note.items) ? note.items : []).map(item => {
+      if (item.todoistId && !activeRemoteIds.has(String(item.todoistId))) {
+        return { ...item, done: true };
+      }
+      return item;
+    });
+
+    projRemoteItems.forEach(rs => {
+      const cleanTxt = String(rs.content || '').trim();
+      if (!cleanTxt) return;
+      const existingIdx = nextItems.findIndex(it =>
+        (it.todoistId && String(it.todoistId) === String(rs.id)) ||
+        String(it.text || '').trim().toLowerCase() === cleanTxt.toLowerCase()
+      );
+      if (existingIdx > -1) {
+        nextItems[existingIdx] = {
+          ...nextItems[existingIdx],
+          text: cleanTxt,
+          todoistId: String(rs.id),
+          done: false
+        };
+      } else {
+        nextItems.unshift({
+          text: cleanTxt,
+          done: false,
+          todoistId: String(rs.id)
+        });
+      }
+    });
+
+    return { ...note, todoistProjectId: pid, items: nextItems };
+  });
+
+  const updatedTasks = (Array.isArray(currentTasks) ? currentTasks : []).map(lt => {
+    if (lt.todoistId && !activeRemoteIds.has(String(lt.todoistId))) {
+      return { ...lt, done: true };
+    }
+    return lt;
+  });
+
+  allRemote.forEach(rt => {
+    const rtProjId = String(rt.project_id || '');
+    const memberWithThisProject = (Array.isArray(members) ? members : DEFAULT_MEMBERS).find(m => m.id !== 'all' && String(m.todoistProjectId || '') === rtProjId);
+    if (noteProjectIds.has(rtProjId) && !memberWithThisProject && rtProjId !== defaultTasksProjId) {
+      return;
+    }
+
+    const cleanContent = String(rt.content || '').replace(/^\[.*?\]\s*/, '').trim();
+    if (!cleanContent) return;
+
+    const existingIdx = updatedTasks.findIndex(lt =>
+      (lt.todoistId && String(lt.todoistId) === String(rt.id)) ||
+      (String(lt.title || '').trim().toLowerCase() === cleanContent.toLowerCase() && !lt.done)
+    );
+
+    const assignedUid = rt.assignee_id || rt.responsible_uid || null;
+    let memberKey = 'hans';
+
+    if (assignedUid) {
+      const matchedMem = (Array.isArray(members) ? members : DEFAULT_MEMBERS).find(m => String(m.todoistUserId) === String(assignedUid));
+      if (matchedMem) memberKey = matchedMem.id;
+    } else if (memberWithThisProject) {
+      memberKey = memberWithThisProject.id;
+    } else {
+      const prefix = String(rt.content || '').match(/^\[(.*?)\]/);
+      if (prefix) {
+        const byName = (Array.isArray(members) ? members : DEFAULT_MEMBERS).find(m =>
+          m.name.toLowerCase().startsWith(prefix[1].toLowerCase()) ||
+          m.id.toLowerCase() === prefix[1].toLowerCase()
+        );
+        if (byName) memberKey = byName.id;
+      }
+    }
+
+    const dueDate = rt.due?.date ? rt.due.date.slice(0, 10) : '';
+    const dueTime = rt.due?.datetime
+      ? rt.due.datetime.slice(11, 16)
+      : (rt.due?.date && rt.due.date.length >= 16 ? rt.due.date.slice(11, 16) : '');
+    const dueLabel = dueDate
+      ? `Bis ${dueDate.slice(8, 10)}.${dueDate.slice(5, 7)}.${dueTime ? ' ' + dueTime + ' Uhr' : ''}`
       : (rt.due?.string || 'Offen');
 
     const priorityNum = Number(rt.priority || 1);
@@ -543,7 +758,7 @@ export async function createTodoistTaskItem(
 ) {
   if (!token || !projectId) return null;
   const rawBody = {
-    content: memberObj?.todoistUserId ? title : (memberObj?.name ? `[${memberObj.name}]${title}` : title),
+    content: memberObj?.todoistUserId ? title : (memberObj?.name ? `[${memberObj.name}] ${title}` : title),
     project_id: String(projectId),
     priority: Number(priority || 1)
   };
@@ -589,5 +804,24 @@ export async function updateTodoistTaskItem(token, todoistId, updates) {
     rawBody.due_date = updates.dueDate;
   }
 
-  const res = await todoistFetch(token, `/tasks/${todoistId}`, { method: 'POST', rawBody });  if (updates.notifyTime && updates.notifyTime !== 'none') { await addTodoistRelativeReminder(token, todoistId, updates.notifyTime); } return res; }  export async function closeOrReopenTodoistTask(token, todoistId, makeDone) { if (!token \vert{}\vert{} !todoistId) return; const action = makeDone ? 'close' : 'reopen'; return todoistFetch(token, `/tasks/${todoistId}/${action}`, { method: 'POST' }); }  export async function deleteTodoistTask(token, todoistId) { if (!token \vert{}\vert{} !todoistId) return; return todoistFetch(token, `/tasks/${todoistId}`, { method: 'DELETE' });
+  const res = await todoistFetch(token, `/tasks/${todoistId}`, {
+    method: 'POST',
+    rawBody
+  });
+
+  if (updates.notifyTime && updates.notifyTime !== 'none') {
+    await addTodoistRelativeReminder(token, todoistId, updates.notifyTime);
+  }
+  return res;
+}
+
+export async function closeOrReopenTodoistTask(token, todoistId, makeDone) {
+  if (!token || !todoistId) return;
+  const action = makeDone ? 'close' : 'reopen';
+  return todoistFetch(token, `/tasks/${todoistId}/${action}`, { method: 'POST' });
+}
+
+export async function deleteTodoistTask(token, todoistId) {
+  if (!token || !todoistId) return;
+  return todoistFetch(token, `/tasks/${todoistId}`, { method: 'DELETE' });
 }
