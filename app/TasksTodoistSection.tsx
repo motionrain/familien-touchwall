@@ -3,8 +3,8 @@
 'use client';
 
 import React, { useState } from 'react';
-import { RefreshCw, Clock, Cloud, Plus, Check } from 'lucide-react';
-import { formatDateStr, addDays, safeArr } from './touchwallConfig';
+import { RefreshCw, Clock, Cloud, CalendarCheck, FolderKanban, Plus } from 'lucide-react';
+import { formatDateStr, addDays } from './touchwallConfig';
 
 const PRIORITY_BADGES = {
   4: { label: '🔥 P1 Dringend', classes: 'bg-rose-500/25 text-rose-300 border-rose-400/50' },
@@ -55,13 +55,11 @@ export default function TasksTodoistSection({
   const [shoppingQuickInput, setShoppingQuickInput] = useState('');
   const [colTaskInputs, setColTaskInputs] = useState({});
 
-  const safeMembers = safeArr(members);
-  const safeTasks = safeArr(familyTasks);
-  const shopItems = safeArr(shoppingNoteBlock?.items);
-  const openShopItems = shopItems.map((it, idx) => ({ ...(it || {}), origIdx: idx })).filter(it => !it.done);
-  const doneShopItems = shopItems.map((it, idx) => ({ ...(it || {}), origIdx: idx })).filter(it => it.done);
+  const shopItems = Array.isArray(shoppingNoteBlock?.items) ? shoppingNoteBlock.items : [];
+  const openShopItems = shopItems.map((it, idx) => ({ ...it, origIdx: idx })).filter(it => !it.done);
+  const doneShopItems = shopItems.map((it, idx) => ({ ...it, origIdx: idx })).filter(it => it.done);
   const hasTodoistToken = Boolean(todoistConfig?.apiToken?.trim());
-  const projectsList = safeArr(todoistConfig?.projects);
+  const projectsList = Array.isArray(todoistConfig?.projects) ? todoistConfig.projects : [];
 
   const setQuickDeadline = (type) => {
     const now = new Date();
@@ -89,8 +87,8 @@ export default function TasksTodoistSection({
 
   const handleCreateTaskSubmit = () => {
     if (!newTaskTitle.trim()) return;
-    const memberObj = safeMembers.find(m => m.id === newTaskMember);
-    const chosenProjId = newTaskProjectId || memberObj?.todoistProjectId || todoistConfig?.tasksProjectId;
+    const memberObj = (Array.isArray(members) ? members : []).find(m => m.id === newTaskMember);
+    const chosenProjId = newTaskProjectId || memberObj?.todoistProjectId || todoistConfig?.tasksProjectId || '';
     addNewTaskWithSettings(
       newTaskTitle,
       newTaskMember,
@@ -128,7 +126,7 @@ export default function TasksTodoistSection({
       statusMsg: 'Todoist-Kachel',
       ok: true
     };
-    setMembers(prev => [...safeArr(prev), newMemberTile]);
+    setMembers(prev => [...(Array.isArray(prev) ? prev : []), newMemberTile]);
     setNewTileName('');
     setShowNewTileBar(false);
   };
@@ -170,11 +168,10 @@ export default function TasksTodoistSection({
           </div>
         </div>
 
-        {/* NEUE KACHEL ERSTELLEN MIT DIREKTER PROJEKT-AUSWAHL */}
         {showNewTileBar && (
           <div className="p-4 rounded-2xl border-2 border-sky-400/60 bg-sky-500/10 flex flex-wrap items-center gap-3">
             <span className="text-xs font-black uppercase text-sky-300 flex items-center gap-1.5">
-              📂 Neue Kachel anlegen:
+              <FolderKanban className="w-4 h-4" /> Neue Kachel anlegen:
             </span>
             <input
               type="text"
@@ -210,7 +207,6 @@ export default function TasksTodoistSection({
           </div>
         )}
 
-        {/* AUFGABE ANLEGEN MIT PERSONEN-, PROJEKT-, FRIST- & ERINNERUNGS-WAHL */}
         <div className={`p-4 sm:p-5 rounded-3xl border space-y-3.5 ${themeStyles.subtle}`}>
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-2.5">
             <input
@@ -234,19 +230,19 @@ export default function TasksTodoistSection({
               onChange={(e) => {
                 const mid = e.target.value;
                 setNewTaskMember(mid);
-                const mObj = safeMembers.find(x => x.id === mid);
+                const mObj = (Array.isArray(members) ? members : []).find(x => x.id === mid);
                 if (mObj?.todoistProjectId) setNewTaskProjectId(mObj.todoistProjectId);
               }}
               className={`lg:col-span-2 px-3 py-3 rounded-2xl border text-xs font-extrabold ${themeStyles.input}`}
             >
-              {safeMembers.filter(m => m.id !== 'all').map(m => (
+              {(Array.isArray(members) ? members : []).filter(m => m.id !== 'all').map(m => (
                 <option key={m.id} value={m.id} className="bg-slate-800 text-white">
                   👤 Kachel: {m.name}
                 </option>
               ))}
             </select>
             <select
-              value={newTaskProjectId || safeMembers.find(m => m.id === newTaskMember)?.todoistProjectId || todoistConfig?.tasksProjectId || ''}
+              value={newTaskProjectId || (Array.isArray(members) ? members : []).find(m => m.id === newTaskMember)?.todoistProjectId || todoistConfig?.tasksProjectId || ''}
               onChange={(e) => setNewTaskProjectId(e.target.value)}
               title="Ziel-Projekt in Todoist wählen"
               className={`lg:col-span-3 px-3 py-3 rounded-2xl border text-xs font-extrabold ${themeStyles.input}`}
@@ -334,7 +330,8 @@ export default function TasksTodoistSection({
                   onChange={(e) => setAlsoPushToCalendar(e.target.checked)}
                   className="w-4 h-4 accent-amber-400 rounded cursor-pointer"
                 />
-                <span>📅 + Kalender-Wecker</span>
+                <CalendarCheck className="w-3.5 h-3.5" />
+                <span>+ Kalender-Wecker</span>
               </label>
 
               <button
@@ -349,10 +346,7 @@ export default function TasksTodoistSection({
         </div>
       </div>
 
-      {/* KACHEL-GRID */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-5">
-
-        {/* KACHEL 0: 🛒 EINKAUFSLISTE */}
         <div className={`rounded-3xl border-2 border-amber-400/60 shadow-lg overflow-hidden flex flex-col justify-between min-h-[460px] ${themeStyles.card}`}>
           <div className="flex-1 flex flex-col">
             <div
@@ -504,9 +498,8 @@ export default function TasksTodoistSection({
           </div>
         </div>
 
-        {/* KACHELN 1..N: MITGLIEDER- & PROJEKT-KACHELN */}
-        {safeMembers.filter(m => m.id !== 'all').map(member => {
-          const mTasks = safeTasks.filter(t => t.member === member.id);
+        {(Array.isArray(members) ? members : []).filter(m => m.id !== 'all').map(member => {
+          const mTasks = (Array.isArray(familyTasks) ? familyTasks : []).filter(t => t.member === member.id);
           const openTasks = mTasks.filter(t => !t.done);
           const doneTasks = mTasks.filter(t => t.done);
           const st = getMemberStyles(member);
@@ -540,11 +533,11 @@ export default function TasksTodoistSection({
                           if (name?.trim()) {
                             const created = await createAndSelectTodoistProject(name.trim());
                             if (created?.id) {
-                              setMembers(prev => safeArr(prev).map(m => m.id === member.id ? { ...m, todoistProjectId: String(created.id) } : m));
+                              setMembers(prev => (Array.isArray(prev) ? prev : []).map(m => m.id === member.id ? { ...m, todoistProjectId: String(created.id) } : m));
                             }
                           }
                         } else {
-                          setMembers(prev => safeArr(prev).map(m => m.id === member.id ? { ...m, todoistProjectId: val } : m));
+                          setMembers(prev => (Array.isArray(prev) ? prev : []).map(m => m.id === member.id ? { ...m, todoistProjectId: val } : m));
                         }
                       }}
                       className="flex-1 px-2.5 py-1 rounded-xl bg-black/25 text-white border border-white/15 text-[11px] font-extrabold cursor-pointer"
