@@ -16,7 +16,8 @@ import {
   DEFAULT_MEALS, DEFAULT_NOTES, DEFAULT_SCHOOL, DEFAULT_APPS_SCRIPT_URL,
   buildThemeStyles, buildMemberStyles,
   discoverTodoistWorkspace, pullFromTodoistTwoWay, createTodoistTaskItem,
-  updateTodoistTaskItem, closeOrReopenTodoistTask, deleteTodoistTask
+  updateTodoistTaskItem, closeOrReopenTodoistTask, deleteTodoistTask,
+  createNewTodoistProject
 } from './touchwallConfig';
 
 import CalendarSection from './CalendarSection';
@@ -42,18 +43,23 @@ export default function TouchwallApp() {
     projects: [],
     collaborators: []
   });
-  const [syncStatusText, setSyncStatusText] = useState('☁️ Auto-Sync aktiv');
+  const [syncStatusText, setSyncStatusText] = useState('⚡ Echtzeit-Sync bereit');
+  const [lastAutoSyncTime, setLastAutoSyncTime] = useState('');
   const [isSyncing, setIsSyncing] = useState(false);
   const [diagResult, setDiagResult] = useState(null);
   const [isTestingDiag, setIsTestingDiag] = useState(false);
 
-  // Alarm & Refs
+  // Touch-Shockwave-Effekt für echtes Touchscreen-Gefühl
+  const [touchRipples, setTouchRipples] = useState([]);
+
+  // Alarm & Refs für fehlerfreien 8-Sekunden-Hintergrund-Sync
   const [pushPermission, setPushPermission] = useState('default');
   const [activeAlarmBanner, setActiveAlarmBanner] = useState(null);
   const triggeredAlarmsRef = useRef({});
   const isInitialLoadDone = useRef(false);
   const isApplyingRemoteState = useRef(false);
   const isMutatingCalendar = useRef(false);
+  const lastLocalEditTimeRef = useRef(0);
   const autoSaveTimer = useRef(null);
 
   // Kerndaten
@@ -90,6 +96,20 @@ export default function TouchwallApp() {
   const showToast = (title, message, icon = '🔔') => {
     setToast({ title, message, icon });
     setTimeout(() => setToast(null), 3800);
+  };
+
+  // =========================================================
+  // TOUCH-SHOCKWAVE BEIM ANTIPPEN / KLICKEN
+  // =========================================================
+  const spawnTouchRipple = (e) => {
+    const x = e.clientX;
+    const y = e.clientY;
+    if (!x && !y) return;
+    const id = Date.now() + Math.random();
+    setTouchRipples(prev => [...prev.slice(-4), { id, x, y }]);
+    setTimeout(() => {
+      setTouchRipples(prev => prev.filter(r => r.id !== id));
+    }, 650);
   };
 
   const themeStyles = useMemo(() => buildThemeStyles(currentTheme), [currentTheme]);
@@ -135,7 +155,7 @@ export default function TouchwallApp() {
   };
 
   // =========================================================
-  // 1. UHRZEIT & BROWSER-PUSH ALARM (FÜR TERMINE UND AUFGABEN-FRISTEN)
+  // 1. UHRZEIT & BROWSER-PUSH ALARM
   // =========================================================
   useEffect(() => {
     if (typeof window !== 'undefined' && 'Notification' in window) {
@@ -199,7 +219,6 @@ export default function TouchwallApp() {
     }
   };
 
-  // Hintergrund-Wächter für Termin- UND Aufgaben-Erinnerungen
   useEffect(() => {
     const offsetMinutesMap = { '0m': 0, '5m': 5, '10m': 10, '15m': 15, '30m': 30, '1h': 60, '2h': 120, '1d': 1440 };
     const checkAlarms = () => {
@@ -256,8 +275,26 @@ export default function TouchwallApp() {
   }, [events, familyTasks, members, todayStr]);
 
   // =========================================================
-  // 2. TODOIST 2-WEGE-SYNC (TEAM "FAMILIE RICHTER")
+  // 2. VOLLAUTOMATISCHER 8-SEKUNDEN TODOIST 2-WEGE-SYNC
   // =========================================================
+  const createAndSelectTodoistProject = async (projectName) => {
+    if (!todoistConfig.apiToken?.trim() || !projectName?.trim()) return null;
+    try {
+      const created = await createNewTodoistProject(todoistConfig.apiToken, projectName.trim());
+      if (created?.id) {
+        setTodoistConfig(prev => ({
+          ...prev,
+          projects: [...(prev.projects || []), created]
+        }));
+        showToast('Projekt erstellt', `Todoist-Projekt „${created.name}“ wurde angelegt!`, '📂');
+        return created;
+      }
+    } catch (err) {
+      showToast('Projekt-Fehler', err.message, '❌');
+    }
+    return null;
+  };
+
   const connectAndDiscoverTodoist = async () => {
     if (!todoistConfig.apiToken?.trim()) {
       showToast('Token fehlt', 'Bitte zuerst dein Todoist API-Token eintragen.', '⚠️');
@@ -296,25 +333,78 @@ export default function TouchwallApp() {
   };
 
   const syncWithTodoistNow = async (showFeedback = false, cfgOverride = null) => {
+    // Verhindert, dass ein Hintergrund-Poll genau während eines lokalen Klicks überschreibt
+    if (!showFeedback && Date.now() - lastLocalEditTimeRef.current < 3500) return;
+
     const cfg = cfgOverride || todoistConfig;
-    if (!cfg?.apiToken?.trim() || !cfg?.tasksProjectId) return;
-    setIsSyncing(true);
+    if (!cfg?.apiToken?.trim()) return;
+    if (showFeedback) setIsSyncing(true);
+
     try {
-      const currentShop = familyNotes[0]?.items || [];
-      const pulled = await pullFromTodoistTwoWay(cfg.apiToken, cfg, familyTasks, currentShop, members);
+      // Falls Projekte noch nie geladen wurden, einmalig im Hintergrund entdecken
+      let activeCfg = cfg;
+      if (!cfg.projects || cfg.projects.length === 0) {
+        const disc = await discoverTodoistWorkspace(cfg.apiToken);
+        activeCfg = {
+          ...cfg,
+          projects: disc.projects,
+          shoppingProjectId: cfg.shoppingProjectId || disc.shoppingProjectId,
+          tasksProjectId: cfg.tasksProjectId || disc.tasksProjectId,
+          collaborators: disc.collaborators
+        };
+        setTodoistConfig(activeCfg);
+      }
+
+      const pulled = await pullFromTodoistTwoWay(activeCfg.apiToken, activeCfg, familyTasks, familyNotes, members);
       if (pulled) {
         isApplyingRemoteState.current = true;
         setFamilyTasks(pulled.tasks);
-        setFamilyNotes(prev => prev.map((n, idx) => idx === 0 ? { ...n, items: pulled.shoppingItems } : n));
-        setTimeout(() => { isApplyingRemoteState.current = false; }, 250);
+        setFamilyNotes(pulled.familyNotes);
+        const now = new Date();
+        const tStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+        setLastAutoSyncTime(tStr);
+        setSyncStatusText(`⚡ Live-Sync (${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')})`);
+        setTimeout(() => { isApplyingRemoteState.current = false; }, 200);
       }
-      if (showFeedback) showToast('Todoist synchron', 'Aufgaben & Einkaufsliste sind mit dem Team abgeglichen.', '✅');
+      if (showFeedback) showToast('Todoist synchron', 'Alle Kacheln & Projekte sind abgeglichen.', '✅');
     } catch (err) {
       if (showFeedback) showToast('Todoist-Sync Hinweis', err.message, '⚠️');
     } finally {
-      setIsSyncing(false);
+      if (showFeedback) setIsSyncing(false);
     }
   };
+
+  // WICHTIG: Hält immer die aktuellste Sync-Funktion für den 8-Sekunden-Timer bereit (löst das Stale-Closure-Problem!)
+  const syncTodoistRef = useRef(null);
+  syncTodoistRef.current = syncWithTodoistNow;
+
+  useEffect(() => {
+    // Startet nach 1.5 Sek. den ersten Todoist-Abruf und läuft danach alle 8 Sekunden vollautomatisch!
+    const initTimeout = setTimeout(() => {
+      syncTodoistRef.current?.(false);
+    }, 1500);
+
+    const fastInterval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        syncTodoistRef.current?.(false);
+      }
+    }, 8000);
+
+    const onFocusOrVisible = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        syncTodoistRef.current?.(false);
+      }
+    };
+    window.addEventListener('focus', onFocusOrVisible);
+    document.addEventListener('visibilitychange', onFocusOrVisible);
+
+    return () => {
+      clearTimeout(initTimeout);
+      clearInterval(fastInterval);
+      window.removeEventListener('focus', onFocusOrVisible);
+      document.removeEventListener('visibilitychange', onFocusOrVisible);
+    };
+  }, []);
 
   // =========================================================
   // 3. GOOGLE APPS SCRIPT SYNC & LOKALER SPEICHER
@@ -339,7 +429,7 @@ export default function TouchwallApp() {
         setTimeout(() => pullFromCloud(targetUrl, false), 700);
       }
       const now = new Date();
-      setSyncStatusText(`☁️ Synchron (${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')})`);
+      setSyncStatusText(`⚡ Live-Sync (${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')})`);
       return json;
     } catch (err) {
       setSyncStatusText('⚠️ Sync-Hinweis');
@@ -354,8 +444,7 @@ export default function TouchwallApp() {
     if (isMutatingCalendar.current && !showFeedback) return;
     const targetUrl = (urlOverride !== undefined ? urlOverride : appsScriptUrl).trim();
     if (!targetUrl) return;
-    setIsSyncing(true);
-    setSyncStatusText('🔄 Synchronisiere...');
+    if (showFeedback) setIsSyncing(true);
     try {
       const sep = targetUrl.includes('?') ? '&' : '?';
       const res = await fetch(`${targetUrl}${sep}action=json&_t=${Date.now()}`, { method: 'GET', cache: 'no-store' });
@@ -392,16 +481,17 @@ export default function TouchwallApp() {
         isInitialLoadDone.current = true;
       }, 250);
 
-      const now = new Date();
-      setSyncStatusText(`☁️ Auto-Sync (${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')})`);
       if (showFeedback) showToast('Synchronisiert', 'Kalender & Cloud sind aktuell.', '☁️');
     } catch (err) {
       isInitialLoadDone.current = true;
       isApplyingRemoteState.current = false;
     } finally {
-      setIsSyncing(false);
+      if (showFeedback) setIsSyncing(false);
     }
   };
+
+  const pullCloudRef = useRef(null);
+  pullCloudRef.current = pullFromCloud;
 
   useEffect(() => {
     try {
@@ -421,12 +511,11 @@ export default function TouchwallApp() {
       if (savedEv) setEvents(JSON.parse(savedEv));
     } catch (e) {}
 
-    pullFromCloud(DEFAULT_APPS_SCRIPT_URL, false);
-    const interval = setInterval(() => {
-      pullFromCloud(undefined, false);
-      syncWithTodoistNow(false);
-    }, 45000);
-    return () => clearInterval(interval);
+    pullCloudRef.current?.(DEFAULT_APPS_SCRIPT_URL, false);
+    const calInterval = setInterval(() => {
+      pullCloudRef.current?.(undefined, false);
+    }, 30000);
+    return () => clearInterval(calInterval);
   }, []);
 
   useEffect(() => {
@@ -445,42 +534,49 @@ export default function TouchwallApp() {
           body: JSON.stringify({ action: 'saveState', payload })
         });
       } catch (e) {}
-    }, 500);
+    }, 600);
   }, [members, mealPlan, familyNotes, schoolData, familyTasks, currentTheme, customLogoUrl, todoistConfig, appsScriptUrl]);
 
   // =========================================================
-  // 4. AUFGABEN & EINKAUFSLISTEN AKTIONEN (MIT FRIST, ERINNERUNG & TODOIST)
+  // 4. KACHEL-AKTIONEN FÜR AUFGABEN, EINKAUFSLISTE & NOTIZEN (INKL. PROJEKT-WAHL)
   // =========================================================
   const shoppingNoteBlock = useMemo(() => familyNotes[0] || { id: 1, title: '🛒 Einkaufsliste', items: [] }, [familyNotes]);
 
-  const addShoppingItem = async (textStr) => {
+  const setShoppingTileProjectId = (projId) => {
+    lastLocalEditTimeRef.current = Date.now();
+    setTodoistConfig(prev => ({ ...prev, shoppingProjectId: projId }));
+    setFamilyNotes(prev => prev.map((n, idx) => idx === 0 ? { ...n, todoistProjectId: projId } : n));
+    setTimeout(() => syncTodoistRef.current?.(true), 300);
+  };
+
+  const addItemToNoteTile = async (noteId, textStr) => {
     const clean = String(textStr || '').trim();
     if (!clean) return;
+    lastLocalEditTimeRef.current = Date.now();
+    const targetNote = familyNotes.find(n => n.id === noteId);
+    const isFirst = familyNotes[0]?.id === noteId;
+    const projId = targetNote?.todoistProjectId || (isFirst ? todoistConfig.shoppingProjectId : '');
+
     let todoistId = null;
-    if (todoistConfig.apiToken && todoistConfig.shoppingProjectId) {
+    if (todoistConfig.apiToken && projId) {
       try {
-        const created = await createTodoistTaskItem(todoistConfig.apiToken, todoistConfig.shoppingProjectId, clean, null, '', '', 1, '', 'none');
+        const created = await createTodoistTaskItem(todoistConfig.apiToken, projId, clean, null, '', '', 1, '', 'none');
         if (created?.id) todoistId = String(created.id);
       } catch (e) {}
     }
-    setFamilyNotes(prev => prev.map((n, idx) => idx === 0 ? {
+    setFamilyNotes(prev => prev.map(n => n.id === noteId ? {
       ...n,
       items: [{ text: clean, done: false, todoistId }, ...(n.items || [])]
     } : n));
   };
 
-  const addShoppingItemsBatch = async (textsArray) => {
-    for (const txt of textsArray) {
-      await addShoppingItem(txt);
-    }
-    showToast('In Todoist-Einkaufsliste', `${textsArray.length} Artikel übertragen!`, '🛒');
-  };
-
-  const toggleShoppingItem = async (itemIdx) => {
-    const item = shoppingNoteBlock.items?.[itemIdx];
+  const toggleItemInNoteTile = async (noteId, itemIdx) => {
+    lastLocalEditTimeRef.current = Date.now();
+    const targetNote = familyNotes.find(n => n.id === noteId);
+    const item = targetNote?.items?.[itemIdx];
     if (!item) return;
     const nextDone = !item.done;
-    setFamilyNotes(prev => prev.map((n, idx) => idx === 0 ? {
+    setFamilyNotes(prev => prev.map(n => n.id === noteId ? {
       ...n,
       items: n.items.map((it, i) => i === itemIdx ? { ...it, done: nextDone } : it)
     } : n));
@@ -489,9 +585,11 @@ export default function TouchwallApp() {
     }
   };
 
-  const deleteShoppingItem = async (itemIdx) => {
-    const item = shoppingNoteBlock.items?.[itemIdx];
-    setFamilyNotes(prev => prev.map((n, idx) => idx === 0 ? {
+  const deleteItemInNoteTile = async (noteId, itemIdx) => {
+    lastLocalEditTimeRef.current = Date.now();
+    const targetNote = familyNotes.find(n => n.id === noteId);
+    const item = targetNote?.items?.[itemIdx];
+    setFamilyNotes(prev => prev.map(n => n.id === noteId ? {
       ...n,
       items: n.items.filter((_, i) => i !== itemIdx)
     } : n));
@@ -500,7 +598,31 @@ export default function TouchwallApp() {
     }
   };
 
+  const addShoppingItem = async (textStr) => {
+    if (!familyNotes[0]) return;
+    await addItemToNoteTile(familyNotes[0].id, textStr);
+  };
+
+  const addShoppingItemsBatch = async (textsArray) => {
+    if (!familyNotes[0]) return;
+    for (const txt of textsArray) {
+      await addItemToNoteTile(familyNotes[0].id, txt);
+    }
+    showToast('In Todoist-Einkaufsliste', `${textsArray.length} Artikel übertragen!`, '🛒');
+  };
+
+  const toggleShoppingItem = async (itemIdx) => {
+    if (!familyNotes[0]) return;
+    await toggleItemInNoteTile(familyNotes[0].id, itemIdx);
+  };
+
+  const deleteShoppingItem = async (itemIdx) => {
+    if (!familyNotes[0]) return;
+    await deleteItemInNoteTile(familyNotes[0].id, itemIdx);
+  };
+
   const clearCompletedShoppingItems = () => {
+    lastLocalEditTimeRef.current = Date.now();
     setFamilyNotes(prev => prev.map((n, idx) => idx === 0 ? {
       ...n,
       items: (n.items || []).filter(it => !it.done)
@@ -515,21 +637,24 @@ export default function TouchwallApp() {
     notifyStr = '15m',
     pushToCal = false,
     priorityNum = 3,
-    descriptionStr = ''
+    descriptionStr = '',
+    customProjectId = ''
   ) => {
     const clean = String(titleStr || '').trim();
     if (!clean) return;
+    lastLocalEditTimeRef.current = Date.now();
     const memberObj = members.find(m => m.id === memberId);
+    const targetProjId = customProjectId || memberObj?.todoistProjectId || todoistConfig.tasksProjectId;
     const dueLabel = dueDateStr
       ? `Bis ${dueDateStr.slice(8, 10)}.${dueDateStr.slice(5, 7)}.${dueTimeStr ? ' ' + dueTimeStr + ' Uhr' : ''}`
       : (dueTimeStr ? `Heute bis ${dueTimeStr} Uhr` : 'Offen');
 
     let todoistId = null;
-    if (todoistConfig.apiToken && todoistConfig.tasksProjectId) {
+    if (todoistConfig.apiToken && targetProjId) {
       try {
         const created = await createTodoistTaskItem(
           todoistConfig.apiToken,
-          todoistConfig.tasksProjectId,
+          targetProjId,
           clean,
           memberObj,
           dueDateStr,
@@ -547,6 +672,7 @@ export default function TouchwallApp() {
     const newTask = {
       id: Date.now() + Math.floor(Math.random() * 1000),
       todoistId,
+      projectId: targetProjId,
       member: memberId,
       title: clean,
       description: descriptionStr,
@@ -558,7 +684,7 @@ export default function TouchwallApp() {
       done: false
     };
     setFamilyTasks(prev => [newTask, ...prev]);
-    showToast('Aufgabe & Frist angelegt', `${clean} → ${memberObj?.name || memberId} (${dueLabel})`, '📲');
+    showToast('Aufgabe & Frist angelegt', `${clean} → ${memberObj?.name || memberId}`, '📲');
 
     if (pushToCal) {
       const calEv = {
@@ -578,6 +704,7 @@ export default function TouchwallApp() {
   };
 
   const toggleTaskDone = async (taskId, makeDone) => {
+    lastLocalEditTimeRef.current = Date.now();
     const target = familyTasks.find(t => t.id === taskId);
     setFamilyTasks(prev => prev.map(t => t.id === taskId ? { ...t, done: makeDone } : t));
     if (target?.todoistId && todoistConfig.apiToken) {
@@ -586,6 +713,7 @@ export default function TouchwallApp() {
   };
 
   const deleteTaskItem = async (taskId) => {
+    lastLocalEditTimeRef.current = Date.now();
     const target = familyTasks.find(t => t.id === taskId);
     setFamilyTasks(prev => prev.filter(t => t.id !== taskId));
     if (target?.todoistId && todoistConfig.apiToken) {
@@ -594,6 +722,7 @@ export default function TouchwallApp() {
   };
 
   const clearCompletedMemberTasks = (memberId) => {
+    lastLocalEditTimeRef.current = Date.now();
     setFamilyTasks(prev => prev.filter(t => !(t.member === memberId && t.done)));
   };
 
@@ -735,7 +864,66 @@ export default function TouchwallApp() {
   }, [members, activeMemberFilter]);
 
   return (
-    <div className={`w-screen h-screen overflow-hidden flex flex-col p-1.5 sm:p-2.5 select-none transition-colors duration-300 ${themeStyles.outer}`}>
+    <div
+      onPointerDown={spawnTouchRipple}
+      className={`w-screen h-screen overflow-hidden flex flex-col p-1.5 sm:p-2.5 select-none transition-colors duration-300 ${themeStyles.outer}`}
+    >
+      {/* GLOBALE TOUCH- & HOVER-GLOW ENGINE (BLAUES LEUCHTEN, PULSIEREN & FEDER-EFFEKT) */}
+      <style>{`
+        @keyframes twShockwave {
+          0% { transform: translate(-50%, -50%) scale(0.15); opacity: 0.9; }
+          100% { transform: translate(-50%, -50%) scale(2.8); opacity: 0; }
+        }
+        @keyframes twNeonPulse {
+          0%, 100% { box-shadow: 0 0 14px rgba(56, 189, 248, 0.35), inset 0 0 8px rgba(56, 189, 248, 0.15); }
+          50% { box-shadow: 0 0 26px rgba(56, 189, 248, 0.72), inset 0 0 14px rgba(56, 189, 248, 0.28); }
+        }
+        .tw-glow-card {
+          transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.22s ease, border-color 0.22s ease;
+        }
+        .tw-glow-card:hover {
+          transform: translateY(-2px);
+          border-color: rgba(56, 189, 248, 0.65) !important;
+          box-shadow: 0 10px 28px -6px rgba(56, 189, 248, 0.28), 0 0 16px rgba(56, 189, 248, 0.22);
+        }
+        .tw-glow-subtle {
+          transition: all 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+        .tw-glow-subtle:hover {
+          border-color: rgba(56, 189, 248, 0.6) !important;
+          box-shadow: 0 0 18px rgba(56, 189, 248, 0.24), inset 0 0 8px rgba(56, 189, 248, 0.10);
+          transform: translateY(-1px);
+        }
+        .tw-glow-subtle:active, .tw-glow-btn:active, button:active {
+          transform: scale(0.95) !important;
+          box-shadow: 0 0 24px rgba(56, 189, 248, 0.8) !important;
+        }
+        .tw-glow-btn {
+          transition: all 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+        .tw-glow-btn:hover {
+          box-shadow: 0 0 20px rgba(56, 189, 248, 0.55);
+          transform: translateY(-1px) scale(1.02);
+        }
+        .tw-active-nav {
+          animation: twNeonPulse 2.8s infinite ease-in-out;
+          border: 1px solid rgba(56, 189, 248, 0.75);
+        }
+      `}</style>
+
+      {/* VISUELLE TOUCH-WELLEN BEI JEDEM FINGER-TIPP / MAUSKLICK */}
+      {touchRipples.map(r => (
+        <span
+          key={r.id}
+          style={{
+            left: r.x,
+            top: r.y,
+            animation: 'twShockwave 0.62s cubic-bezier(0.16, 1, 0.3, 1) forwards'
+          }}
+          className="fixed z-[9999] pointer-events-none w-16 h-16 rounded-full border-2 border-sky-400 bg-sky-400/20 shadow-[0_0_25px_rgba(56,189,248,0.85)]"
+        />
+      ))}
+
       <div className={`w-full h-full rounded-3xl border shadow-2xl flex overflow-hidden ${themeStyles.shell}`}>
 
         {/* LINKES SEITENMENÜ */}
@@ -743,7 +931,7 @@ export default function TouchwallApp() {
           <div className="flex flex-col items-center gap-4 w-full">
             <button
               onClick={() => { setCurrentBaseDate(getMonday(new Date())); setActiveSection('kalender'); }}
-              className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-gradient-to-tr from-indigo-600 via-purple-600 to-amber-500 flex items-center justify-center shadow-lg overflow-hidden border-2 border-white/20 cursor-pointer"
+              className="tw-glow-btn w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-gradient-to-tr from-indigo-600 via-sky-500 to-amber-400 flex items-center justify-center shadow-lg overflow-hidden border-2 border-white/25 cursor-pointer"
             >
               {customLogoUrl ? <img src={customLogoUrl} alt="Logo" className="w-full h-full object-cover" /> : <span className="font-black text-lg text-white">FR</span>}
             </button>
@@ -764,8 +952,10 @@ export default function TouchwallApp() {
                   <button
                     key={item.id}
                     onClick={() => setActiveSection(item.id)}
-                    className={`w-full py-2.5 rounded-2xl flex flex-col items-center gap-1 text-[11px] font-extrabold transition-all cursor-pointer relative ${
-                      active ? 'bg-indigo-600 text-white shadow-md scale-[1.02]' : `${themeStyles.textMuted} hover:bg-white/10`
+                    className={`tw-glow-btn w-full py-2.5 rounded-2xl flex flex-col items-center gap-1 text-[11px] font-extrabold transition-all cursor-pointer relative ${
+                      active
+                        ? 'bg-gradient-to-br from-sky-500 to-indigo-600 text-white tw-active-nav scale-[1.03]'
+                        : `${themeStyles.textMuted} hover:bg-sky-500/15 hover:text-sky-300`
                     }`}
                   >
                     <Icon className="w-5 h-5" />
@@ -778,7 +968,7 @@ export default function TouchwallApp() {
 
           <button
             onClick={() => openNewEventModal(todayStr, 'all')}
-            className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-gradient-to-tr from-emerald-500 to-amber-400 text-slate-950 font-black flex items-center justify-center shadow-lg cursor-pointer"
+            className="tw-glow-btn w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-gradient-to-tr from-sky-400 via-emerald-400 to-amber-400 text-slate-950 font-black flex items-center justify-center shadow-[0_0_24px_rgba(56,189,248,0.5)] cursor-pointer"
           >
             <Plus className="w-7 h-7 stroke-[3]" />
           </button>
@@ -798,14 +988,14 @@ export default function TouchwallApp() {
                     const idx = PAGE_THEMES.findIndex(t => t.id === currentTheme);
                     setCurrentTheme(PAGE_THEMES[(idx + 1) % PAGE_THEMES.length].id);
                   }}
-                  className="px-3 py-1 rounded-full text-xs font-extrabold bg-indigo-500/20 text-indigo-300 border border-indigo-400/30 cursor-pointer"
+                  className="tw-glow-btn px-3 py-1 rounded-full text-xs font-extrabold bg-indigo-500/20 text-indigo-300 border border-indigo-400/30 cursor-pointer"
                 >
                   {PAGE_THEMES.find(t => t.id === currentTheme)?.name}
                 </button>
 
                 <button
                   onClick={() => { pullFromCloud(undefined, true); syncWithTodoistNow(true); }}
-                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 cursor-pointer"
+                  className="tw-glow-btn inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 cursor-pointer"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
                   {syncStatusText}
@@ -813,13 +1003,13 @@ export default function TouchwallApp() {
 
                 <button
                   onClick={requestBrowserPushPermission}
-                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold bg-sky-500/20 text-sky-300 border border-sky-400/30 cursor-pointer"
+                  className="tw-glow-btn inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold bg-sky-500/20 text-sky-300 border border-sky-400/40 cursor-pointer"
                 >
                   <BellRing className="w-3.5 h-3.5" />
                   {pushPermission === 'granted' ? 'Push-Alarm aktiv' : 'Push aktivieren'}
                 </button>
 
-                <button onClick={() => setQrModalOpen(true)} className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold bg-amber-500/20 text-amber-300 border border-amber-400/30 cursor-pointer">
+                <button onClick={() => setQrModalOpen(true)} className="tw-glow-btn inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold bg-amber-500/20 text-amber-300 border border-amber-400/40 cursor-pointer">
                   <Smartphone className="w-3.5 h-3.5" /> Handy-Sync
                 </button>
 
@@ -828,17 +1018,17 @@ export default function TouchwallApp() {
                     if (!document.fullscreenElement) document.documentElement.requestFullscreen?.();
                     else document.exitFullscreen?.();
                   }}
-                  className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold border ${themeStyles.subtle} cursor-pointer`}
+                  className={`tw-glow-btn inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold border ${themeStyles.subtle} cursor-pointer`}
                 >
                   <Maximize2 className="w-3.5 h-3.5" /> Vollbild
                 </button>
               </div>
 
               <div className="flex flex-wrap items-center gap-2 text-xs">
-                <button onClick={() => navigatePeriod(-1)} className={`w-7 h-7 rounded-lg border flex items-center justify-center ${themeStyles.subtle} cursor-pointer`}><ChevronLeft className="w-4 h-4" /></button>
-                <button onClick={() => { setCurrentBaseDate(getMonday(new Date())); setActiveSection('kalender'); }} className={`px-2.5 py-1 rounded-lg border font-extrabold ${themeStyles.subtle} cursor-pointer`}>Heute</button>
-                <button onClick={() => navigatePeriod(1)} className={`w-7 h-7 rounded-lg border flex items-center justify-center ${themeStyles.subtle} cursor-pointer`}><ChevronRight className="w-4 h-4" /></button>
-                <span className="px-3 py-1 rounded-lg bg-indigo-500/20 text-indigo-300 font-extrabold border border-indigo-400/30">{periodLabel}</span>
+                <button onClick={() => navigatePeriod(-1)} className={`tw-glow-btn w-7 h-7 rounded-lg border flex items-center justify-center ${themeStyles.subtle} cursor-pointer`}><ChevronLeft className="w-4 h-4" /></button>
+                <button onClick={() => { setCurrentBaseDate(getMonday(new Date())); setActiveSection('kalender'); }} className={`tw-glow-btn px-2.5 py-1 rounded-lg border font-extrabold ${themeStyles.subtle} cursor-pointer`}>Heute</button>
+                <button onClick={() => navigatePeriod(1)} className={`tw-glow-btn w-7 h-7 rounded-lg border flex items-center justify-center ${themeStyles.subtle} cursor-pointer`}><ChevronRight className="w-4 h-4" /></button>
+                <span className="px-3 py-1 rounded-lg bg-sky-500/20 text-sky-300 font-extrabold border border-sky-400/30">{periodLabel}</span>
               </div>
             </div>
 
@@ -853,8 +1043,10 @@ export default function TouchwallApp() {
                   <button
                     key={v.id}
                     onClick={() => { setCurrentView(v.id); setActiveSection('kalender'); }}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-extrabold cursor-pointer ${
-                      currentView === v.id && activeSection === 'kalender' ? 'bg-indigo-600 text-white' : themeStyles.textMuted
+                    className={`tw-glow-btn px-3 py-1.5 rounded-xl text-xs font-extrabold cursor-pointer ${
+                      currentView === v.id && activeSection === 'kalender'
+                        ? 'bg-gradient-to-r from-sky-500 to-indigo-600 text-white shadow-[0_0_14px_rgba(56,189,248,0.5)]'
+                        : themeStyles.textMuted
                     }`}
                   >
                     {v.label}
@@ -865,7 +1057,9 @@ export default function TouchwallApp() {
               <div className="flex items-center gap-1.5">
                 <button
                   onClick={() => setActiveMemberFilter('all')}
-                  className={`px-3.5 h-10 rounded-full border-2 font-extrabold text-xs cursor-pointer ${activeMemberFilter === 'all' ? 'bg-indigo-600 text-white border-indigo-500' : themeStyles.subtle}`}
+                  className={`tw-glow-btn px-3.5 h-10 rounded-full border-2 font-extrabold text-xs cursor-pointer ${
+                    activeMemberFilter === 'all' ? 'bg-sky-500 text-slate-950 border-sky-300 shadow-[0_0_16px_rgba(56,189,248,0.6)]' : themeStyles.subtle
+                  }`}
                 >
                   Alle
                 </button>
@@ -873,7 +1067,7 @@ export default function TouchwallApp() {
                   <button
                     key={m.id}
                     onClick={() => setActiveMemberFilter(m.id === activeMemberFilter ? 'all' : m.id)}
-                    className={`relative rounded-full cursor-pointer ${activeMemberFilter === m.id ? 'ring-4 ring-indigo-500 scale-105' : ''}`}
+                    className={`tw-glow-btn relative rounded-full cursor-pointer ${activeMemberFilter === m.id ? 'ring-4 ring-sky-400 scale-110 shadow-[0_0_18px_rgba(56,189,248,0.8)]' : ''}`}
                   >
                     {renderAvatar(m, 'w-10 h-10', 'text-sm')}
                   </button>
@@ -924,10 +1118,14 @@ export default function TouchwallApp() {
             {activeSection === 'aufgaben' && (
               <TasksTodoistSection
                 members={members}
+                setMembers={setMembers}
                 familyTasks={familyTasks}
                 shoppingNoteBlock={shoppingNoteBlock}
+                setShoppingTileProjectId={setShoppingTileProjectId}
                 todoistConfig={todoistConfig}
+                createAndSelectTodoistProject={createAndSelectTodoistProject}
                 isSyncing={isSyncing}
+                lastAutoSyncTime={lastAutoSyncTime}
                 themeStyles={themeStyles}
                 getMemberStyles={getMemberStyles}
                 renderAvatar={renderAvatar}
@@ -974,6 +1172,9 @@ export default function TouchwallApp() {
                 setMealPlan={setMealPlan}
                 familyNotes={familyNotes}
                 setFamilyNotes={setFamilyNotes}
+                addItemToNoteTile={addItemToNoteTile}
+                toggleItemInNoteTile={toggleItemInNoteTile}
+                deleteItemInNoteTile={deleteItemInNoteTile}
                 currentTheme={currentTheme}
                 setCurrentTheme={setCurrentTheme}
                 customLogoUrl={customLogoUrl}
@@ -995,7 +1196,7 @@ export default function TouchwallApp() {
                 restoreScreenshotDefaults={() => {
                   setMembers(prev => prev.map(m => {
                     const def = DEFAULT_MEMBERS.find(d => d.id === m.id);
-                    return def ? { ...def, calendarId: m.calendarId, todoistUserId: m.todoistUserId } : m;
+                    return def ? { ...def, calendarId: m.calendarId, todoistUserId: m.todoistUserId, todoistProjectId: m.todoistProjectId } : m;
                   }));
                   setCurrentTheme('metal');
                 }}
@@ -1004,6 +1205,7 @@ export default function TouchwallApp() {
                 todoistConfig={todoistConfig}
                 setTodoistConfig={setTodoistConfig}
                 connectAndDiscoverTodoist={connectAndDiscoverTodoist}
+                createAndSelectTodoistProject={createAndSelectTodoistProject}
                 addShoppingItemsBatch={addShoppingItemsBatch}
                 runAllPermissionsTest={runAllPermissionsTest}
                 isTestingDiag={isTestingDiag}
@@ -1014,7 +1216,7 @@ export default function TouchwallApp() {
                   const name = prompt('Name für neuen Kalender / Person:');
                   if (!name?.trim()) return;
                   const calId = prompt('Google Kalender-ID:') || '';
-                  setMembers(prev => [...prev, { id: 'cal_' + Date.now(), name: name.trim(), role: 'Zusatz', badge: name.trim().charAt(0).toUpperCase(), color: 'teal_bold', avatarType: 'emoji', emoji: '📅', calendarId: calId.trim(), ok: Boolean(calId.trim()) }]);
+                  setMembers(prev => [...prev, { id: 'cal_' + Date.now(), name: name.trim(), role: 'Zusatz', badge: name.trim().charAt(0).toUpperCase(), color: 'teal_bold', avatarType: 'emoji', emoji: '📅', calendarId: calId.trim(), todoistProjectId: '', ok: Boolean(calId.trim()) }]);
                 }}
                 importBackupJson={(e) => {
                   const f = e.target.files?.[0];
@@ -1056,7 +1258,7 @@ export default function TouchwallApp() {
       {/* MODAL 1: TERMIN ERSTELLEN / BEARBEITEN */}
       {eventModal.open && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-          <form onSubmit={saveEventModal} className={`w-full max-w-xl rounded-3xl border-2 p-6 shadow-2xl space-y-4 my-auto ${themeStyles.modal}`}>
+          <form onSubmit={saveEventModal} className={`w-full max-w-xl rounded-3xl border-2 border-sky-400/50 p-6 shadow-2xl space-y-4 my-auto ${themeStyles.modal}`}>
             <div className="flex items-center justify-between">
               <h3 className="text-2xl font-extrabold">{eventModal.id ? 'Termin bearbeiten' : 'Neuer Familientermin'}</h3>
               <button type="button" onClick={() => setEventModal({ ...eventModal, open: false })} className={`w-9 h-9 rounded-full border flex items-center justify-center ${themeStyles.subtle}`}><X className="w-5 h-5" /></button>
@@ -1075,7 +1277,7 @@ export default function TouchwallApp() {
                   key={m.id}
                   type="button"
                   onClick={() => setEventModal({ ...eventModal, member: m.id, notifyUsers: m.id === 'all' ? ['hans', 'sarah', 'dean', 'valentina'] : [m.id] })}
-                  className={`p-2.5 rounded-2xl border-2 flex flex-col items-center gap-1 cursor-pointer ${eventModal.member === m.id ? 'border-indigo-500 bg-indigo-500/20' : themeStyles.subtle}`}
+                  className={`tw-glow-btn p-2.5 rounded-2xl border-2 flex flex-col items-center gap-1 cursor-pointer ${eventModal.member === m.id ? 'border-sky-400 bg-sky-500/20' : themeStyles.subtle}`}
                 >
                   {renderAvatar(m, 'w-8 h-8', 'text-xs')}
                   <span className="text-xs font-extrabold truncate max-w-full">{m.id === 'all' ? 'Familie' : m.name.split(' ')[0]}</span>
@@ -1087,7 +1289,7 @@ export default function TouchwallApp() {
                 <span className="text-xs font-extrabold flex items-center gap-1"><Copy className="w-3.5 h-3.5 text-amber-400" /> Kopie einfügen bei:</span>
                 <div className="flex flex-wrap gap-1.5">
                   {members.map(tm => (
-                    <button key={tm.id} type="button" onClick={() => duplicateEventToTarget(eventModal, tm.id, eventModal.date)} style={getMemberStyles(tm).badgeStyle} className="px-2.5 py-1 rounded-xl text-xs font-extrabold cursor-pointer">
+                    <button key={tm.id} type="button" onClick={() => duplicateEventToTarget(eventModal, tm.id, eventModal.date)} style={getMemberStyles(tm).badgeStyle} className="tw-glow-btn px-2.5 py-1 rounded-xl text-xs font-extrabold cursor-pointer">
                       + {tm.id === 'all' ? 'Familie' : tm.name.split(' ')[0]}
                     </button>
                   ))}
@@ -1101,7 +1303,7 @@ export default function TouchwallApp() {
             <div className={`p-4 rounded-2xl border space-y-3 ${themeStyles.subtle}`}>
               <div className="flex items-center justify-between">
                 <span className="text-xs font-black uppercase">🔔 Erinnerung</span>
-                <button type="button" onClick={() => triggerEventAlarmNow(eventModal, true)} className="px-3 py-1 rounded-full bg-amber-400 text-slate-950 text-xs font-extrabold flex items-center gap-1 cursor-pointer">
+                <button type="button" onClick={() => triggerEventAlarmNow(eventModal, true)} className="tw-glow-btn px-3 py-1 rounded-full bg-amber-400 text-slate-950 text-xs font-extrabold flex items-center gap-1 cursor-pointer">
                   <Volume2 className="w-3.5 h-3.5" /> Test-Alarm
                 </button>
               </div>
@@ -1122,22 +1324,23 @@ export default function TouchwallApp() {
               </div>
             </div>
             <div className="flex items-center justify-between pt-2">
-              {eventModal.id ? <button type="button" onClick={() => deleteEventById(eventModal.id)} className="px-4 py-2.5 rounded-2xl bg-rose-600 text-white text-xs font-extrabold cursor-pointer">🗑️ Löschen</button> : <div />}
+              {eventModal.id ? <button type="button" onClick={() => deleteEventById(eventModal.id)} className="tw-glow-btn px-4 py-2.5 rounded-2xl bg-rose-600 text-white text-xs font-extrabold cursor-pointer">🗑️ Löschen</button> : <div />}
               <div className="flex gap-2">
-                <button type="button" onClick={() => setEventModal({ ...eventModal, open: false })} className={`px-5 py-2.5 rounded-2xl border text-xs font-bold cursor-pointer ${themeStyles.subtle}`}>Abbrechen</button>
-                <button type="submit" className="px-6 py-2.5 rounded-2xl bg-indigo-600 text-white text-xs font-extrabold cursor-pointer">Speichern</button>
+                <button type="button" onClick={() => setEventModal({ ...eventModal, open: false })} className={`tw-glow-btn px-5 py-2.5 rounded-2xl border text-xs font-bold cursor-pointer ${themeStyles.subtle}`}>Abbrechen</button>
+                <button type="submit" className="tw-glow-btn px-6 py-2.5 rounded-2xl bg-indigo-600 text-white text-xs font-extrabold cursor-pointer">Speichern</button>
               </div>
             </div>
           </form>
         </div>
       )}
 
-      {/* MODAL 1B: AUFGABEN-FRIST ("BIS WANN"), ERINNERUNG & PRIORITÄT BEARBEITEN */}
+      {/* MODAL 1B: AUFGABEN-FRIST BEARBEITEN */}
       {taskModal.open && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
           <form
             onSubmit={async (e) => {
               e.preventDefault();
+              lastLocalEditTimeRef.current = Date.now();
               const dueLabel = taskModal.dueDate
                 ? `Bis ${taskModal.dueDate.slice(8, 10)}.${taskModal.dueDate.slice(5, 7)}.${taskModal.dueTime ? ' ' + taskModal.dueTime + ' Uhr' : ''}`
                 : (taskModal.dueTime ? `Heute bis ${taskModal.dueTime} Uhr` : 'Offen');
@@ -1188,7 +1391,7 @@ export default function TouchwallApp() {
               setTaskModal({ ...taskModal, open: false });
               showToast('Frist & Erinnerung gespeichert', `${taskModal.title} (${dueLabel})`, '⏰');
             }}
-            className={`w-full max-w-lg rounded-3xl border-2 p-6 shadow-2xl space-y-4 ${themeStyles.modal}`}
+            className={`w-full max-w-lg rounded-3xl border-2 border-sky-400/50 p-6 shadow-2xl space-y-4 ${themeStyles.modal}`}
           >
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-extrabold flex items-center gap-2">
@@ -1199,7 +1402,6 @@ export default function TouchwallApp() {
             </div>
 
             <div className="space-y-2">
-              <label className={`block text-[11px] font-extrabold uppercase ${themeStyles.textMuted}`}>Aufgabe</label>
               <input
                 type="text"
                 required
@@ -1244,14 +1446,13 @@ export default function TouchwallApp() {
               </div>
             </div>
 
-            {/* SCHNELLWAHL FÜR "BIS WANN ERLEDIGEN?" */}
             <div className={`p-3.5 rounded-2xl border space-y-2.5 ${themeStyles.subtle}`}>
               <div className="flex items-center justify-between">
                 <span className="text-xs font-black uppercase text-amber-400">⏳ Bis wann muss es erledigt sein?</span>
                 <div className="flex gap-1">
-                  <button type="button" onClick={() => setTaskModal({ ...taskModal, dueDate: todayStr, dueTime: '18:00' })} className={`px-2 py-1 rounded-lg border text-[11px] font-bold cursor-pointer ${themeStyles.card}`}>Heute</button>
-                  <button type="button" onClick={() => setTaskModal({ ...taskModal, dueDate: formatDateStr(addDays(new Date(), 1)), dueTime: '17:00' })} className={`px-2 py-1 rounded-lg border text-[11px] font-bold cursor-pointer ${themeStyles.card}`}>Morgen</button>
-                  <button type="button" onClick={() => setTaskModal({ ...taskModal, dueDate: formatDateStr(addDays(new Date(), 7)), dueTime: '17:00' })} className={`px-2 py-1 rounded-lg border text-[11px] font-bold cursor-pointer ${themeStyles.card}`}>+1 Woche</button>
+                  <button type="button" onClick={() => setTaskModal({ ...taskModal, dueDate: todayStr, dueTime: '18:00' })} className={`tw-glow-btn px-2 py-1 rounded-lg border text-[11px] font-bold cursor-pointer ${themeStyles.card}`}>Heute</button>
+                  <button type="button" onClick={() => setTaskModal({ ...taskModal, dueDate: formatDateStr(addDays(new Date(), 1)), dueTime: '17:00' })} className={`tw-glow-btn px-2 py-1 rounded-lg border text-[11px] font-bold cursor-pointer ${themeStyles.card}`}>Morgen</button>
+                  <button type="button" onClick={() => setTaskModal({ ...taskModal, dueDate: formatDateStr(addDays(new Date(), 7)), dueTime: '17:00' })} className={`tw-glow-btn px-2 py-1 rounded-lg border text-[11px] font-bold cursor-pointer ${themeStyles.card}`}>+1 Woche</button>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -1260,7 +1461,6 @@ export default function TouchwallApp() {
               </div>
             </div>
 
-            {/* ERINNERUNG & TEST-ALARM */}
             <div className={`p-3.5 rounded-2xl border space-y-2.5 ${themeStyles.subtle}`}>
               <div className="flex items-center justify-between">
                 <span className="text-xs font-black uppercase">🔔 Wann erinnern?</span>
@@ -1273,7 +1473,7 @@ export default function TouchwallApp() {
                     notifyTime: taskModal.notifyTime,
                     notifyUsers: [taskModal.member]
                   }, true)}
-                  className="px-3 py-1 rounded-full bg-amber-400 text-slate-950 text-xs font-extrabold flex items-center gap-1 cursor-pointer"
+                  className="tw-glow-btn px-3 py-1 rounded-full bg-amber-400 text-slate-950 text-xs font-extrabold flex items-center gap-1 cursor-pointer"
                 >
                   <Volume2 className="w-3.5 h-3.5" /> Test-Alarm
                 </button>
@@ -1291,21 +1491,11 @@ export default function TouchwallApp() {
                 <option value="1h" className="bg-slate-800 text-white">🔔 1 Std. vorher</option>
                 <option value="1d" className="bg-slate-800 text-white">🔔 1 Tag vorher</option>
               </select>
-
-              <label className="flex items-center gap-2 pt-1 text-xs font-bold cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={taskModal.syncToCalendar}
-                  onChange={(e) => setTaskModal({ ...taskModal, syncToCalendar: e.target.checked })}
-                  className="w-4 h-4 accent-amber-400 rounded"
-                />
-                <span>📅 Zusätzlich als Termin-Wecker in Google Kalender eintragen</span>
-              </label>
             </div>
 
             <div className="flex justify-end gap-2">
-              <button type="button" onClick={() => setTaskModal({ ...taskModal, open: false })} className={`px-4 py-2.5 rounded-xl border text-xs font-bold ${themeStyles.subtle}`}>Abbrechen</button>
-              <button type="submit" className="px-6 py-2.5 rounded-xl bg-indigo-600 text-white text-xs font-extrabold cursor-pointer">💾 Speichern & Synchronisieren</button>
+              <button type="button" onClick={() => setTaskModal({ ...taskModal, open: false })} className={`tw-glow-btn px-4 py-2.5 rounded-xl border text-xs font-bold ${themeStyles.subtle}`}>Abbrechen</button>
+              <button type="submit" className="tw-glow-btn px-6 py-2.5 rounded-xl bg-indigo-600 text-white text-xs font-extrabold cursor-pointer">💾 Speichern & Synchronisieren</button>
             </div>
           </form>
         </div>
@@ -1316,7 +1506,7 @@ export default function TouchwallApp() {
         const dayEvents = events.filter(e => e.date === yearDayModal.dateStr);
         return (
           <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
-            <div className={`w-full max-w-xl rounded-3xl border-2 p-6 shadow-2xl space-y-4 ${themeStyles.modal}`}>
+            <div className={`w-full max-w-xl rounded-3xl border-2 border-sky-400/50 p-6 shadow-2xl space-y-4 ${themeStyles.modal}`}>
               <div className="flex items-center justify-between">
                 <h3 className="text-xl font-extrabold">📅 Tagesübersicht: {yearDayModal.dateStr}</h3>
                 <button onClick={() => setYearDayModal({ ...yearDayModal, open: false })}><X className="w-5 h-5" /></button>
@@ -1352,7 +1542,7 @@ export default function TouchwallApp() {
               });
               setSchoolModal({ ...schoolModal, open: false });
             }}
-            className={`w-full max-w-md rounded-3xl border-2 p-6 shadow-2xl space-y-4 ${themeStyles.modal}`}
+            className={`w-full max-w-md rounded-3xl border-2 border-sky-400/50 p-6 shadow-2xl space-y-4 ${themeStyles.modal}`}
           >
             <h3 className="text-lg font-extrabold">Schulstunde anpassen</h3>
             <input type="text" value={schoolModal.subject} onChange={(e) => setSchoolModal({ ...schoolModal, subject: e.target.value })} placeholder="Fach..." className={`w-full px-4 py-2.5 rounded-xl border text-sm font-bold ${themeStyles.input}`} />
@@ -1364,8 +1554,8 @@ export default function TouchwallApp() {
               <option value="cancel" className="bg-slate-800 text-white">Entfall</option>
             </select>
             <div className="flex justify-end gap-2">
-              <button type="button" onClick={() => setSchoolModal({ ...schoolModal, open: false })} className={`px-4 py-2 rounded-xl border text-xs font-bold ${themeStyles.subtle}`}>Abbrechen</button>
-              <button type="submit" className="px-5 py-2 rounded-xl bg-indigo-600 text-white text-xs font-extrabold">Speichern</button>
+              <button type="button" onClick={() => setSchoolModal({ ...schoolModal, open: false })} className={`tw-glow-btn px-4 py-2 rounded-xl border text-xs font-bold ${themeStyles.subtle}`}>Abbrechen</button>
+              <button type="submit" className="tw-glow-btn px-5 py-2 rounded-xl bg-indigo-600 text-white text-xs font-extrabold">Speichern</button>
             </div>
           </form>
         </div>
@@ -1374,7 +1564,7 @@ export default function TouchwallApp() {
       {/* MODAL 4: QR CODE */}
       {qrModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className={`w-full max-w-md rounded-3xl border-2 p-6 shadow-2xl text-center space-y-4 ${themeStyles.modal}`}>
+          <div className={`w-full max-w-md rounded-3xl border-2 border-sky-400/50 p-6 shadow-2xl text-center space-y-4 ${themeStyles.modal}`}>
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-extrabold">📱 Smartphone Live-App</h3>
               <button onClick={() => setQrModalOpen(false)}><X className="w-5 h-5" /></button>
@@ -1392,17 +1582,17 @@ export default function TouchwallApp() {
           <div className={`w-full max-w-md rounded-3xl border-2 border-amber-400 p-6 shadow-2xl space-y-4 text-center ${themeStyles.modal}`}>
             <h3 className="text-2xl font-extrabold">🔔 {activeAlarmBanner.title}</h3>
             <p className="text-sm font-bold">{activeAlarmBanner.time} ({activeAlarmBanner.date})</p>
-            <p className="text-xs font-extrabold text-indigo-400">👤 Für: {activeAlarmBanner.who}</p>
+            <p className="text-xs font-extrabold text-sky-400">👤 Für: {activeAlarmBanner.who}</p>
             <div className="flex gap-2 justify-center">
-              <button onClick={() => playTouchwallAlarmSound()} className={`px-4 py-2.5 rounded-2xl border text-xs font-extrabold cursor-pointer ${themeStyles.subtle}`}>🔊 Ton testen</button>
-              <button onClick={() => setActiveAlarmBanner(null)} className="px-6 py-2.5 rounded-2xl bg-amber-400 text-slate-950 text-sm font-black cursor-pointer">✅ Verstanden</button>
+              <button onClick={() => playTouchwallAlarmSound()} className={`tw-glow-btn px-4 py-2.5 rounded-2xl border text-xs font-extrabold cursor-pointer ${themeStyles.subtle}`}>🔊 Ton testen</button>
+              <button onClick={() => setActiveAlarmBanner(null)} className="tw-glow-btn px-6 py-2.5 rounded-2xl bg-amber-400 text-slate-950 text-sm font-black cursor-pointer">✅ Verstanden</button>
             </div>
           </div>
         </div>
       )}
 
       {toast && (
-        <div className={`fixed bottom-5 right-5 z-50 px-5 py-3.5 rounded-2xl shadow-2xl border-2 flex items-center gap-3 ${themeStyles.modal}`}>
+        <div className={`fixed bottom-5 right-5 z-50 px-5 py-3.5 rounded-2xl shadow-2xl border-2 border-sky-400/50 flex items-center gap-3 ${themeStyles.modal}`}>
           <span className="text-2xl">{toast.icon}</span>
           <div>
             <div className="font-extrabold text-xs text-amber-400 uppercase">{toast.title}</div>
