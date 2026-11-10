@@ -34,7 +34,8 @@ const {
   createTodoistTaskItem,
   updateTodoistTaskItem,
   closeOrReopenTodoistTask,
-  deleteTodoistTask
+  deleteTodoistTask,
+  pushTodoistTaskToPhoneNow
 } = Cfg;
 
 export default function TouchwallApp() {
@@ -47,7 +48,6 @@ export default function TouchwallApp() {
   const [customLogoUrl, setCustomLogoUrl] = useState('');
   const [clockStr, setClockStr] = useState('');
 
-  // Cloud- & Todoist-Konfiguration
   const [appsScriptUrl, setAppsScriptUrl] = useState(DEFAULT_APPS_SCRIPT_URL);
   const [todoistConfig, setTodoistConfig] = useState({
     apiToken: '',
@@ -62,10 +62,8 @@ export default function TouchwallApp() {
   const [diagResult, setDiagResult] = useState(null);
   const [isTestingDiag, setIsTestingDiag] = useState(false);
 
-  // Touch-Shockwave-Effekt
   const [touchRipples, setTouchRipples] = useState([]);
 
-  // Alarm & Refs für 8-Sekunden-Hintergrund-Sync
   const [pushPermission, setPushPermission] = useState('default');
   const [activeAlarmBanner, setActiveAlarmBanner] = useState(null);
   const triggeredAlarmsRef = useRef({});
@@ -73,9 +71,9 @@ export default function TouchwallApp() {
   const isApplyingRemoteState = useRef(false);
   const isMutatingCalendar = useRef(false);
   const lastLocalEditTimeRef = useRef(0);
+  const lastThemeChangeRef = useRef(0);
   const autoSaveTimer = useRef(null);
 
-  // Kerndaten
   const [members, setMembers] = useState(DEFAULT_MEMBERS);
   const [events, setEvents] = useState([]);
   const [mealPlan, setMealPlan] = useState(DEFAULT_MEALS);
@@ -89,7 +87,6 @@ export default function TouchwallApp() {
     { id: 4, member: 'valentina', title: '🧸 Zimmer aufräumen & 15 Min. Lesen',      description: '', priority: 2, due: 'Bis 16:30 Uhr', dueDate: '', dueTime: '16:30', notifyTime: '15m', done: false }
   ]);
 
-  // Modals & Kopier-Speicher
   const [toast, setToast] = useState(null);
   const [copiedEvent, setCopiedEvent] = useState(null);
   const [eventModal, setEventModal] = useState({
@@ -109,6 +106,18 @@ export default function TouchwallApp() {
   const showToast = (title, message, icon = '🔔') => {
     setToast({ title, message, icon });
     setTimeout(() => setToast(null), 3800);
+  };
+
+  // =========================================================
+  // SICHERER THEME-WECHSEL (VERHINDERT ZURÜCKSPRINGEN DURCH CLOUD-SYNC!)
+  // =========================================================
+  const handleSelectTheme = (nextThemeId) => {
+    lastLocalEditTimeRef.current = Date.now();
+    lastThemeChangeRef.current = Date.now();
+    setCurrentTheme(nextThemeId);
+    try {
+      localStorage.setItem('richter_tw_theme_lock', nextThemeId);
+    } catch (e) {}
   };
 
   const safeMembers = useMemo(() => {
@@ -193,7 +202,7 @@ export default function TouchwallApp() {
       return (
         <div
           style={{ borderColor: COLOR_PALETTES[member.color]?.hex || '#3b82f6' }}
-          className={`${size} rounded-full border-2 shadow-sm shrink-0 overflow-hidden relative flex items-center justify-center font-extrabold`}
+          className={size + ' rounded-full border-2 shadow-sm shrink-0 overflow-hidden relative flex items-center justify-center font-extrabold'}
         >
           <img src={member.photoUrl} alt={member.name} className="w-full h-full object-cover" />
         </div>
@@ -201,13 +210,13 @@ export default function TouchwallApp() {
     }
     if (member?.avatarType === 'emoji' && member?.emoji) {
       return (
-        <div style={st.badgeStyle} className={`${size} rounded-full flex items-center justify-center ${textSize} shadow-sm shrink-0`}>
+        <div style={st.badgeStyle} className={size + ' rounded-full flex items-center justify-center ' + textSize + ' shadow-sm shrink-0'}>
           {member.emoji}
         </div>
       );
     }
     return (
-      <div style={st.badgeStyle} className={`${size} rounded-full font-extrabold ${textSize} flex items-center justify-center shadow-sm shrink-0`}>
+      <div style={st.badgeStyle} className={size + ' rounded-full font-extrabold ' + textSize + ' flex items-center justify-center shadow-sm shrink-0'}>
         {member?.badge || 'F'}
       </div>
     );
@@ -221,7 +230,7 @@ export default function TouchwallApp() {
       : '';
     return (
       <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-black/30 text-[9px] font-extrabold shrink-0">
-        {chIcon} {userBadges ? `${userBadges} • ` : ''}{ev.notifyTime}
+        {chIcon} {userBadges ? userBadges + ' • ' : ''}{ev.notifyTime}
       </span>
     );
   };
@@ -237,7 +246,7 @@ export default function TouchwallApp() {
 
     const updateClock = () => {
       const now = new Date();
-      setClockStr(`${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`);
+      setClockStr(String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0'));
       const nowStr = formatDateStr(now);
       setTodayStr(prev => {
         if (prev !== nowStr) {
@@ -283,7 +292,7 @@ export default function TouchwallApp() {
     });
     if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
       try {
-        new Notification(`🔔 ${evObj.title}`, { body: `⏰ ${evObj.time} • Für: ${whoNames}` });
+        new Notification('🔔 ' + evObj.title, { body: '⏰ ' + evObj.time + ' • Für: ' + whoNames });
       } catch (e) {}
     }
   };
@@ -306,7 +315,7 @@ export default function TouchwallApp() {
         }
         const evStart = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]), sh, sm, 0);
         const diffMs = nowMs - (evStart.getTime() - offsetMins * 60000);
-        const key = `ev_${ev.id}_${ev.date}_${ev.time}_${ev.notifyTime}`;
+        const key = 'ev_' + ev.id + '_' + ev.date + '_' + ev.time + '_' + ev.notifyTime;
         if (diffMs >= 0 && diffMs <= 180000 && !triggeredAlarmsRef.current[key]) {
           triggeredAlarmsRef.current[key] = nowMs;
           try { localStorage.setItem('richter_tw_triggered_alarms', JSON.stringify(triggeredAlarmsRef.current)); } catch (e) {}
@@ -323,15 +332,15 @@ export default function TouchwallApp() {
         if (parts.length !== 3 || !tm) return;
         const tDue = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]), Number(tm[1]), Number(tm[2]), 0);
         const diffMs = nowMs - (tDue.getTime() - offsetMins * 60000);
-        const key = `task_${task.id}_${dStr}_${task.dueTime}_${task.notifyTime}`;
+        const key = 'task_' + task.id + '_' + dStr + '_' + task.dueTime + '_' + task.notifyTime;
         if (diffMs >= 0 && diffMs <= 180000 && !triggeredAlarmsRef.current[key]) {
           triggeredAlarmsRef.current[key] = nowMs;
           try { localStorage.setItem('richter_tw_triggered_alarms', JSON.stringify(triggeredAlarmsRef.current)); } catch (e) {}
           triggerEventAlarmNow({
             id: task.id,
-            title: `✅ Aufgabe fällig: ${task.title}`,
+            title: '✅ Aufgabe fällig: ' + task.title,
             date: dStr,
-            time: `Bis ${task.dueTime} Uhr`,
+            time: 'Bis ' + task.dueTime + ' Uhr',
             notifyTime: task.notifyTime,
             notifyUsers: [task.member]
           }, false);
@@ -354,7 +363,7 @@ export default function TouchwallApp() {
           ...prev,
           projects: [...(Array.isArray(prev?.projects) ? prev.projects : []), created]
         }));
-        showToast('Projekt erstellt', `Todoist-Projekt „${created.name}“ wurde angelegt!`, '📂');
+        showToast('Projekt erstellt', 'Todoist-Projekt „' + created.name + '“ wurde angelegt!', '📂');
         return created;
       }
     } catch (err) {
@@ -391,7 +400,7 @@ export default function TouchwallApp() {
         }));
       }
 
-      showToast('Todoist Team verbunden!', `${nextCfg.projects.length} Projekte & ${nextCfg.collaborators.length} Team-Mitglieder geladen.`, '🎉');
+      showToast('Todoist Team verbunden!', nextCfg.projects.length + ' Projekte & ' + nextCfg.collaborators.length + ' Team-Mitglieder geladen.', '🎉');
       await syncWithTodoistNow(false, nextCfg);
     } catch (err) {
       showToast('Todoist-Fehler', err.message, '❌');
@@ -431,9 +440,9 @@ export default function TouchwallApp() {
           setFamilyNotes(prev => (Array.isArray(prev) ? prev : DEFAULT_NOTES).map((n, idx) => idx === 0 ? { ...n, items: pulled.shoppingItems } : n));
         }
         const now = new Date();
-        const tStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+        const tStr = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0') + ':' + String(now.getSeconds()).padStart(2, '0');
         setLastAutoSyncTime(tStr);
-        setSyncStatusText(`⚡ Live-Sync (${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')})`);
+        setSyncStatusText('⚡ Live-Sync (' + String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0') + ')');
         setTimeout(() => { isApplyingRemoteState.current = false; }, 200);
       }
       if (showFeedback) showToast('Todoist synchron', 'Alle Kacheln & Projekte sind abgeglichen.', '✅');
@@ -476,7 +485,7 @@ export default function TouchwallApp() {
 
   const callGoogleAppsScript = async (targetUrl, method = 'GET', postBody = null) => {
     try {
-      const proxyRes = await fetch(`/api/todoist?_t=${Date.now()}`, {
+      const proxyRes = await fetch('/api/todoist?_t=' + Date.now(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -497,7 +506,7 @@ export default function TouchwallApp() {
 
     if (method === 'GET') {
       const sep = targetUrl.includes('?') ? '&' : '?';
-      const res = await fetch(`${targetUrl}${sep}action=json&_t=${Date.now()}`, {
+      const res = await fetch(targetUrl + sep + 'action=json&_t=' + Date.now(), {
         method: 'GET',
         redirect: 'follow',
         cache: 'no-store'
@@ -529,7 +538,7 @@ export default function TouchwallApp() {
         setTimeout(() => pullFromCloud(targetUrl, false), 700);
       }
       const now = new Date();
-      setSyncStatusText(`⚡ Live-Sync (${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')})`);
+      setSyncStatusText('⚡ Live-Sync (' + String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0') + ')');
       return json;
     } catch (err) {
       setSyncStatusText('⚠️ Google-Sync prüfen');
@@ -541,7 +550,7 @@ export default function TouchwallApp() {
   };
 
   const pullFromCloud = async (urlOverride, showFeedback = true) => {
-    if (isMutatingCalendar.current && !showFeedback) return;
+    if ((isMutatingCalendar.current || Date.now() - lastLocalEditTimeRef.current < 8000) && !showFeedback) return;
     const targetUrl = (urlOverride !== undefined ? urlOverride : appsScriptUrl).trim();
     if (!targetUrl) return;
     if (showFeedback) setIsSyncing(true);
@@ -564,7 +573,12 @@ export default function TouchwallApp() {
         if (Array.isArray(s.familyNotes) && s.familyNotes.length > 0) setFamilyNotes(s.familyNotes);
         if (s.schoolData?.dean) setSchoolData(s.schoolData);
         if (Array.isArray(s.familyTasks)) setFamilyTasks(s.familyTasks);
-        if (s.currentTheme) setCurrentTheme(s.currentTheme);
+
+        const lockedTheme = typeof window !== 'undefined' ? localStorage.getItem('richter_tw_theme_lock') : null;
+        if (!lockedTheme && s.currentTheme && Date.now() - lastThemeChangeRef.current > 20000) {
+          setCurrentTheme(s.currentTheme);
+        }
+
         if (s.customLogoUrl) setCustomLogoUrl(s.customLogoUrl);
         if (s.todoistConfig?.apiToken) setTodoistConfig(prev => ({ ...prev, ...s.todoistConfig }));
       }
@@ -596,6 +610,7 @@ export default function TouchwallApp() {
 
   useEffect(() => {
     try {
+      const lockedTheme = localStorage.getItem('richter_tw_theme_lock');
       const raw = localStorage.getItem('richter_touchwall_v6');
       if (raw) {
         const data = JSON.parse(raw);
@@ -604,9 +619,15 @@ export default function TouchwallApp() {
         if (Array.isArray(data.familyNotes) && data.familyNotes.length > 0) setFamilyNotes(data.familyNotes);
         if (data.schoolData?.dean) setSchoolData(data.schoolData);
         if (Array.isArray(data.familyTasks)) setFamilyTasks(data.familyTasks);
-        if (data.currentTheme) setCurrentTheme(data.currentTheme);
+        if (lockedTheme) {
+          setCurrentTheme(lockedTheme);
+        } else if (data.currentTheme) {
+          setCurrentTheme(data.currentTheme);
+        }
         if (data.customLogoUrl) setCustomLogoUrl(data.customLogoUrl);
         if (data.todoistConfig && typeof data.todoistConfig === 'object') setTodoistConfig(prev => ({ ...prev, ...data.todoistConfig }));
+      } else if (lockedTheme) {
+        setCurrentTheme(lockedTheme);
       }
       const savedEv = localStorage.getItem('richter_touchwall_events_cache');
       if (savedEv) {
@@ -666,7 +687,19 @@ export default function TouchwallApp() {
     let todoistId = null;
     if (safeTodoistConfig.apiToken && projId) {
       try {
-        const created = await createTodoistTaskItem(safeTodoistConfig.apiToken, projId, clean, null, '', '', 1, '', 'none');
+        const created = await createTodoistTaskItem(
+          safeTodoistConfig.apiToken,
+          projId,
+          clean,
+          null,
+          '',
+          '',
+          1,
+          '',
+          'none',
+          safeTodoistConfig.collaborators,
+          true
+        );
         if (created?.id) todoistId = String(created.id);
       } catch (e) {}
     }
@@ -714,7 +747,7 @@ export default function TouchwallApp() {
     for (const txt of textsArray) {
       await addItemToNoteTile(safeNotes[0].id, txt);
     }
-    showToast('In Todoist-Einkaufsliste', `${textsArray.length} Artikel übertragen!`, '🛒');
+    showToast('In Todoist-Einkaufsliste', textsArray.length + ' Artikel übertragen!', '🛒');
   };
 
   const toggleShoppingItem = async (itemIdx) => {
@@ -735,6 +768,57 @@ export default function TouchwallApp() {
     } : n));
   };
 
+  // =========================================================
+  // SOFORT-PUSH EINER AUFGABE ANS SMARTPHONE (TODOIST + KALENDER-PING)
+  // =========================================================
+  const pushTaskToPhoneNow = async (task) => {
+    if (!task) return;
+    const memberObj = safeMembers.find(m => m.id === task.member);
+    const targetProjId = task.projectId || memberObj?.todoistProjectId || safeTodoistConfig.tasksProjectId;
+
+    if (!safeTodoistConfig.apiToken) {
+      showToast('Token fehlt', 'Bitte unter „Konten“ dein Todoist API-Token eintragen.', '⚠️');
+      return;
+    }
+
+    showToast('Sende Handy-Push...', '„' + task.title + '“ wird sofort an ' + (memberObj?.name || 'das Handy') + ' gepusht...', '📲');
+
+    try {
+      let currentTodoistId = task.todoistId;
+      if (!currentTodoistId && targetProjId) {
+        const created = await createTodoistTaskItem(
+          safeTodoistConfig.apiToken,
+          targetProjId,
+          task.title,
+          memberObj,
+          task.dueDate || todayStr,
+          task.dueTime || '',
+          task.priority || 4,
+          task.description || '',
+          '0m',
+          safeTodoistConfig.collaborators,
+          true
+        );
+        if (created?.id) {
+          currentTodoistId = String(created.id);
+          setFamilyTasks(prev => (Array.isArray(prev) ? prev : []).map(t => t.id === task.id ? { ...t, todoistId: currentTodoistId } : t));
+        }
+      } else if (currentTodoistId && pushTodoistTaskToPhoneNow) {
+        await pushTodoistTaskToPhoneNow(
+          safeTodoistConfig.apiToken,
+          currentTodoistId,
+          task.title,
+          memberObj?.todoistUserId,
+          safeTodoistConfig.collaborators
+        );
+      }
+
+      showToast('Handy-Push gesendet!', 'Todoist-Benachrichtigung an ' + (memberObj?.name || 'Team') + ' wurde ausgelöst!', '✅');
+    } catch (err) {
+      showToast('Push-Hinweis', err.message, '⚠️');
+    }
+  };
+
   const addNewTaskWithSettings = async (
     titleStr,
     memberId,
@@ -752,8 +836,8 @@ export default function TouchwallApp() {
     const memberObj = safeMembers.find(m => m.id === memberId);
     const targetProjId = customProjectId || memberObj?.todoistProjectId || safeTodoistConfig.tasksProjectId;
     const dueLabel = dueDateStr
-      ? `Bis ${dueDateStr.slice(8, 10)}.${dueDateStr.slice(5, 7)}.${dueTimeStr ? ' ' + dueTimeStr + ' Uhr' : ''}`
-      : (dueTimeStr ? `Heute bis ${dueTimeStr} Uhr` : 'Offen');
+      ? 'Bis ' + dueDateStr.slice(8, 10) + '.' + dueDateStr.slice(5, 7) + '.' + (dueTimeStr ? ' ' + dueTimeStr + ' Uhr' : '')
+      : (dueTimeStr ? 'Heute bis ' + dueTimeStr + ' Uhr' : 'Offen');
 
     let todoistId = null;
     if (safeTodoistConfig.apiToken && targetProjId) {
@@ -767,7 +851,9 @@ export default function TouchwallApp() {
           dueTimeStr,
           priorityNum,
           descriptionStr,
-          notifyStr
+          notifyStr,
+          safeTodoistConfig.collaborators,
+          true
         );
         if (created?.id) todoistId = String(created.id);
       } catch (err) {
@@ -790,14 +876,14 @@ export default function TouchwallApp() {
       done: false
     };
     setFamilyTasks(prev => [newTask, ...(Array.isArray(prev) ? prev : [])]);
-    showToast('Aufgabe & Frist angelegt', `${clean} → ${memberObj?.name || memberId}`, '📲');
+    showToast('Aufgabe & Handy-Push gesendet', clean + ' → ' + (memberObj?.name || memberId), '📲');
 
     if (pushToCal) {
       const calEv = {
         id: String(Date.now() + 500),
-        title: `✅ Aufgabe: ${clean}`,
+        title: '✅ Aufgabe: ' + clean,
         date: dueDateStr || todayStr,
-        time: dueTimeStr ? `${dueTimeStr} - ${dueTimeStr}` : 'Ganztägig',
+        time: dueTimeStr ? dueTimeStr + ' - ' + dueTimeStr : 'Ganztägig',
         member: memberId,
         notifyTime: notifyStr === 'none' ? '15m' : notifyStr,
         notifyChannel: 'push',
@@ -832,6 +918,9 @@ export default function TouchwallApp() {
     setFamilyTasks(prev => (Array.isArray(prev) ? prev : []).filter(t => !(t.member === memberId && t.done)));
   };
 
+  // =========================================================
+  // TERMINE KOPIEREN & BEI ANDEREN EINFÜGEN
+  // =========================================================
   const duplicateEventToTarget = async (sourceEv, targetMemberId, targetDateStr) => {
     const newDate = targetDateStr || sourceEv.date || todayStr;
     const newMember = targetMemberId || sourceEv.member || 'all';
@@ -848,8 +937,8 @@ export default function TouchwallApp() {
       fromGoogle: true
     };
     setEvents(prev => [...(Array.isArray(prev) ? prev : []), copiedNewEv]);
-    showToast('Termin eingefügt', `„${copiedNewEv.title}“ → ${targetM ? targetM.name : newMember}`, '📋');
-    await sendCalendarApiAction({ action: 'createEvent', event: copiedNewEv }, '⏳ Speichere Kopie...');
+    showToast('Termin kopiert & eingefügt!', '„' + copiedNewEv.title + '“ → ' + (targetM ? targetM.name : newMember) + ' (' + newDate + ')', '📋');
+    await sendCalendarApiAction({ action: 'createEvent', event: copiedNewEv }, '⏳ Speichere Kopie in Google...');
   };
 
   const openNewEventModal = (dateStr = todayStr, memberId = 'all') => {
@@ -953,12 +1042,12 @@ export default function TouchwallApp() {
   };
 
   const periodLabel = useMemo(() => {
-    if (currentView === 'year') return `Jahreswand ${currentBaseDate.getFullYear()} (BW)`;
+    if (currentView === 'year') return 'Jahreswand ' + currentBaseDate.getFullYear() + ' (BW)';
     const start = getMonday(currentBaseDate);
     const add = currentView === '1w' ? 6 : currentView === '2w' ? 13 : 27;
     const end = addDays(start, add);
-    const fmt = (d) => `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.`;
-    return `${fmt(start)} – ${fmt(end)}${end.getFullYear()}`;
+    const fmt = (d) => String(d.getDate()).padStart(2, '0') + '.' + String(d.getMonth() + 1).padStart(2, '0') + '.';
+    return fmt(start) + ' – ' + fmt(end) + end.getFullYear();
   }, [currentBaseDate, currentView]);
 
   const navigatePeriod = (dir) => {
@@ -976,6 +1065,62 @@ export default function TouchwallApp() {
     return activeMemberFilter === 'all' ? safeMembers : safeMembers.filter(m => m.id === activeMemberFilter || m.id === 'all');
   }, [safeMembers, activeMemberFilter]);
 
+  const globalStyles = [
+    '@keyframes twShockwave {',
+    '  0% { transform: translate(-50%, -50%) scale(0.15); opacity: 0.9; }',
+    '  100% { transform: translate(-50%, -50%) scale(2.8); opacity: 0; }',
+    '}',
+    '.tw-glow-card, .tw-glow-subtle {',
+    '  transition: background-color 0.2s ease, border-color 0.2s ease;',
+    '}',
+    '.tw-glow-subtle.cursor-pointer {',
+    '  transition: transform 0.18s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.18s ease, border-color 0.18s ease;',
+    '}',
+    '.tw-glow-subtle.cursor-pointer:hover {',
+    '  transform: translateY(-1.5px) scale(1.01);',
+    '  border-color: var(--tw-btn-border) !important;',
+    '  box-shadow: 0 6px 18px -4px var(--tw-btn-glow), inset 0 1px 1px rgba(255, 255, 255, 0.2);',
+    '}',
+    '.tw-glow-subtle.cursor-pointer:active {',
+    '  transform: scale(0.965) translateY(1px) !important;',
+    '  box-shadow: inset 0 5px 14px rgba(0, 0, 0, 0.6), 0 0 10px var(--tw-btn-glow) !important;',
+    '}',
+    '.tw-glow-btn, .tw-theme-btn, button.bg-indigo-600, button.bg-sky-500, button.bg-emerald-600, button.bg-emerald-500, label.tw-glow-btn {',
+    '  background: linear-gradient(135deg, color-mix(in srgb, var(--tw-btn-from) 24%, var(--tw-btn-rest-base)) 0%, color-mix(in srgb, var(--tw-btn-to) 24%, var(--tw-btn-rest-base)) 100%) !important;',
+    '  color: var(--tw-btn-rest-text) !important;',
+    '  border: 1px solid color-mix(in srgb, var(--tw-btn-border) 32%, transparent) !important;',
+    '  box-shadow: none !important;',
+    '  transition: transform 0.18s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.18s cubic-bezier(0.22, 1, 0.36, 1), background 0.18s ease, border-color 0.18s ease, color 0.18s ease !important;',
+    '}',
+    '.tw-nav-inactive {',
+    '  background: linear-gradient(135deg, color-mix(in srgb, var(--tw-btn-from) 12%, var(--tw-btn-rest-base)) 0%, color-mix(in srgb, var(--tw-btn-to) 12%, var(--tw-btn-rest-base)) 100%);',
+    '  border: 1px solid rgba(255, 255, 255, 0.12);',
+    '  box-shadow: none !important;',
+    '  transition: transform 0.18s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.18s ease, background 0.18s ease, border-color 0.18s ease, color 0.18s ease;',
+    '}',
+    '.tw-active-nav {',
+    '  background: linear-gradient(135deg, color-mix(in srgb, var(--tw-btn-from) 46%, var(--tw-btn-rest-base)) 0%, color-mix(in srgb, var(--tw-btn-to) 46%, var(--tw-btn-rest-base)) 100%) !important;',
+    '  color: #ffffff !important;',
+    '  border: 1.5px solid color-mix(in srgb, var(--tw-btn-border) 70%, transparent) !important;',
+    '  box-shadow: none !important;',
+    '  transition: transform 0.18s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.18s ease, background 0.18s ease, border-color 0.18s ease !important;',
+    '}',
+    '.tw-glow-btn:hover, .tw-theme-btn:hover, .tw-nav-inactive:hover, .tw-active-nav:hover, button.bg-indigo-600:hover, button.bg-sky-500:hover, button.bg-emerald-600:hover, button.bg-emerald-500:hover, label.tw-glow-btn:hover {',
+    '  background: linear-gradient(135deg, var(--tw-btn-from) 0%, var(--tw-btn-to) 100%) !important;',
+    '  color: #ffffff !important;',
+    '  border-color: var(--tw-btn-border) !important;',
+    '  transform: translateY(-2px) scale(1.035);',
+    '  box-shadow: 0 10px 24px -2px var(--tw-btn-glow), 0 0 18px var(--tw-btn-glow), inset 0 1px 3px rgba(255, 255, 255, 0.5) !important;',
+    '}',
+    'button:active, .tw-glow-btn:active, .tw-nav-inactive:active, .tw-active-nav:active, label.tw-glow-btn:active {',
+    '  background: linear-gradient(135deg, var(--tw-btn-from) 0%, var(--tw-btn-to) 100%) !important;',
+    '  color: #ffffff !important;',
+    '  transform: scale(0.94) translateY(1.5px) !important;',
+    '  box-shadow: inset 0 5px 14px rgba(0, 0, 0, 0.65), 0 0 14px var(--tw-btn-glow) !important;',
+    '  transition: transform 0.06s ease-out, box-shadow 0.06s ease-out !important;',
+    '}'
+  ].join('\n');
+
   return (
     <div
       onPointerDown={spawnTouchRipple}
@@ -987,132 +1132,9 @@ export default function TouchwallApp() {
         '--tw-btn-rest-base': themeStyles.dark ? '#1e222d' : '#e2e8f0',
         '--tw-btn-rest-text': themeStyles.dark ? '#e2e8f0' : '#1e293b'
       }}
-      className={`w-screen h-screen overflow-hidden flex flex-col p-1.5 sm:p-2.5 select-none transition-colors duration-300 ${themeStyles.outer}`}
+      className={'w-screen h-screen overflow-hidden flex flex-col p-1.5 sm:p-2.5 select-none transition-colors duration-300 ' + themeStyles.outer}
     >
-      {/* =========================================================
-          GLOBALE BUTTON- & INTERAKTIONS-ENGINE:
-          1. Im Ruhezustand (ohne Hover): Stark gedämpfte Farben (24% Sättigung) & KEIN Glow!
-          2. Erst beim Mouse-Hover (:hover) oder Klick (:active): Volle Farbkraft & 3D-Glow!
-         ========================================================= */}
-      <style>{`
-        @keyframes twShockwave {
-          0% { transform: translate(-50%, -50%) scale(0.15); opacity: 0.9; }
-          100% { transform: translate(-50%, -50%) scale(2.8); opacity: 0; }
-        }
-
-        /* Statische Container & Frames bleiben komplett ruhig (KEIN Hover!) */
-        .tw-glow-card,
-        .tw-glow-subtle {
-          transition: background-color 0.2s ease, border-color 0.2s ease;
-        }
-
-        /* Anklickbare Aufgaben-/Notiz-Zeilen: ruhig im Normalzustand, leuchten nur bei Hover */
-        .tw-glow-subtle.cursor-pointer {
-          transition: transform 0.18s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.18s ease, border-color 0.18s ease;
-        }
-        .tw-glow-subtle.cursor-pointer:hover {
-          transform: translateY(-1.5px) scale(1.01);
-          border-color: var(--tw-btn-border) !important;
-          box-shadow: 0 6px 18px -4px var(--tw-btn-glow), inset 0 1px 1px rgba(255, 255, 255, 0.2);
-        }
-        .tw-glow-subtle.cursor-pointer:active {
-          transform: scale(0.965) translateY(1px) !important;
-          box-shadow: inset 0 5px 14px rgba(0, 0, 0, 0.6), 0 0 10px var(--tw-btn-glow) !important;
-        }
-
-        /* RUHEZUSTAND ALLER BUTTONS: Stark gedämpfte Farbe, KEIN Glow! */
-        .tw-glow-btn,
-        .tw-theme-btn,
-        button.bg-indigo-600,
-        button.bg-sky-500,
-        button.bg-emerald-600,
-        button.bg-emerald-500,
-        label.tw-glow-btn {
-          background: linear-gradient(
-            135deg,
-            color-mix(in srgb, var(--tw-btn-from) 24%, var(--tw-btn-rest-base)) 0%,
-            color-mix(in srgb, var(--tw-btn-to) 24%, var(--tw-btn-rest-base)) 100%
-          ) !important;
-          color: var(--tw-btn-rest-text) !important;
-          border: 1px solid color-mix(in srgb, var(--tw-btn-border) 32%, transparent) !important;
-          box-shadow: none !important;
-          transition:
-            transform 0.18s cubic-bezier(0.22, 1, 0.36, 1),
-            box-shadow 0.18s cubic-bezier(0.22, 1, 0.36, 1),
-            background 0.18s ease,
-            border-color 0.18s ease,
-            color 0.18s ease !important;
-        }
-
-        /* Inaktive Navigations- & Modus-Buttons im Ruhezustand */
-        .tw-nav-inactive {
-          background: linear-gradient(
-            135deg,
-            color-mix(in srgb, var(--tw-btn-from) 12%, var(--tw-btn-rest-base)) 0%,
-            color-mix(in srgb, var(--tw-btn-to) 12%, var(--tw-btn-rest-base)) 100%
-          );
-          border: 1px solid rgba(255, 255, 255, 0.12);
-          box-shadow: none !important;
-          transition:
-            transform 0.18s cubic-bezier(0.22, 1, 0.36, 1),
-            box-shadow 0.18s ease,
-            background 0.18s ease,
-            border-color 0.18s ease,
-            color 0.18s ease;
-        }
-
-        /* Aktiver Tab/Button im Ruhezustand: dezent hervorgehoben, aber OHNE Glow */
-        .tw-active-nav {
-          background: linear-gradient(
-            135deg,
-            color-mix(in srgb, var(--tw-btn-from) 46%, var(--tw-btn-rest-base)) 0%,
-            color-mix(in srgb, var(--tw-btn-to) 46%, var(--tw-btn-rest-base)) 100%
-          ) !important;
-          color: #ffffff !important;
-          border: 1.5px solid color-mix(in srgb, var(--tw-btn-border) 70%, transparent) !important;
-          box-shadow: none !important;
-          transition:
-            transform 0.18s cubic-bezier(0.22, 1, 0.36, 1),
-            box-shadow 0.18s ease,
-            background 0.18s ease,
-            border-color 0.18s ease !important;
-        }
-
-        /* ERST BEIM MOUSE-HOVER (:hover): Volle Farbkraft & voller 3D-Glow-Effekt! */
-        .tw-glow-btn:hover,
-        .tw-theme-btn:hover,
-        .tw-nav-inactive:hover,
-        .tw-active-nav:hover,
-        button.bg-indigo-600:hover,
-        button.bg-sky-500:hover,
-        button.bg-emerald-600:hover,
-        button.bg-emerald-500:hover,
-        label.tw-glow-btn:hover {
-          background: linear-gradient(135deg, var(--tw-btn-from) 0%, var(--tw-btn-to) 100%) !important;
-          color: #ffffff !important;
-          border-color: var(--tw-btn-border) !important;
-          transform: translateY(-2px) scale(1.035);
-          box-shadow:
-            0 10px 24px -2px var(--tw-btn-glow),
-            0 0 18px var(--tw-btn-glow),
-            inset 0 1px 3px rgba(255, 255, 255, 0.5) !important;
-        }
-
-        /* KLICK / TOUCH (:active): Nach innen gedrückt + aktiver Glow */
-        button:active,
-        .tw-glow-btn:active,
-        .tw-nav-inactive:active,
-        .tw-active-nav:active,
-        label.tw-glow-btn:active {
-          background: linear-gradient(135deg, var(--tw-btn-from) 0%, var(--tw-btn-to) 100%) !important;
-          color: #ffffff !important;
-          transform: scale(0.94) translateY(1.5px) !important;
-          box-shadow:
-            inset 0 5px 14px rgba(0, 0, 0, 0.65),
-            0 0 14px var(--tw-btn-glow) !important;
-          transition: transform 0.06s ease-out, box-shadow 0.06s ease-out !important;
-        }
-      `}</style>
+      <style>{globalStyles}</style>
 
       {touchRipples.map(r => (
         <span
@@ -1121,17 +1143,17 @@ export default function TouchwallApp() {
             left: r.x,
             top: r.y,
             borderColor: themeStyles.btnBorder || '#38bdf8',
-            boxShadow: `0 0 25px ${themeStyles.btnGlow || 'rgba(56,189,248,0.85)'}`,
+            boxShadow: '0 0 25px ' + (themeStyles.btnGlow || 'rgba(56,189,248,0.85)'),
             animation: 'twShockwave 0.62s cubic-bezier(0.16, 1, 0.3, 1) forwards'
           }}
           className="fixed z-[9999] pointer-events-none w-16 h-16 rounded-full border-2 bg-white/15"
         />
       ))}
 
-      <div className={`w-full h-full rounded-3xl border shadow-2xl flex overflow-hidden ${themeStyles.shell}`}>
+      <div className={'w-full h-full rounded-3xl border shadow-2xl flex overflow-hidden ' + themeStyles.shell}>
 
         {/* LINKES SEITENMENÜ */}
-        <aside className={`w-20 sm:w-24 border-r flex flex-col items-center justify-between py-4 shrink-0 ${themeStyles.sidebar}`}>
+        <aside className={'w-20 sm:w-24 border-r flex flex-col items-center justify-between py-4 shrink-0 ' + themeStyles.sidebar}>
           <div className="flex flex-col items-center gap-4 w-full">
             <button
               onClick={() => { setCurrentBaseDate(getMonday(new Date())); setActiveSection('kalender'); }}
@@ -1156,11 +1178,7 @@ export default function TouchwallApp() {
                   <button
                     key={item.id}
                     onClick={() => setActiveSection(item.id)}
-                    className={`w-full py-2.5 rounded-2xl flex flex-col items-center gap-1 text-[11px] font-extrabold cursor-pointer relative ${
-                      active
-                        ? 'tw-active-nav scale-[1.02]'
-                        : `tw-nav-inactive ${themeStyles.textMuted}`
-                    }`}
+                    className={'w-full py-2.5 rounded-2xl flex flex-col items-center gap-1 text-[11px] font-extrabold cursor-pointer relative ' + (active ? 'tw-active-nav scale-[1.02]' : 'tw-nav-inactive ' + themeStyles.textMuted)}
                   >
                     <Icon className="w-5 h-5" />
                     <span className="truncate max-w-full px-1">{item.label}</span>
@@ -1180,7 +1198,7 @@ export default function TouchwallApp() {
 
         {/* HAUPTBEREICH */}
         <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
-          <header className={`px-4 sm:px-6 py-3 border-b flex flex-wrap items-center justify-between gap-3 shrink-0 ${themeStyles.header}`}>
+          <header className={'px-4 sm:px-6 py-3 border-b flex flex-wrap items-center justify-between gap-3 shrink-0 ' + themeStyles.header}>
             <div className="flex flex-col gap-1.5">
               <div className="flex flex-wrap items-center gap-2.5">
                 <span className="text-xl sm:text-2xl font-black">{clockStr}</span>
@@ -1191,8 +1209,8 @@ export default function TouchwallApp() {
                   onClick={() => {
                     const idx = PAGE_THEMES.findIndex(t => t.id === currentTheme);
                     const nextTheme = PAGE_THEMES[(idx + 1) % PAGE_THEMES.length];
-                    setCurrentTheme(nextTheme.id);
-                    showToast('Theme gewechselt', nextTheme.name, '🎨');
+                    handleSelectTheme(nextTheme.id);
+                    showToast('Theme dauerhaft aktiviert', nextTheme.name, '🎨');
                   }}
                   className="tw-glow-btn px-3.5 py-1.5 rounded-xl text-xs font-extrabold cursor-pointer"
                 >
@@ -1203,8 +1221,8 @@ export default function TouchwallApp() {
                   onClick={() => { pullFromCloud(undefined, true); syncWithTodoistNow(true); }}
                   className="tw-glow-btn inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-extrabold cursor-pointer"
                 >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-                  {syncStatusText}
+                  <RefreshCw className={'w-3.5 h-3.5 ' + (isSyncing ? 'animate-spin' : '')} />
+                  <span>{syncStatusText}</span>
                 </button>
 
                 <button
@@ -1212,7 +1230,7 @@ export default function TouchwallApp() {
                   className="tw-glow-btn inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-extrabold cursor-pointer"
                 >
                   <BellRing className="w-3.5 h-3.5" />
-                  {pushPermission === 'granted' ? 'Push-Alarm aktiv' : 'Push aktivieren'}
+                  <span>{pushPermission === 'granted' ? 'Push-Alarm aktiv' : 'Push aktivieren'}</span>
                 </button>
 
                 <button onClick={() => setQrModalOpen(true)} className="tw-glow-btn inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-extrabold cursor-pointer">
@@ -1234,12 +1252,12 @@ export default function TouchwallApp() {
                 <button onClick={() => navigatePeriod(-1)} className="tw-glow-btn w-7 h-7 rounded-xl flex items-center justify-center cursor-pointer"><ChevronLeft className="w-4 h-4" /></button>
                 <button onClick={() => { setCurrentBaseDate(getMonday(new Date())); setActiveSection('kalender'); }} className="tw-glow-btn px-3 py-1 rounded-xl font-extrabold cursor-pointer">Heute</button>
                 <button onClick={() => navigatePeriod(1)} className="tw-glow-btn w-7 h-7 rounded-xl flex items-center justify-center cursor-pointer"><ChevronRight className="w-4 h-4" /></button>
-                <span className={`px-3 py-1 rounded-xl font-extrabold border ${themeStyles.subtle}`}>{periodLabel}</span>
+                <span className={'px-3 py-1 rounded-xl font-extrabold border ' + themeStyles.subtle}>{periodLabel}</span>
               </div>
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
-              <div className={`flex gap-1 p-1.5 rounded-2xl border ${themeStyles.subtle}`}>
+              <div className={'flex gap-1 p-1.5 rounded-2xl border ' + themeStyles.subtle}>
                 {[
                   { id: '1w', label: '1 Woche' },
                   { id: '2w', label: '2 Wochen' },
@@ -1251,9 +1269,7 @@ export default function TouchwallApp() {
                     <button
                       key={v.id}
                       onClick={() => { setCurrentView(v.id); setActiveSection('kalender'); }}
-                      className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold cursor-pointer ${
-                        isAct ? 'tw-active-nav' : `tw-nav-inactive ${themeStyles.textMuted}`
-                      }`}
+                      className={'px-3.5 py-1.5 rounded-xl text-xs font-extrabold cursor-pointer ' + (isAct ? 'tw-active-nav' : 'tw-nav-inactive ' + themeStyles.textMuted)}
                     >
                       {v.label}
                     </button>
@@ -1264,9 +1280,7 @@ export default function TouchwallApp() {
               <div className="flex items-center gap-1.5">
                 <button
                   onClick={() => setActiveMemberFilter('all')}
-                  className={`px-4 h-10 rounded-2xl font-extrabold text-xs cursor-pointer ${
-                    activeMemberFilter === 'all' ? 'tw-active-nav' : `tw-nav-inactive ${themeStyles.textMuted}`
-                  }`}
+                  className={'px-4 h-10 rounded-2xl font-extrabold text-xs cursor-pointer ' + (activeMemberFilter === 'all' ? 'tw-active-nav' : 'tw-nav-inactive ' + themeStyles.textMuted)}
                 >
                   Alle
                 </button>
@@ -1274,9 +1288,7 @@ export default function TouchwallApp() {
                   <button
                     key={m.id}
                     onClick={() => setActiveMemberFilter(m.id === activeMemberFilter ? 'all' : m.id)}
-                    className={`relative rounded-full cursor-pointer transition-transform hover:scale-105 ${
-                      activeMemberFilter === m.id ? 'ring-3 ring-white scale-110 shadow-lg' : 'opacity-80 hover:opacity-100'
-                    }`}
+                    className={'relative rounded-full cursor-pointer transition-transform hover:scale-105 ' + (activeMemberFilter === m.id ? 'ring-3 ring-white scale-110 shadow-lg' : 'opacity-80 hover:opacity-100')}
                   >
                     {renderAvatar(m, 'w-10 h-10', 'text-sm')}
                   </button>
@@ -1285,20 +1297,26 @@ export default function TouchwallApp() {
             </div>
           </header>
 
+          {/* GROSSER TOUCH-BANNER WENN EIN TERMIN ZUM EINFÜGEN KOPIERT WURDE */}
           {copiedEvent && (
-            <div className="bg-amber-400 text-slate-950 px-5 py-2.5 flex items-center justify-between gap-3 border-b-2 border-slate-900 z-30 shrink-0">
-              <div className="flex items-center gap-2 text-xs sm:text-sm font-black">
-                <ClipboardPaste className="w-5 h-5" />
-                <span>KOPIER-MODUS AKTIV: „{copiedEvent.title}“ — Tippe jetzt auf ein beliebiges Tagesfeld zum Einfügen!</span>
+            <div className="bg-amber-400 text-slate-950 px-5 py-3 flex flex-wrap items-center justify-between gap-3 border-b-2 border-slate-900 z-30 shrink-0 shadow-lg">
+              <div className="flex items-center gap-2.5 text-sm sm:text-base font-black">
+                <ClipboardPaste className="w-6 h-6 shrink-0" />
+                <span>
+                  KOPIER-MODUS AKTIV: „{copiedEvent.title}“ ({copiedEvent.time}) — Tippe jetzt einfach auf ein beliebiges Tagesfeld (auch bei einer anderen Person), um den Termin dort einzufügen!
+                </span>
               </div>
-              <button onClick={() => setCopiedEvent(null)} className="px-4 py-1.5 rounded-xl bg-slate-900 text-white text-xs font-extrabold cursor-pointer">
-                ✕ Beenden
+              <button
+                onClick={() => setCopiedEvent(null)}
+                className="px-5 py-2 rounded-2xl bg-slate-900 text-white text-xs sm:text-sm font-extrabold cursor-pointer"
+              >
+                ✕ Kopier-Modus beenden
               </button>
             </div>
           )}
 
           {/* HAUPT-VIEWPORT */}
-          <main className={`flex-1 overflow-auto ${themeStyles.viewport}`}>
+          <main className={'flex-1 overflow-auto ' + themeStyles.viewport}>
             {activeSection === 'kalender' && (
               <CalendarSection
                 currentView={currentView}
@@ -1340,6 +1358,7 @@ export default function TouchwallApp() {
                 renderAvatar={renderAvatar}
                 syncWithTodoistNow={syncWithTodoistNow}
                 addNewTaskWithSettings={addNewTaskWithSettings}
+                pushTaskToPhoneNow={pushTaskToPhoneNow}
                 toggleTaskDone={toggleTaskDone}
                 deleteTaskItem={deleteTaskItem}
                 clearCompletedMemberTasks={clearCompletedMemberTasks}
@@ -1385,7 +1404,7 @@ export default function TouchwallApp() {
                 toggleItemInNoteTile={toggleItemInNoteTile}
                 deleteItemInNoteTile={deleteItemInNoteTile}
                 currentTheme={currentTheme}
-                setCurrentTheme={setCurrentTheme}
+                setCurrentTheme={handleSelectTheme}
                 customLogoUrl={customLogoUrl}
                 setCustomLogoUrl={setCustomLogoUrl}
                 handleLogoUpload={(e) => {
@@ -1407,7 +1426,7 @@ export default function TouchwallApp() {
                     const def = DEFAULT_MEMBERS.find(d => d.id === m.id);
                     return def ? { ...def, calendarId: m.calendarId, todoistUserId: m.todoistUserId, todoistProjectId: m.todoistProjectId } : m;
                   }));
-                  setCurrentTheme('metal');
+                  handleSelectTheme('metal');
                 }}
                 appsScriptUrl={appsScriptUrl}
                 setAppsScriptUrl={setAppsScriptUrl}
@@ -1448,7 +1467,7 @@ export default function TouchwallApp() {
                   const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify({ members: safeMembers, events: safeEvents, mealPlan: safeMeals, familyNotes: safeNotes, schoolData: safeSchoolData, familyTasks: safeTasks, todoistConfig: safeTodoistConfig }, null, 2));
                   const a = document.createElement('a');
                   a.setAttribute('href', dataStr);
-                  a.setAttribute('download', `touchwall_backup_${todayStr}.json`);
+                  a.setAttribute('download', 'touchwall_backup_' + todayStr + '.json');
                   document.body.appendChild(a);
                   a.click();
                   a.remove();
@@ -1464,13 +1483,13 @@ export default function TouchwallApp() {
         </div>
       </div>
 
-      {/* MODAL 1: TERMIN ERSTELLEN / BEARBEITEN */}
+      {/* MODAL 1: TERMIN ERSTELLEN / BEARBEITEN / KOPIEREN */}
       {eventModal.open && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-          <form onSubmit={saveEventModal} className={`w-full max-w-xl rounded-3xl border-2 p-6 shadow-2xl space-y-4 my-auto ${themeStyles.modal}`}>
+          <form onSubmit={saveEventModal} className={'w-full max-w-xl rounded-3xl border-2 p-6 shadow-2xl space-y-4 my-auto ' + themeStyles.modal}>
             <div className="flex items-center justify-between">
-              <h3 className="text-2xl font-extrabold">{eventModal.id ? 'Termin bearbeiten' : 'Neuer Familientermin'}</h3>
-              <button type="button" onClick={() => setEventModal({ ...eventModal, open: false })} className="tw-nav-inactive w-9 h-9 rounded-full flex items-center justify-center cursor-pointer"><X className="w-5 h-5" /></button>
+              <h3 className="text-2xl font-extrabold">{eventModal.id ? 'Termin bearbeiten & kopieren' : 'Neuer Familientermin'}</h3>
+              <button type="button" onClick={() => setEventModal({ ...eventModal, open: false })} className="tw-nav-inactive w-10 h-10 rounded-full flex items-center justify-center cursor-pointer"><X className="w-5 h-5" /></button>
             </div>
             <input
               type="text"
@@ -1478,7 +1497,7 @@ export default function TouchwallApp() {
               value={eventModal.title}
               onChange={(e) => setEventModal({ ...eventModal, title: e.target.value })}
               placeholder="z.B. ⚽ Fußballtraining oder 🦷 Zahnarzt"
-              className={`w-full px-4 py-3 rounded-2xl border font-bold text-base ${themeStyles.input}`}
+              className={'w-full px-4 py-3 rounded-2xl border font-bold text-base ' + themeStyles.input}
             />
             <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
               {safeMembers.map(m => (
@@ -1486,40 +1505,61 @@ export default function TouchwallApp() {
                   key={m.id}
                   type="button"
                   onClick={() => setEventModal({ ...eventModal, member: m.id, notifyUsers: m.id === 'all' ? ['hans', 'sarah', 'dean', 'valentina'] : [m.id] })}
-                  className={`p-2.5 rounded-2xl flex flex-col items-center gap-1 cursor-pointer ${
-                    eventModal.member === m.id ? 'tw-active-nav' : `tw-nav-inactive ${themeStyles.subtle}`
-                  }`}
+                  className={'p-2.5 rounded-2xl flex flex-col items-center gap-1 cursor-pointer ' + (eventModal.member === m.id ? 'tw-active-nav' : 'tw-nav-inactive ' + themeStyles.subtle)}
                 >
                   {renderAvatar(m, 'w-8 h-8', 'text-xs')}
                   <span className="text-xs font-extrabold truncate max-w-full">{m.id === 'all' ? 'Familie' : m.name.split(' ')[0]}</span>
                 </button>
               ))}
             </div>
+
+            {/* GROSSE TOUCH-LEISTE ZUM DIREKTEN KOPIEREN AUF ANDERE PERSONEN ODER FREIEN TAG */}
             {eventModal.title.trim() && (
-              <div className={`p-3 rounded-2xl border flex flex-wrap items-center justify-between gap-2 ${themeStyles.subtle}`}>
-                <span className="text-xs font-extrabold flex items-center gap-1"><Copy className="w-3.5 h-3.5 text-amber-400" /> Kopie einfügen bei:</span>
-                <div className="flex flex-wrap gap-1.5">
+              <div className={'p-3.5 rounded-2xl border space-y-2.5 ' + themeStyles.subtle}>
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <span className="text-xs font-black uppercase flex items-center gap-1.5 text-amber-400">
+                    <Copy className="w-4 h-4" /> Termin sofort kopieren für:
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCopiedEvent(eventModal);
+                      setEventModal({ ...eventModal, open: false });
+                      showToast('Kopier-Modus aktiv!', 'Tippe jetzt im Kalender auf beliebige Tage zum Einfügen!', '📋');
+                    }}
+                    className="tw-glow-btn px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <ClipboardPaste className="w-4 h-4" /> Im Kalender frei einfügen...
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-2">
                   {safeMembers.map(tm => (
-                    <button key={tm.id} type="button" onClick={() => duplicateEventToTarget(eventModal, tm.id, eventModal.date)} className="tw-glow-btn px-2.5 py-1 rounded-xl text-xs font-extrabold cursor-pointer">
-                      + {tm.id === 'all' ? 'Familie' : tm.name.split(' ')[0]}
+                    <button
+                      key={tm.id}
+                      type="button"
+                      onClick={() => duplicateEventToTarget(eventModal, tm.id, eventModal.date)}
+                      className="tw-glow-btn px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer min-h-[38px]"
+                    >
+                      <Copy className="w-3.5 h-3.5" /> + {tm.id === 'all' ? 'Familie' : tm.name.split(' ')[0]}
                     </button>
                   ))}
                 </div>
               </div>
             )}
+
             <div className="grid grid-cols-2 gap-3">
-              <input type="date" value={eventModal.date} onChange={(e) => setEventModal({ ...eventModal, date: e.target.value })} className={`px-4 py-2.5 rounded-2xl border font-bold text-sm ${themeStyles.input}`} />
-              <input type="text" value={eventModal.time} onChange={(e) => setEventModal({ ...eventModal, time: e.target.value })} className={`px-4 py-2.5 rounded-2xl border font-bold text-sm ${themeStyles.input}`} />
+              <input type="date" value={eventModal.date} onChange={(e) => setEventModal({ ...eventModal, date: e.target.value })} className={'px-4 py-2.5 rounded-2xl border font-bold text-sm ' + themeStyles.input} />
+              <input type="text" value={eventModal.time} onChange={(e) => setEventModal({ ...eventModal, time: e.target.value })} className={'px-4 py-2.5 rounded-2xl border font-bold text-sm ' + themeStyles.input} />
             </div>
-            <div className={`p-4 rounded-2xl border space-y-3 ${themeStyles.subtle}`}>
+            <div className={'p-4 rounded-2xl border space-y-3 ' + themeStyles.subtle}>
               <div className="flex items-center justify-between">
                 <span className="text-xs font-black uppercase">🔔 Erinnerung</span>
-                <button type="button" onClick={() => triggerEventAlarmNow(eventModal, true)} className="tw-glow-btn px-3 py-1 rounded-xl text-xs font-extrabold flex items-center gap-1 cursor-pointer">
+                <button type="button" onClick={() => triggerEventAlarmNow(eventModal, true)} className="tw-glow-btn px-3 py-1.5 rounded-xl text-xs font-extrabold flex items-center gap-1 cursor-pointer">
                   <Volume2 className="w-3.5 h-3.5" /> Test-Alarm
                 </button>
               </div>
               <div className="grid grid-cols-2 gap-2">
-                <select value={eventModal.notifyTime} onChange={(e) => setEventModal({ ...eventModal, notifyTime: e.target.value })} className={`px-3 py-2 rounded-xl border text-xs font-bold ${themeStyles.input}`}>
+                <select value={eventModal.notifyTime} onChange={(e) => setEventModal({ ...eventModal, notifyTime: e.target.value })} className={'px-3 py-2 rounded-xl border text-xs font-bold ' + themeStyles.input}>
                   <option value="none" className="bg-slate-800 text-white">Keine</option>
                   <option value="0m" className="bg-slate-800 text-white">Pünktlich</option>
                   <option value="15m" className="bg-slate-800 text-white">15 Min. vorher</option>
@@ -1527,7 +1567,7 @@ export default function TouchwallApp() {
                   <option value="1h" className="bg-slate-800 text-white">1 Std. vorher</option>
                   <option value="1d" className="bg-slate-800 text-white">1 Tag vorher</option>
                 </select>
-                <select value={eventModal.notifyChannel} onChange={(e) => setEventModal({ ...eventModal, notifyChannel: e.target.value })} className={`px-3 py-2 rounded-xl border text-xs font-bold ${themeStyles.input}`}>
+                <select value={eventModal.notifyChannel} onChange={(e) => setEventModal({ ...eventModal, notifyChannel: e.target.value })} className={'px-3 py-2 rounded-xl border text-xs font-bold ' + themeStyles.input}>
                   <option value="wall_push" className="bg-slate-800 text-white">Touchwall + Handy Push</option>
                   <option value="wall" className="bg-slate-800 text-white">Nur Touchwall</option>
                   <option value="mail" className="bg-slate-800 text-white">E-Mail & Push</option>
@@ -1553,8 +1593,8 @@ export default function TouchwallApp() {
               e.preventDefault();
               lastLocalEditTimeRef.current = Date.now();
               const dueLabel = taskModal.dueDate
-                ? `Bis ${taskModal.dueDate.slice(8, 10)}.${taskModal.dueDate.slice(5, 7)}.${taskModal.dueTime ? ' ' + taskModal.dueTime + ' Uhr' : ''}`
-                : (taskModal.dueTime ? `Heute bis ${taskModal.dueTime} Uhr` : 'Offen');
+                ? 'Bis ' + taskModal.dueDate.slice(8, 10) + '.' + taskModal.dueDate.slice(5, 7) + '.' + (taskModal.dueTime ? ' ' + taskModal.dueTime + ' Uhr' : '')
+                : (taskModal.dueTime ? 'Heute bis ' + taskModal.dueTime + ' Uhr' : 'Offen');
 
               setFamilyTasks(prev => (Array.isArray(prev) ? prev : []).map(t => t.id === taskModal.id ? {
                 ...t,
@@ -1586,9 +1626,9 @@ export default function TouchwallApp() {
               if (taskModal.syncToCalendar) {
                 const calEv = {
                   id: String(Date.now()),
-                  title: `✅ Aufgabe: ${taskModal.title}`,
+                  title: '✅ Aufgabe: ' + taskModal.title,
                   date: taskModal.dueDate || todayStr,
-                  time: taskModal.dueTime ? `${taskModal.dueTime} - ${taskModal.dueTime}` : 'Ganztägig',
+                  time: taskModal.dueTime ? taskModal.dueTime + ' - ' + taskModal.dueTime : 'Ganztägig',
                   member: taskModal.member,
                   notifyTime: taskModal.notifyTime === 'none' ? '15m' : taskModal.notifyTime,
                   notifyChannel: 'push',
@@ -1600,16 +1640,18 @@ export default function TouchwallApp() {
               }
 
               setTaskModal({ ...taskModal, open: false });
-              showToast('Frist & Erinnerung gespeichert', `${taskModal.title} (${dueLabel})`, '⏰');
+              showToast('Frist & Erinnerung gespeichert', taskModal.title + ' (' + dueLabel + ')', '⏰');
             }}
-            className={`w-full max-w-lg rounded-3xl border-2 p-6 shadow-2xl space-y-4 ${themeStyles.modal}`}
+            className={'w-full max-w-lg rounded-3xl border-2 p-6 shadow-2xl space-y-4 ' + themeStyles.modal}
           >
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-extrabold flex items-center gap-2">
                 <Clock className="w-5 h-5 text-amber-400" />
                 Aufgabe: Bis wann erledigen & Erinnerung
               </h3>
-              <button type="button" onClick={() => setTaskModal({ ...taskModal, open: false })} className="tw-nav-inactive w-9 h-9 rounded-full flex items-center justify-center cursor-pointer"><X className="w-5 h-5" /></button>
+              <button type="button" onClick={() => setTaskModal({ ...taskModal, open: false })} className="tw-nav-inactive w-10 h-10 rounded-full flex items-center justify-center cursor-pointer">
+                <X className="w-5 h-5" />
+              </button>
             </div>
 
             <div className="space-y-2">
@@ -1618,24 +1660,24 @@ export default function TouchwallApp() {
                 required
                 value={taskModal.title}
                 onChange={(e) => setTaskModal({ ...taskModal, title: e.target.value })}
-                className={`w-full px-4 py-2.5 rounded-xl border text-sm font-bold ${themeStyles.input}`}
+                className={'w-full px-4 py-2.5 rounded-xl border text-sm font-bold ' + themeStyles.input}
               />
               <input
                 type="text"
                 value={taskModal.description}
                 onChange={(e) => setTaskModal({ ...taskModal, description: e.target.value })}
                 placeholder="Notiz / Beschreibung zur Aufgabe..."
-                className={`w-full px-4 py-2 rounded-xl border text-xs font-semibold ${themeStyles.input}`}
+                className={'w-full px-4 py-2 rounded-xl border text-xs font-semibold ' + themeStyles.input}
               />
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className={`block text-[11px] font-extrabold uppercase mb-1 ${themeStyles.textMuted}`}>Zuständig</label>
+                <label className={'block text-[11px] font-extrabold uppercase mb-1 ' + themeStyles.textMuted}>Zuständig</label>
                 <select
                   value={taskModal.member}
                   onChange={(e) => setTaskModal({ ...taskModal, member: e.target.value })}
-                  className={`w-full px-3 py-2.5 rounded-xl border text-xs font-extrabold ${themeStyles.input}`}
+                  className={'w-full px-3 py-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
                 >
                   {safeMembers.filter(m => m.id !== 'all').map(m => (
                     <option key={m.id} value={m.id} className="bg-slate-800 text-white">👤 {m.name}</option>
@@ -1643,11 +1685,11 @@ export default function TouchwallApp() {
                 </select>
               </div>
               <div>
-                <label className={`block text-[11px] font-extrabold uppercase mb-1 ${themeStyles.textMuted}`}>Priorität</label>
+                <label className={'block text-[11px] font-extrabold uppercase mb-1 ' + themeStyles.textMuted}>Priorität</label>
                 <select
                   value={taskModal.priority}
                   onChange={(e) => setTaskModal({ ...taskModal, priority: Number(e.target.value) })}
-                  className={`w-full px-3 py-2.5 rounded-xl border text-xs font-extrabold ${themeStyles.input}`}
+                  className={'w-full px-3 py-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
                 >
                   <option value={4} className="bg-slate-800 text-white">🔥 P1 - Sehr dringend</option>
                   <option value={3} className="bg-slate-800 text-white">🟠 P2 - Wichtig</option>
@@ -1657,7 +1699,7 @@ export default function TouchwallApp() {
               </div>
             </div>
 
-            <div className={`p-3.5 rounded-2xl border space-y-2.5 ${themeStyles.subtle}`}>
+            <div className={'p-3.5 rounded-2xl border space-y-2.5 ' + themeStyles.subtle}>
               <div className="flex items-center justify-between">
                 <span className="text-xs font-black uppercase text-amber-400">⏳ Bis wann muss es erledigt sein?</span>
                 <div className="flex gap-1.5">
@@ -1667,19 +1709,19 @@ export default function TouchwallApp() {
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <input type="date" value={taskModal.dueDate} onChange={(e) => setTaskModal({ ...taskModal, dueDate: e.target.value })} className={`px-3 py-2 rounded-xl border text-xs font-bold ${themeStyles.input}`} />
-                <input type="time" value={taskModal.dueTime} onChange={(e) => setTaskModal({ ...taskModal, dueTime: e.target.value })} className={`px-3 py-2 rounded-xl border text-xs font-bold ${themeStyles.input}`} />
+                <input type="date" value={taskModal.dueDate} onChange={(e) => setTaskModal({ ...taskModal, dueDate: e.target.value })} className={'px-3 py-2 rounded-xl border text-xs font-bold ' + themeStyles.input} />
+                <input type="time" value={taskModal.dueTime} onChange={(e) => setTaskModal({ ...taskModal, dueTime: e.target.value })} className={'px-3 py-2 rounded-xl border text-xs font-bold ' + themeStyles.input} />
               </div>
             </div>
 
-            <div className={`p-3.5 rounded-2xl border space-y-2.5 ${themeStyles.subtle}`}>
+            <div className={'p-3.5 rounded-2xl border space-y-2.5 ' + themeStyles.subtle}>
               <div className="flex items-center justify-between">
                 <span className="text-xs font-black uppercase">🔔 Wann erinnern?</span>
                 <button
                   type="button"
                   onClick={() => triggerEventAlarmNow({
-                    title: `✅ Aufgabe: ${taskModal.title}`,
-                    time: `Bis ${taskModal.dueTime || '17:00'} Uhr`,
+                    title: '✅ Aufgabe: ' + taskModal.title,
+                    time: 'Bis ' + (taskModal.dueTime || '17:00') + ' Uhr',
                     date: taskModal.dueDate || todayStr,
                     notifyTime: taskModal.notifyTime,
                     notifyUsers: [taskModal.member]
@@ -1692,7 +1734,7 @@ export default function TouchwallApp() {
               <select
                 value={taskModal.notifyTime}
                 onChange={(e) => setTaskModal({ ...taskModal, notifyTime: e.target.value })}
-                className={`w-full px-3 py-2 rounded-xl border text-xs font-bold ${themeStyles.input}`}
+                className={'w-full px-3 py-2 rounded-xl border text-xs font-bold ' + themeStyles.input}
               >
                 <option value="none" className="bg-slate-800 text-white">🔕 Keine Erinnerung</option>
                 <option value="0m" className="bg-slate-800 text-white">🔔 Pünktlich zur Frist</option>
@@ -1712,26 +1754,45 @@ export default function TouchwallApp() {
         </div>
       )}
 
-      {/* MODAL 2: JAHRESWAND TAGES-DETAILS */}
+      {/* MODAL 2: JAHRESWAND TAGES-DETAILS (MIT GROSSEM TOUCH-KOPIER-BUTTON) */}
       {yearDayModal.open && (() => {
         const dayEvents = safeEvents.filter(e => e.date === yearDayModal.dateStr);
         return (
           <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
-            <div className={`w-full max-w-xl rounded-3xl border-2 p-6 shadow-2xl space-y-4 ${themeStyles.modal}`}>
+            <div className={'w-full max-w-xl rounded-3xl border-2 p-6 shadow-2xl space-y-4 ' + themeStyles.modal}>
               <div className="flex items-center justify-between">
                 <h3 className="text-xl font-extrabold">📅 Tagesübersicht: {yearDayModal.dateStr}</h3>
-                <button onClick={() => setYearDayModal({ ...yearDayModal, open: false })} className="tw-nav-inactive w-9 h-9 rounded-full flex items-center justify-center cursor-pointer"><X className="w-5 h-5" /></button>
+                <button onClick={() => setYearDayModal({ ...yearDayModal, open: false })} className="tw-nav-inactive w-10 h-10 rounded-full flex items-center justify-center cursor-pointer"><X className="w-5 h-5" /></button>
               </div>
-              <div className="space-y-2 max-h-60 overflow-y-auto">
-                {dayEvents.map(ev => {
-                  const mem = safeMembers.find(m => m.id === ev.member) || safeMembers[0];
-                  return (
-                    <div key={ev.id} style={getMemberStyles(mem).headerStyle} className="p-3 rounded-2xl border flex items-center justify-between gap-2">
-                      <span className="font-extrabold text-sm">{ev.title} ({mem.name})</span>
-                      <button onClick={() => deleteEventById(ev.id)} className="px-2.5 py-1 rounded-xl bg-rose-600 text-white text-xs cursor-pointer">🗑️</button>
-                    </div>
-                  );
-                })}
+              <div className="space-y-2.5 max-h-64 overflow-y-auto">
+                {dayEvents.length === 0 ? (
+                  <div className={'p-6 text-center rounded-2xl border border-dashed text-xs font-bold opacity-60 ' + themeStyles.divider}>
+                    Keine Termine an diesem Tag.
+                  </div>
+                ) : (
+                  dayEvents.map(ev => {
+                    const mem = safeMembers.find(m => m.id === ev.member) || safeMembers[0];
+                    return (
+                      <div key={ev.id} style={getMemberStyles(mem).headerStyle} className="p-3.5 rounded-2xl border flex flex-wrap items-center justify-between gap-2">
+                        <span className="font-extrabold text-sm">{ev.title} ({mem.name})</span>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCopiedEvent(ev);
+                              setYearDayModal({ ...yearDayModal, open: false });
+                              showToast('Termin kopiert!', 'Tippe jetzt auf einen beliebigen Tag zum Einfügen!', '📋');
+                            }}
+                            className="tw-glow-btn px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <Copy className="w-4 h-4" /> Kopieren
+                          </button>
+                          <button onClick={() => deleteEventById(ev.id)} className="px-3 py-2 rounded-xl bg-rose-600 text-white text-xs font-extrabold cursor-pointer">🗑️</button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
               </div>
             </div>
           </div>
@@ -1744,7 +1805,7 @@ export default function TouchwallApp() {
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              const key = `${schoolModal.dayIdx}-${schoolModal.periodIdx}`;
+              const key = schoolModal.dayIdx + '-' + schoolModal.periodIdx;
               setSchoolData(prev => {
                 const base = prev && typeof prev === 'object' ? prev : DEFAULT_SCHOOL;
                 const childObj = base[activeSchoolChild] || DEFAULT_SCHOOL[activeSchoolChild];
@@ -1755,12 +1816,12 @@ export default function TouchwallApp() {
               });
               setSchoolModal({ ...schoolModal, open: false });
             }}
-            className={`w-full max-w-md rounded-3xl border-2 p-6 shadow-2xl space-y-4 ${themeStyles.modal}`}
+            className={'w-full max-w-md rounded-3xl border-2 p-6 shadow-2xl space-y-4 ' + themeStyles.modal}
           >
             <h3 className="text-lg font-extrabold">Schulstunde anpassen</h3>
-            <input type="text" value={schoolModal.subject} onChange={(e) => setSchoolModal({ ...schoolModal, subject: e.target.value })} placeholder="Fach..." className={`w-full px-4 py-2.5 rounded-xl border text-sm font-bold ${themeStyles.input}`} />
-            <input type="text" value={schoolModal.room} onChange={(e) => setSchoolModal({ ...schoolModal, room: e.target.value })} placeholder="Raum / Lehrer..." className={`w-full px-4 py-2.5 rounded-xl border text-sm font-bold ${themeStyles.input}`} />
-            <select value={schoolModal.status} onChange={(e) => setSchoolModal({ ...schoolModal, status: e.target.value })} className={`w-full px-4 py-2.5 rounded-xl border text-sm font-bold ${themeStyles.input}`}>
+            <input type="text" value={schoolModal.subject} onChange={(e) => setSchoolModal({ ...schoolModal, subject: e.target.value })} placeholder="Fach..." className={'w-full px-4 py-2.5 rounded-xl border text-sm font-bold ' + themeStyles.input} />
+            <input type="text" value={schoolModal.room} onChange={(e) => setSchoolModal({ ...schoolModal, room: e.target.value })} placeholder="Raum / Lehrer..." className={'w-full px-4 py-2.5 rounded-xl border text-sm font-bold ' + themeStyles.input} />
+            <select value={schoolModal.status} onChange={(e) => setSchoolModal({ ...schoolModal, status: e.target.value })} className={'w-full px-4 py-2.5 rounded-xl border text-sm font-bold ' + themeStyles.input}>
               <option value="normal" className="bg-slate-800 text-white">Regulär</option>
               <option value="change" className="bg-slate-800 text-white">Vertretung / Änderung</option>
               <option value="exam" className="bg-slate-800 text-white">Arbeit / Test</option>
@@ -1777,13 +1838,13 @@ export default function TouchwallApp() {
       {/* MODAL 4: QR CODE */}
       {qrModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className={`w-full max-w-md rounded-3xl border-2 p-6 shadow-2xl text-center space-y-4 ${themeStyles.modal}`}>
+          <div className={'w-full max-w-md rounded-3xl border-2 p-6 shadow-2xl text-center space-y-4 ' + themeStyles.modal}>
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-extrabold">📱 Smartphone Live-App</h3>
               <button onClick={() => setQrModalOpen(false)} className="tw-nav-inactive w-9 h-9 rounded-full flex items-center justify-center cursor-pointer"><X className="w-5 h-5" /></button>
             </div>
             <div className="bg-white p-4 rounded-2xl inline-block mx-auto">
-              <img src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(typeof window !== 'undefined' ? window.location.href : 'https://vercel.com')}`} alt="QR" className="w-48 h-48" />
+              <img src={'https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=' + encodeURIComponent(typeof window !== 'undefined' ? window.location.href : 'https://vercel.com')} alt="QR" className="w-48 h-48" />
             </div>
           </div>
         </div>
@@ -1792,7 +1853,7 @@ export default function TouchwallApp() {
       {/* ALARM BANNER */}
       {activeAlarmBanner && (
         <div className="fixed inset-0 z-[60] bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className={`w-full max-w-md rounded-3xl border-2 border-amber-400 p-6 shadow-2xl space-y-4 text-center ${themeStyles.modal}`}>
+          <div className={'w-full max-w-md rounded-3xl border-2 border-amber-400 p-6 shadow-2xl space-y-4 text-center ' + themeStyles.modal}>
             <h3 className="text-2xl font-extrabold">🔔 {activeAlarmBanner.title}</h3>
             <p className="text-sm font-bold">{activeAlarmBanner.time} ({activeAlarmBanner.date})</p>
             <p className="text-xs font-extrabold text-sky-400">👤 Für: {activeAlarmBanner.who}</p>
@@ -1805,7 +1866,7 @@ export default function TouchwallApp() {
       )}
 
       {toast && (
-        <div className={`fixed bottom-5 right-5 z-50 px-5 py-3.5 rounded-2xl shadow-2xl border-2 flex items-center gap-3 ${themeStyles.modal}`} style={{ borderColor: themeStyles.btnBorder }}>
+        <div className={'fixed bottom-5 right-5 z-50 px-5 py-3.5 rounded-2xl shadow-2xl border-2 flex items-center gap-3 ' + themeStyles.modal} style={{ borderColor: themeStyles.btnBorder }}>
           <span className="text-2xl">{toast.icon}</span>
           <div>
             <div className="font-extrabold text-xs text-amber-400 uppercase">{toast.title}</div>
