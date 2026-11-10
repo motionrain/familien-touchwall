@@ -12,7 +12,7 @@ export async function POST(req) {
 
     // =========================================================
     // A) SERVER-BRÜCKE FÜR GOOGLE APPS SCRIPT (CODE.GS) -> KEIN CORS MEHR!
-    // Unterstützt sowohl 'googleGet'/'googlePost' als auch 'gasProxy'
+    // Unterstützt den sowohl 'googleGet'/'googlePost' als auch 'gasProxy'
     // =========================================================
     const isGoogleGet =
       (payload.action === 'googleGet' && payload.url) ||
