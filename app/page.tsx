@@ -47,7 +47,7 @@ export default function TouchwallApp() {
   const [customLogoUrl, setCustomLogoUrl] = useState('');
   const [clockStr, setClockStr] = useState('');
 
-  // Cloud- & Todoist-Konfiguration
+  // Cloud- & Todoist-Konfiguration yeah
   const [appsScriptUrl, setAppsScriptUrl] = useState(DEFAULT_APPS_SCRIPT_URL);
   const [todoistConfig, setTodoistConfig] = useState({
     apiToken: '',
