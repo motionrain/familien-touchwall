@@ -12,10 +12,20 @@ export async function POST(req) {
 
     // =========================================================
     // A) SERVER-BRÜCKE FÜR GOOGLE APPS SCRIPT (CODE.GS) -> KEIN CORS MEHR!
+    // Unterstützt sowohl 'googleGet'/'googlePost' als auch 'gasProxy'
     // =========================================================
-    if (payload.action === 'googleGet' && payload.url) {
-      const sep = payload.url.includes('?') ? '&' : '?';
-      const targetUrl = `${payload.url}${sep}action=json&_t=${Date.now()}`;
+    const isGoogleGet =
+      (payload.action === 'googleGet' && payload.url) ||
+      (payload.action === 'gasProxy' && payload.gasUrl && (payload.gasMethod || 'GET') === 'GET');
+
+    const isGooglePost =
+      (payload.action === 'googlePost' && payload.url) ||
+      (payload.action === 'gasProxy' && payload.gasUrl && payload.gasMethod === 'POST');
+
+    if (isGoogleGet) {
+      const rawUrl = String(payload.url || payload.gasUrl).trim();
+      const sep = rawUrl.includes('?') ? '&' : '?';
+      const targetUrl = `${rawUrl}${sep}action=json&_t=${Date.now()}`;
       const gRes = await fetch(targetUrl, {
         method: 'GET',
         redirect: 'follow',
@@ -33,12 +43,14 @@ export async function POST(req) {
       }
     }
 
-    if (payload.action === 'googlePost' && payload.url) {
-      const gRes = await fetch(payload.url, {
+    if (isGooglePost) {
+      const rawUrl = String(payload.url || payload.gasUrl).trim();
+      const postPayload = payload.bodyData || payload.gasBody || {};
+      const gRes = await fetch(rawUrl, {
         method: 'POST',
         redirect: 'follow',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(payload.bodyData || {}),
+        body: JSON.stringify(postPayload),
         cache: 'no-store'
       });
       const text = await gRes.text();
