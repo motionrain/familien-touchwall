@@ -983,50 +983,44 @@ export default function TouchwallApp() {
         '--tw-btn-from': themeStyles.btnFrom || '#0ea5e9',
         '--tw-btn-to': themeStyles.btnTo || '#4f46e5',
         '--tw-btn-border': themeStyles.btnBorder || '#38bdf8',
-        '--tw-btn-glow': themeStyles.btnGlow || 'rgba(56, 189, 248, 0.5)'
+        '--tw-btn-glow': themeStyles.btnGlow || 'rgba(56, 189, 248, 0.5)',
+        '--tw-btn-rest-base': themeStyles.dark ? '#1e222d' : '#e2e8f0',
+        '--tw-btn-rest-text': themeStyles.dark ? '#e2e8f0' : '#1e293b'
       }}
       className={`w-screen h-screen overflow-hidden flex flex-col p-1.5 sm:p-2.5 select-none transition-colors duration-300 ${themeStyles.outer}`}
     >
       {/* =========================================================
           GLOBALE BUTTON- & INTERAKTIONS-ENGINE:
-          1. Statische Frames (.tw-glow-card / .tw-glow-subtle ohne cursor-pointer) haben KEINEN Hover!
-          2. Alle Buttons erhalten den 3D-Gradient-Glow-Look des "Schule"-Buttons passend zum Theme!
+          1. Im Ruhezustand (ohne Hover): Stark gedämpfte Farben (24% Sättigung) & KEIN Glow!
+          2. Erst beim Mouse-Hover (:hover) oder Klick (:active): Volle Farbkraft & 3D-Glow!
          ========================================================= */}
       <style>{`
         @keyframes twShockwave {
           0% { transform: translate(-50%, -50%) scale(0.15); opacity: 0.9; }
           100% { transform: translate(-50%, -50%) scale(2.8); opacity: 0; }
         }
-        @keyframes twNeonPulse {
-          0%, 100% {
-            box-shadow: 0 6px 18px -2px var(--tw-btn-glow), 0 0 12px var(--tw-btn-glow), inset 0 1px 2px rgba(255, 255, 255, 0.45);
-          }
-          50% {
-            box-shadow: 0 8px 26px 2px var(--tw-btn-glow), 0 0 22px var(--tw-btn-glow), inset 0 1px 3px rgba(255, 255, 255, 0.65);
-          }
-        }
 
-        /* Statische Container & Frames bleiben komplett ruhig (KEIN Hover auf nicht-klickbaren Boxen!) */
+        /* Statische Container & Frames bleiben komplett ruhig (KEIN Hover!) */
         .tw-glow-card,
         .tw-glow-subtle {
           transition: background-color 0.2s ease, border-color 0.2s ease;
         }
 
-        /* NUR anklickbare Aufgaben-/Notiz-Zeilen (.tw-glow-subtle.cursor-pointer) bekommen Hover & Press-In */
+        /* Anklickbare Aufgaben-/Notiz-Zeilen: ruhig im Normalzustand, leuchten nur bei Hover */
         .tw-glow-subtle.cursor-pointer {
-          transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.2s ease, border-color 0.2s ease;
+          transition: transform 0.18s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.18s ease, border-color 0.18s ease;
         }
         .tw-glow-subtle.cursor-pointer:hover {
-          transform: translateY(-2px) scale(1.015);
+          transform: translateY(-1.5px) scale(1.01);
           border-color: var(--tw-btn-border) !important;
-          box-shadow: 0 8px 20px -4px var(--tw-btn-glow), inset 0 1px 1px rgba(255, 255, 255, 0.2);
+          box-shadow: 0 6px 18px -4px var(--tw-btn-glow), inset 0 1px 1px rgba(255, 255, 255, 0.2);
         }
         .tw-glow-subtle.cursor-pointer:active {
           transform: scale(0.965) translateY(1px) !important;
           box-shadow: inset 0 5px 14px rgba(0, 0, 0, 0.6), 0 0 10px var(--tw-btn-glow) !important;
         }
 
-        /* "SCHULE"-BUTTON DESIGN FÜR ALLE BUTTONS (DYNAMISCH NACH AKTIVEM THEME) */
+        /* RUHEZUSTAND ALLER BUTTONS: Stark gedämpfte Farbe, KEIN Glow! */
         .tw-glow-btn,
         .tw-theme-btn,
         button.bg-indigo-600,
@@ -1034,75 +1028,89 @@ export default function TouchwallApp() {
         button.bg-emerald-600,
         button.bg-emerald-500,
         label.tw-glow-btn {
-          background: linear-gradient(135deg, var(--tw-btn-from) 0%, var(--tw-btn-to) 100%) !important;
-          color: #ffffff !important;
-          border: 1px solid var(--tw-btn-border) !important;
-          box-shadow:
-            0 6px 16px -3px var(--tw-btn-glow),
-            0 0 10px -2px var(--tw-btn-glow),
-            inset 0 1px 2px rgba(255, 255, 255, 0.38) !important;
+          background: linear-gradient(
+            135deg,
+            color-mix(in srgb, var(--tw-btn-from) 24%, var(--tw-btn-rest-base)) 0%,
+            color-mix(in srgb, var(--tw-btn-to) 24%, var(--tw-btn-rest-base)) 100%
+          ) !important;
+          color: var(--tw-btn-rest-text) !important;
+          border: 1px solid color-mix(in srgb, var(--tw-btn-border) 32%, transparent) !important;
+          box-shadow: none !important;
           transition:
-            transform 0.2s cubic-bezier(0.22, 1, 0.36, 1),
-            box-shadow 0.2s cubic-bezier(0.22, 1, 0.36, 1),
-            filter 0.18s ease !important;
+            transform 0.18s cubic-bezier(0.22, 1, 0.36, 1),
+            box-shadow 0.18s cubic-bezier(0.22, 1, 0.36, 1),
+            background 0.18s ease,
+            border-color 0.18s ease,
+            color 0.18s ease !important;
         }
 
-        /* Inaktive Navigations- & Modus-Buttons: dezenter Theme-Schimmer, beim Hover voller "Schule"-Button-Glanz */
+        /* Inaktive Navigations- & Modus-Buttons im Ruhezustand */
         .tw-nav-inactive {
-          background: linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.02) 100%);
-          border: 1px solid rgba(255, 255, 255, 0.14);
+          background: linear-gradient(
+            135deg,
+            color-mix(in srgb, var(--tw-btn-from) 12%, var(--tw-btn-rest-base)) 0%,
+            color-mix(in srgb, var(--tw-btn-to) 12%, var(--tw-btn-rest-base)) 100%
+          );
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          box-shadow: none !important;
           transition:
-            transform 0.2s cubic-bezier(0.22, 1, 0.36, 1),
-            box-shadow 0.2s ease,
-            background 0.2s ease,
-            border-color 0.2s ease;
-        }
-        .tw-nav-inactive:hover {
-          background: linear-gradient(135deg, var(--tw-btn-from) 0%, var(--tw-btn-to) 100%) !important;
-          color: #ffffff !important;
-          border-color: var(--tw-btn-border) !important;
-          transform: translateY(-1.5px) scale(1.03);
-          box-shadow:
-            0 8px 20px -3px var(--tw-btn-glow),
-            0 0 14px var(--tw-btn-glow),
-            inset 0 1px 2px rgba(255, 255, 255, 0.42);
+            transform 0.18s cubic-bezier(0.22, 1, 0.36, 1),
+            box-shadow 0.18s ease,
+            background 0.18s ease,
+            border-color 0.18s ease,
+            color 0.18s ease;
         }
 
-        /* Hover-Vergrößerung für alle Buttons */
+        /* Aktiver Tab/Button im Ruhezustand: dezent hervorgehoben, aber OHNE Glow */
+        .tw-active-nav {
+          background: linear-gradient(
+            135deg,
+            color-mix(in srgb, var(--tw-btn-from) 46%, var(--tw-btn-rest-base)) 0%,
+            color-mix(in srgb, var(--tw-btn-to) 46%, var(--tw-btn-rest-base)) 100%
+          ) !important;
+          color: #ffffff !important;
+          border: 1.5px solid color-mix(in srgb, var(--tw-btn-border) 70%, transparent) !important;
+          box-shadow: none !important;
+          transition:
+            transform 0.18s cubic-bezier(0.22, 1, 0.36, 1),
+            box-shadow 0.18s ease,
+            background 0.18s ease,
+            border-color 0.18s ease !important;
+        }
+
+        /* ERST BEIM MOUSE-HOVER (:hover): Volle Farbkraft & voller 3D-Glow-Effekt! */
         .tw-glow-btn:hover,
         .tw-theme-btn:hover,
+        .tw-nav-inactive:hover,
+        .tw-active-nav:hover,
         button.bg-indigo-600:hover,
         button.bg-sky-500:hover,
         button.bg-emerald-600:hover,
         button.bg-emerald-500:hover,
         label.tw-glow-btn:hover {
+          background: linear-gradient(135deg, var(--tw-btn-from) 0%, var(--tw-btn-to) 100%) !important;
+          color: #ffffff !important;
+          border-color: var(--tw-btn-border) !important;
           transform: translateY(-2px) scale(1.035);
-          filter: brightness(1.1);
           box-shadow:
             0 10px 24px -2px var(--tw-btn-glow),
             0 0 18px var(--tw-btn-glow),
-            inset 0 1px 3px rgba(255, 255, 255, 0.55) !important;
+            inset 0 1px 3px rgba(255, 255, 255, 0.5) !important;
         }
 
-        /* "Nach innen gedrückt"-Effekt beim Klicken / Touchen auf allen Buttons */
+        /* KLICK / TOUCH (:active): Nach innen gedrückt + aktiver Glow */
         button:active,
         .tw-glow-btn:active,
         .tw-nav-inactive:active,
+        .tw-active-nav:active,
         label.tw-glow-btn:active {
-          transform: scale(0.935) translateY(1.5px) !important;
-          filter: brightness(0.92) !important;
-          box-shadow:
-            inset 0 5px 14px rgba(0, 0, 0, 0.65),
-            0 0 12px var(--tw-btn-glow) !important;
-          transition: transform 0.06s ease-out, box-shadow 0.06s ease-out !important;
-        }
-
-        /* Pulsierender Leuchtrand für den aktuell ausgewählten Menüpunkt (wie "Schule" im Screenshot) */
-        .tw-active-nav {
           background: linear-gradient(135deg, var(--tw-btn-from) 0%, var(--tw-btn-to) 100%) !important;
           color: #ffffff !important;
-          border: 1.5px solid var(--tw-btn-border) !important;
-          animation: twNeonPulse 2.8s infinite ease-in-out;
+          transform: scale(0.94) translateY(1.5px) !important;
+          box-shadow:
+            inset 0 5px 14px rgba(0, 0, 0, 0.65),
+            0 0 14px var(--tw-btn-glow) !important;
+          transition: transform 0.06s ease-out, box-shadow 0.06s ease-out !important;
         }
       `}</style>
 
@@ -1127,9 +1135,9 @@ export default function TouchwallApp() {
           <div className="flex flex-col items-center gap-4 w-full">
             <button
               onClick={() => { setCurrentBaseDate(getMonday(new Date())); setActiveSection('kalender'); }}
-              className="tw-glow-btn w-12 h-12 sm:w-14 sm:h-14 rounded-2xl flex items-center justify-center shadow-lg overflow-hidden cursor-pointer"
+              className="tw-glow-btn w-12 h-12 sm:w-14 sm:h-14 rounded-2xl flex items-center justify-center overflow-hidden cursor-pointer"
             >
-              {customLogoUrl ? <img src={customLogoUrl} alt="Logo" className="w-full h-full object-cover" /> : <span className="font-black text-lg text-white">FR</span>}
+              {customLogoUrl ? <img src={customLogoUrl} alt="Logo" className="w-full h-full object-cover" /> : <span className="font-black text-lg">FR</span>}
             </button>
 
             <nav className="flex flex-col items-center gap-2 w-full px-2">
@@ -1150,7 +1158,7 @@ export default function TouchwallApp() {
                     onClick={() => setActiveSection(item.id)}
                     className={`w-full py-2.5 rounded-2xl flex flex-col items-center gap-1 text-[11px] font-extrabold cursor-pointer relative ${
                       active
-                        ? 'tw-active-nav scale-[1.03]'
+                        ? 'tw-active-nav scale-[1.02]'
                         : `tw-nav-inactive ${themeStyles.textMuted}`
                     }`}
                   >
