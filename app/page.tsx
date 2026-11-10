@@ -10,19 +10,32 @@ import {
   Smartphone, RefreshCw, X, Volume2, BellRing, Copy, ClipboardPaste, Clock
 } from 'lucide-react';
 
-import {
-  formatDateStr, addDays, getMonday, playTouchwallAlarmSound,
-  COLOR_PALETTES, PAGE_THEMES, DEFAULT_MEMBERS,
-  DEFAULT_MEALS, DEFAULT_NOTES, DEFAULT_SCHOOL, DEFAULT_APPS_SCRIPT_URL,
-  buildThemeStyles, buildMemberStyles,
-  discoverTodoistWorkspace, pullFromTodoistTwoWay, createTodoistTaskItem,
-  updateTodoistTaskItem, closeOrReopenTodoistTask, deleteTodoistTask,
-  createNewTodoistProject
-} from './touchwallConfig';
-
+import * as Cfg from './touchwallConfig';
 import CalendarSection from './CalendarSection';
 import TasksTodoistSection from './TasksTodoistSection';
 import OtherSections from './OtherSections';
+
+const {
+  formatDateStr,
+  addDays,
+  getMonday,
+  playTouchwallAlarmSound,
+  COLOR_PALETTES,
+  PAGE_THEMES,
+  DEFAULT_MEMBERS,
+  DEFAULT_MEALS,
+  DEFAULT_NOTES,
+  DEFAULT_SCHOOL,
+  DEFAULT_APPS_SCRIPT_URL,
+  buildThemeStyles,
+  buildMemberStyles,
+  discoverTodoistWorkspace,
+  pullFromTodoistTwoWay,
+  createTodoistTaskItem,
+  updateTodoistTaskItem,
+  closeOrReopenTodoistTask,
+  deleteTodoistTask
+} = Cfg;
 
 export default function TouchwallApp() {
   const [todayStr, setTodayStr] = useState(() => formatDateStr(new Date()));
@@ -49,10 +62,10 @@ export default function TouchwallApp() {
   const [diagResult, setDiagResult] = useState(null);
   const [isTestingDiag, setIsTestingDiag] = useState(false);
 
-  // Touch-Shockwave-Effekt für echtes Touchscreen-Gefühl
+  // Touch-Shockwave-Effekt
   const [touchRipples, setTouchRipples] = useState([]);
 
-  // Alarm & Refs für fehlerfreien 8-Sekunden-Hintergrund-Sync
+  // Alarm & Refs für 8-Sekunden-Hintergrund-Sync
   const [pushPermission, setPushPermission] = useState('default');
   const [activeAlarmBanner, setActiveAlarmBanner] = useState(null);
   const triggeredAlarmsRef = useRef({});
@@ -99,6 +112,71 @@ export default function TouchwallApp() {
   };
 
   // =========================================================
+  // ABGESICHERTE ARRAYS (VERHINDERT JEGLICHEN ".map of undefined" FEHLER!)
+  // =========================================================
+  const safeMembers = useMemo(() => {
+    return (Array.isArray(members) && members.length > 0 ? members : DEFAULT_MEMBERS).map(m => ({
+      ...m,
+      name: m?.name || 'Mitglied',
+      role: m?.role || '',
+      badge: m?.badge || 'M',
+      color: m?.color || 'royal_bold'
+    }));
+  }, [members]);
+
+  const safeEvents = useMemo(() => {
+    return (Array.isArray(events) ? events : []).map(ev => ({
+      ...ev,
+      notifyUsers: Array.isArray(ev?.notifyUsers) ? ev.notifyUsers : ['hans']
+    }));
+  }, [events]);
+
+  const safeMeals = useMemo(() => {
+    return (Array.isArray(mealPlan) && mealPlan.length > 0 ? mealPlan : DEFAULT_MEALS).map(m => ({
+      ...m,
+      ingredients: Array.isArray(m?.ingredients) ? m.ingredients : []
+    }));
+  }, [mealPlan]);
+
+  const safeNotes = useMemo(() => {
+    const base = Array.isArray(familyNotes) && familyNotes.length > 0 ? familyNotes : DEFAULT_NOTES;
+    return base.map(n => ({
+      ...n,
+      items: Array.isArray(n?.items)
+        ? n.items.map(it => (typeof it === 'string' ? { text: it, done: false } : { text: it?.text || '', done: Boolean(it?.done), todoistId: it?.todoistId }))
+        : []
+    }));
+  }, [familyNotes]);
+
+  const safeTasks = useMemo(() => {
+    return Array.isArray(familyTasks) ? familyTasks : [];
+  }, [familyTasks]);
+
+  const safeSchoolData = useMemo(() => {
+    const s = schoolData && typeof schoolData === 'object' ? schoolData : DEFAULT_SCHOOL;
+    return {
+      dean: {
+        periods: Array.isArray(s?.dean?.periods) ? s.dean.periods : DEFAULT_SCHOOL.dean.periods,
+        slots: s?.dean?.slots && typeof s.dean.slots === 'object' ? s.dean.slots : DEFAULT_SCHOOL.dean.slots,
+        announcements: Array.isArray(s?.dean?.announcements) ? s.dean.announcements : []
+      },
+      valentina: {
+        periods: Array.isArray(s?.valentina?.periods) ? s.valentina.periods : DEFAULT_SCHOOL.valentina.periods,
+        slots: s?.valentina?.slots && typeof s.valentina.slots === 'object' ? s.valentina.slots : DEFAULT_SCHOOL.valentina.slots,
+        announcements: Array.isArray(s?.valentina?.announcements) ? s.valentina.announcements : []
+      }
+    };
+  }, [schoolData]);
+
+  const safeTodoistConfig = useMemo(() => ({
+    apiToken: todoistConfig?.apiToken || '',
+    shoppingProjectId: todoistConfig?.shoppingProjectId || '',
+    tasksProjectId: todoistConfig?.tasksProjectId || '',
+    projects: Array.isArray(todoistConfig?.projects) ? todoistConfig.projects : [],
+    collaborators: Array.isArray(todoistConfig?.collaborators) ? todoistConfig.collaborators : []
+  }), [todoistConfig]);
+
+  // =========================================================
   // TOUCH-SHOCKWAVE BEIM ANTIPPEN / KLICKEN
   // =========================================================
   const spawnTouchRipple = (e) => {
@@ -117,7 +195,7 @@ export default function TouchwallApp() {
 
   const renderAvatar = (member, size = 'w-11 h-11', textSize = 'text-base') => {
     const st = getMemberStyles(member);
-    if (member.avatarType === 'photo' && member.photoUrl) {
+    if (member?.avatarType === 'photo' && member?.photoUrl) {
       return (
         <div
           style={{ borderColor: COLOR_PALETTES[member.color]?.hex || '#3b82f6' }}
@@ -127,7 +205,7 @@ export default function TouchwallApp() {
         </div>
       );
     }
-    if (member.avatarType === 'emoji' && member.emoji) {
+    if (member?.avatarType === 'emoji' && member?.emoji) {
       return (
         <div style={st.badgeStyle} className={`${size} rounded-full flex items-center justify-center ${textSize} shadow-sm shrink-0`}>
           {member.emoji}
@@ -136,16 +214,16 @@ export default function TouchwallApp() {
     }
     return (
       <div style={st.badgeStyle} className={`${size} rounded-full font-extrabold ${textSize} flex items-center justify-center shadow-sm shrink-0`}>
-        {member.badge}
+        {member?.badge || 'F'}
       </div>
     );
   };
 
   const renderNotifyBadgeOnCard = (ev) => {
-    if (!ev.notifyTime || ev.notifyTime === 'none') return null;
+    if (!ev?.notifyTime || ev.notifyTime === 'none') return null;
     const chIcon = ev.notifyChannel === 'push' ? '📲' : ev.notifyChannel === 'mail' ? '✉️' : '🔔';
     const userBadges = Array.isArray(ev.notifyUsers) && ev.notifyUsers.length > 0
-      ? ev.notifyUsers.map(uid => members.find(x => x.id === uid)?.badge).filter(Boolean).join(',')
+      ? ev.notifyUsers.map(uid => safeMembers.find(x => x.id === uid)?.badge).filter(Boolean).join(',')
       : '';
     return (
       <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-black/30 text-[9px] font-extrabold shrink-0">
@@ -201,7 +279,7 @@ export default function TouchwallApp() {
 
   const triggerEventAlarmNow = (evObj, isTest = false) => {
     const whoNames = (evObj.notifyUsers || [])
-      .map(uid => members.find(m => m.id === uid)?.name || uid)
+      .map(uid => safeMembers.find(m => m.id === uid)?.name || uid)
       .join(', ') || 'Familie';
     playTouchwallAlarmSound();
     setActiveAlarmBanner({
@@ -225,7 +303,7 @@ export default function TouchwallApp() {
       const now = new Date();
       const nowMs = now.getTime();
 
-      events.forEach(ev => {
+      safeEvents.forEach(ev => {
         if (!ev?.date || !ev.notifyTime || ev.notifyTime === 'none') return;
         const offsetMins = offsetMinutesMap[ev.notifyTime] ?? 30;
         const parts = String(ev.date).split('-');
@@ -245,7 +323,7 @@ export default function TouchwallApp() {
         }
       });
 
-      familyTasks.forEach(task => {
+      safeTasks.forEach(task => {
         if (!task || task.done || !task.dueTime || !task.notifyTime || task.notifyTime === 'none') return;
         const dStr = task.dueDate || todayStr;
         const offsetMins = offsetMinutesMap[task.notifyTime] ?? 15;
@@ -272,19 +350,21 @@ export default function TouchwallApp() {
 
     const timer = setInterval(checkAlarms, 15000);
     return () => clearInterval(timer);
-  }, [events, familyTasks, members, todayStr]);
+  }, [safeEvents, safeTasks, safeMembers, todayStr]);
 
   // =========================================================
   // 2. VOLLAUTOMATISCHER 8-SEKUNDEN TODOIST 2-WEGE-SYNC
   // =========================================================
   const createAndSelectTodoistProject = async (projectName) => {
-    if (!todoistConfig.apiToken?.trim() || !projectName?.trim()) return null;
+    const token = safeTodoistConfig.apiToken.trim();
+    if (!token || !projectName?.trim()) return null;
     try {
-      const created = await createNewTodoistProject(todoistConfig.apiToken, projectName.trim());
+      const createFn = Cfg.createNewTodoistProject || (async (tk, name) => Cfg.todoistFetch(tk, '/projects', { method: 'POST', rawBody: { name } }));
+      const created = await createFn(token, projectName.trim());
       if (created?.id) {
         setTodoistConfig(prev => ({
           ...prev,
-          projects: [...(prev.projects || []), created]
+          projects: [...(Array.isArray(prev?.projects) ? prev.projects : []), created]
         }));
         showToast('Projekt erstellt', `Todoist-Projekt „${created.name}“ wurde angelegt!`, '📂');
         return created;
@@ -296,26 +376,26 @@ export default function TouchwallApp() {
   };
 
   const connectAndDiscoverTodoist = async () => {
-    if (!todoistConfig.apiToken?.trim()) {
+    if (!safeTodoistConfig.apiToken.trim()) {
       showToast('Token fehlt', 'Bitte zuerst dein Todoist API-Token eintragen.', '⚠️');
       return;
     }
     setIsSyncing(true);
     try {
-      const disc = await discoverTodoistWorkspace(todoistConfig.apiToken);
+      const disc = await discoverTodoistWorkspace(safeTodoistConfig.apiToken);
       const nextCfg = {
-        ...todoistConfig,
-        projects: disc.projects,
-        shoppingProjectId: todoistConfig.shoppingProjectId || disc.shoppingProjectId,
-        tasksProjectId: todoistConfig.tasksProjectId || disc.tasksProjectId,
-        collaborators: disc.collaborators
+        ...safeTodoistConfig,
+        projects: Array.isArray(disc?.projects) ? disc.projects : [],
+        shoppingProjectId: safeTodoistConfig.shoppingProjectId || disc?.shoppingProjectId || '',
+        tasksProjectId: safeTodoistConfig.tasksProjectId || disc?.tasksProjectId || '',
+        collaborators: Array.isArray(disc?.collaborators) ? disc.collaborators : []
       };
       setTodoistConfig(nextCfg);
 
-      if (disc.collaborators.length > 0) {
-        setMembers(prev => prev.map(m => {
+      if (nextCfg.collaborators.length > 0) {
+        setMembers(prev => (Array.isArray(prev) ? prev : DEFAULT_MEMBERS).map(m => {
           if (m.id === 'all' || m.todoistUserId) return m;
-          const match = disc.collaborators.find(c =>
+          const match = nextCfg.collaborators.find(c =>
             c.name?.toLowerCase().includes(m.name.toLowerCase()) ||
             c.email?.toLowerCase().includes(m.id.toLowerCase())
           );
@@ -323,7 +403,7 @@ export default function TouchwallApp() {
         }));
       }
 
-      showToast('Todoist Team verbunden!', `${disc.projects.length} Projekte & ${disc.collaborators.length} Team-Mitglieder geladen.`, '🎉');
+      showToast('Todoist Team verbunden!', `${nextCfg.projects.length} Projekte & ${nextCfg.collaborators.length} Team-Mitglieder geladen.`, '🎉');
       await syncWithTodoistNow(false, nextCfg);
     } catch (err) {
       showToast('Todoist-Fehler', err.message, '❌');
@@ -333,33 +413,35 @@ export default function TouchwallApp() {
   };
 
   const syncWithTodoistNow = async (showFeedback = false, cfgOverride = null) => {
-    // Verhindert, dass ein Hintergrund-Poll genau während eines lokalen Klicks überschreibt
     if (!showFeedback && Date.now() - lastLocalEditTimeRef.current < 3500) return;
 
-    const cfg = cfgOverride || todoistConfig;
+    const cfg = cfgOverride || safeTodoistConfig;
     if (!cfg?.apiToken?.trim()) return;
     if (showFeedback) setIsSyncing(true);
 
     try {
-      // Falls Projekte noch nie geladen wurden, einmalig im Hintergrund entdecken
       let activeCfg = cfg;
-      if (!cfg.projects || cfg.projects.length === 0) {
+      if (!Array.isArray(cfg.projects) || cfg.projects.length === 0) {
         const disc = await discoverTodoistWorkspace(cfg.apiToken);
         activeCfg = {
           ...cfg,
-          projects: disc.projects,
-          shoppingProjectId: cfg.shoppingProjectId || disc.shoppingProjectId,
-          tasksProjectId: cfg.tasksProjectId || disc.tasksProjectId,
-          collaborators: disc.collaborators
+          projects: Array.isArray(disc?.projects) ? disc.projects : [],
+          shoppingProjectId: cfg.shoppingProjectId || disc?.shoppingProjectId || '',
+          tasksProjectId: cfg.tasksProjectId || disc?.tasksProjectId || '',
+          collaborators: Array.isArray(disc?.collaborators) ? disc.collaborators : []
         };
         setTodoistConfig(activeCfg);
       }
 
-      const pulled = await pullFromTodoistTwoWay(activeCfg.apiToken, activeCfg, familyTasks, familyNotes, members);
+      const pulled = await pullFromTodoistTwoWay(activeCfg.apiToken, activeCfg, safeTasks, safeNotes, safeMembers);
       if (pulled) {
         isApplyingRemoteState.current = true;
-        setFamilyTasks(pulled.tasks);
-        setFamilyNotes(pulled.familyNotes);
+        if (Array.isArray(pulled.tasks)) setFamilyTasks(pulled.tasks);
+        if (Array.isArray(pulled.familyNotes)) {
+          setFamilyNotes(pulled.familyNotes);
+        } else if (Array.isArray(pulled.shoppingItems)) {
+          setFamilyNotes(prev => (Array.isArray(prev) ? prev : DEFAULT_NOTES).map((n, idx) => idx === 0 ? { ...n, items: pulled.shoppingItems } : n));
+        }
         const now = new Date();
         const tStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
         setLastAutoSyncTime(tStr);
@@ -374,12 +456,10 @@ export default function TouchwallApp() {
     }
   };
 
-  // WICHTIG: Hält immer die aktuellste Sync-Funktion für den 8-Sekunden-Timer bereit (löst das Stale-Closure-Problem!)
   const syncTodoistRef = useRef(null);
   syncTodoistRef.current = syncWithTodoistNow;
 
   useEffect(() => {
-    // Startet nach 1.5 Sek. den ersten Todoist-Abruf und läuft danach alle 8 Sekunden vollautomatisch!
     const initTimeout = setTimeout(() => {
       syncTodoistRef.current?.(false);
     }, 1500);
@@ -407,8 +487,51 @@ export default function TouchwallApp() {
   }, []);
 
   // =========================================================
-  // 3. GOOGLE APPS SCRIPT SYNC & LOKALER SPEICHER
+  // 3. GOOGLE APPS SCRIPT SYNC (MIT AUTOMATISCHEM SERVER-PROXY FALLBACK GEGEN CORS!)
   // =========================================================
+  const callGoogleAppsScript = async (targetUrl, method = 'GET', postBody = null) => {
+    // 1. Versuch: Über unseren eigenen Vercel-Server-Proxy (/api/todoist mit action='gasProxy'),
+    // da Server-zu-Server-Abrufe niemals von Browser-CORS blockiert werden!
+    try {
+      const proxyRes = await fetch(`/api/todoist?_t=${Date.now()}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'gasProxy',
+          gasUrl: targetUrl,
+          gasMethod: method,
+          gasBody: postBody
+        }),
+        cache: 'no-store'
+      });
+      if (proxyRes.ok) {
+        const proxyData = await proxyRes.json();
+        if (proxyData && !proxyData.notSupported && !proxyData.error) {
+          return proxyData;
+        }
+      }
+    } catch (e) {}
+
+    // 2. Fallback: Direkter Browser-Fetch mit redirect: 'follow'
+    if (method === 'GET') {
+      const sep = targetUrl.includes('?') ? '&' : '?';
+      const res = await fetch(`${targetUrl}${sep}action=json&_t=${Date.now()}`, {
+        method: 'GET',
+        redirect: 'follow',
+        cache: 'no-store'
+      });
+      return res.json();
+    } else {
+      const res = await fetch(targetUrl, {
+        method: 'POST',
+        redirect: 'follow',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(postBody)
+      });
+      return res.json();
+    }
+  };
+
   const sendCalendarApiAction = async (bodyData, statusLabel = '⏳ Synchronisiere...') => {
     const targetUrl = (appsScriptUrl || DEFAULT_APPS_SCRIPT_URL).trim();
     if (!targetUrl) return null;
@@ -416,12 +539,7 @@ export default function TouchwallApp() {
     setIsSyncing(true);
     setSyncStatusText(statusLabel);
     try {
-      const res = await fetch(targetUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(bodyData)
-      });
-      const json = await res.json();
+      const json = await callGoogleAppsScript(targetUrl, 'POST', bodyData);
       if (json?.result && Array.isArray(json.result.events)) {
         setEvents(json.result.events);
         try { localStorage.setItem('richter_touchwall_events_cache', JSON.stringify(json.result.events)); } catch (e) {}
@@ -432,7 +550,7 @@ export default function TouchwallApp() {
       setSyncStatusText(`⚡ Live-Sync (${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')})`);
       return json;
     } catch (err) {
-      setSyncStatusText('⚠️ Sync-Hinweis');
+      setSyncStatusText('⚠️ Google-Sync prüfen');
       return null;
     } finally {
       isMutatingCalendar.current = false;
@@ -446,9 +564,7 @@ export default function TouchwallApp() {
     if (!targetUrl) return;
     if (showFeedback) setIsSyncing(true);
     try {
-      const sep = targetUrl.includes('?') ? '&' : '?';
-      const res = await fetch(`${targetUrl}${sep}action=json&_t=${Date.now()}`, { method: 'GET', cache: 'no-store' });
-      const bundle = await res.json();
+      const bundle = await callGoogleAppsScript(targetUrl, 'GET', null);
 
       isApplyingRemoteState.current = true;
       const calMap = bundle?.calendarData?.calendars || {};
@@ -456,7 +572,7 @@ export default function TouchwallApp() {
 
       if (bundle?.state) {
         const s = bundle.state;
-        const baseMembers = (Array.isArray(s.members) && s.members.length >= 5) ? s.members : members;
+        const baseMembers = (Array.isArray(s.members) && s.members.length >= 5) ? s.members : safeMembers;
         setMembers(baseMembers.map(m => {
           const cid = calMap[m.id] !== undefined && calMap[m.id] !== '' ? calMap[m.id] : (m.calendarId || (m.id === 'all' ? 'primary' : ''));
           const st = statusMap[m.id];
@@ -485,6 +601,9 @@ export default function TouchwallApp() {
     } catch (err) {
       isInitialLoadDone.current = true;
       isApplyingRemoteState.current = false;
+      if (showFeedback) {
+        showToast('Google-Verbindung', 'Bitte prüfe in Apps Script, ob die Bereitstellung auf „Jeder“ steht.', '⚠️');
+      }
     } finally {
       if (showFeedback) setIsSyncing(false);
     }
@@ -499,16 +618,19 @@ export default function TouchwallApp() {
       if (raw) {
         const data = JSON.parse(raw);
         if (Array.isArray(data.members) && data.members.length >= 5) setMembers(data.members);
-        if (Array.isArray(data.mealPlan)) setMealPlan(data.mealPlan);
-        if (Array.isArray(data.familyNotes)) setFamilyNotes(data.familyNotes);
+        if (Array.isArray(data.mealPlan) && data.mealPlan.length > 0) setMealPlan(data.mealPlan);
+        if (Array.isArray(data.familyNotes) && data.familyNotes.length > 0) setFamilyNotes(data.familyNotes);
         if (data.schoolData?.dean) setSchoolData(data.schoolData);
         if (Array.isArray(data.familyTasks)) setFamilyTasks(data.familyTasks);
         if (data.currentTheme) setCurrentTheme(data.currentTheme);
         if (data.customLogoUrl) setCustomLogoUrl(data.customLogoUrl);
-        if (data.todoistConfig) setTodoistConfig(data.todoistConfig);
+        if (data.todoistConfig && typeof data.todoistConfig === 'object') setTodoistConfig(prev => ({ ...prev, ...data.todoistConfig }));
       }
       const savedEv = localStorage.getItem('richter_touchwall_events_cache');
-      if (savedEv) setEvents(JSON.parse(savedEv));
+      if (savedEv) {
+        const parsedEv = JSON.parse(savedEv);
+        if (Array.isArray(parsedEv)) setEvents(parsedEv);
+      }
     } catch (e) {}
 
     pullCloudRef.current?.(DEFAULT_APPS_SCRIPT_URL, false);
@@ -519,7 +641,16 @@ export default function TouchwallApp() {
   }, []);
 
   useEffect(() => {
-    const payload = { members, mealPlan, familyNotes, schoolData, familyTasks, currentTheme, customLogoUrl, todoistConfig };
+    const payload = {
+      members: safeMembers,
+      mealPlan: safeMeals,
+      familyNotes: safeNotes,
+      schoolData: safeSchoolData,
+      familyTasks: safeTasks,
+      currentTheme,
+      customLogoUrl,
+      todoistConfig: safeTodoistConfig
+    };
     try { localStorage.setItem('richter_touchwall_v6', JSON.stringify(payload)); } catch (e) {}
     if (!isInitialLoadDone.current || isApplyingRemoteState.current) return;
 
@@ -528,24 +659,20 @@ export default function TouchwallApp() {
       const targetUrl = (appsScriptUrl || DEFAULT_APPS_SCRIPT_URL).trim();
       if (!targetUrl) return;
       try {
-        await fetch(targetUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({ action: 'saveState', payload })
-        });
+        await callGoogleAppsScript(targetUrl, 'POST', { action: 'saveState', payload });
       } catch (e) {}
     }, 600);
-  }, [members, mealPlan, familyNotes, schoolData, familyTasks, currentTheme, customLogoUrl, todoistConfig, appsScriptUrl]);
+  }, [safeMembers, safeMeals, safeNotes, safeSchoolData, safeTasks, currentTheme, customLogoUrl, safeTodoistConfig, appsScriptUrl]);
 
   // =========================================================
-  // 4. KACHEL-AKTIONEN FÜR AUFGABEN, EINKAUFSLISTE & NOTIZEN (INKL. PROJEKT-WAHL)
+  // 4. KACHEL-AKTIONEN FÜR AUFGABEN, EINKAUFSLISTE & NOTIZEN
   // =========================================================
-  const shoppingNoteBlock = useMemo(() => familyNotes[0] || { id: 1, title: '🛒 Einkaufsliste', items: [] }, [familyNotes]);
+  const shoppingNoteBlock = useMemo(() => safeNotes[0] || { id: 1, title: '🛒 Einkaufsliste', items: [] }, [safeNotes]);
 
   const setShoppingTileProjectId = (projId) => {
     lastLocalEditTimeRef.current = Date.now();
     setTodoistConfig(prev => ({ ...prev, shoppingProjectId: projId }));
-    setFamilyNotes(prev => prev.map((n, idx) => idx === 0 ? { ...n, todoistProjectId: projId } : n));
+    setFamilyNotes(prev => (Array.isArray(prev) ? prev : DEFAULT_NOTES).map((n, idx) => idx === 0 ? { ...n, todoistProjectId: projId } : n));
     setTimeout(() => syncTodoistRef.current?.(true), 300);
   };
 
@@ -553,79 +680,79 @@ export default function TouchwallApp() {
     const clean = String(textStr || '').trim();
     if (!clean) return;
     lastLocalEditTimeRef.current = Date.now();
-    const targetNote = familyNotes.find(n => n.id === noteId);
-    const isFirst = familyNotes[0]?.id === noteId;
-    const projId = targetNote?.todoistProjectId || (isFirst ? todoistConfig.shoppingProjectId : '');
+    const targetNote = safeNotes.find(n => n.id === noteId);
+    const isFirst = safeNotes[0]?.id === noteId;
+    const projId = targetNote?.todoistProjectId || (isFirst ? safeTodoistConfig.shoppingProjectId : '');
 
     let todoistId = null;
-    if (todoistConfig.apiToken && projId) {
+    if (safeTodoistConfig.apiToken && projId) {
       try {
-        const created = await createTodoistTaskItem(todoistConfig.apiToken, projId, clean, null, '', '', 1, '', 'none');
+        const created = await createTodoistTaskItem(safeTodoistConfig.apiToken, projId, clean, null, '', '', 1, '', 'none');
         if (created?.id) todoistId = String(created.id);
       } catch (e) {}
     }
-    setFamilyNotes(prev => prev.map(n => n.id === noteId ? {
+    setFamilyNotes(prev => (Array.isArray(prev) ? prev : DEFAULT_NOTES).map(n => n.id === noteId ? {
       ...n,
-      items: [{ text: clean, done: false, todoistId }, ...(n.items || [])]
+      items: [{ text: clean, done: false, todoistId }, ...(Array.isArray(n.items) ? n.items : [])]
     } : n));
   };
 
   const toggleItemInNoteTile = async (noteId, itemIdx) => {
     lastLocalEditTimeRef.current = Date.now();
-    const targetNote = familyNotes.find(n => n.id === noteId);
+    const targetNote = safeNotes.find(n => n.id === noteId);
     const item = targetNote?.items?.[itemIdx];
     if (!item) return;
     const nextDone = !item.done;
-    setFamilyNotes(prev => prev.map(n => n.id === noteId ? {
+    setFamilyNotes(prev => (Array.isArray(prev) ? prev : DEFAULT_NOTES).map(n => n.id === noteId ? {
       ...n,
-      items: n.items.map((it, i) => i === itemIdx ? { ...it, done: nextDone } : it)
+      items: (Array.isArray(n.items) ? n.items : []).map((it, i) => i === itemIdx ? { ...it, done: nextDone } : it)
     } : n));
-    if (item.todoistId && todoistConfig.apiToken) {
-      try { await closeOrReopenTodoistTask(todoistConfig.apiToken, item.todoistId, nextDone); } catch (e) {}
+    if (item.todoistId && safeTodoistConfig.apiToken) {
+      try { await closeOrReopenTodoistTask(safeTodoistConfig.apiToken, item.todoistId, nextDone); } catch (e) {}
     }
   };
 
   const deleteItemInNoteTile = async (noteId, itemIdx) => {
     lastLocalEditTimeRef.current = Date.now();
-    const targetNote = familyNotes.find(n => n.id === noteId);
+    const targetNote = safeNotes.find(n => n.id === noteId);
     const item = targetNote?.items?.[itemIdx];
-    setFamilyNotes(prev => prev.map(n => n.id === noteId ? {
+    setFamilyNotes(prev => (Array.isArray(prev) ? prev : DEFAULT_NOTES).map(n => n.id === noteId ? {
       ...n,
-      items: n.items.filter((_, i) => i !== itemIdx)
+      items: (Array.isArray(n.items) ? n.items : []).filter((_, i) => i !== itemIdx)
     } : n));
-    if (item?.todoistId && todoistConfig.apiToken) {
-      try { await deleteTodoistTask(todoistConfig.apiToken, item.todoistId); } catch (e) {}
+    if (item?.todoistId && safeTodoistConfig.apiToken) {
+      try { await deleteTodoistTask(safeTodoistConfig.apiToken, item.todoistId); } catch (e) {}
     }
   };
 
   const addShoppingItem = async (textStr) => {
-    if (!familyNotes[0]) return;
-    await addItemToNoteTile(familyNotes[0].id, textStr);
+    if (!safeNotes[0]) return;
+    await addItemToNoteTile(safeNotes[0].id, textStr);
   };
 
   const addShoppingItemsBatch = async (textsArray) => {
-    if (!familyNotes[0]) return;
+    if (!safeNotes[0] || !Array.isArray(textsArray)) return;
     for (const txt of textsArray) {
-      await addItemToNoteTile(familyNotes[0].id, txt);
+      await addItemToNoteTile(safeNotes[0].id, txt);
     }
     showToast('In Todoist-Einkaufsliste', `${textsArray.length} Artikel übertragen!`, '🛒');
   };
 
   const toggleShoppingItem = async (itemIdx) => {
-    if (!familyNotes[0]) return;
-    await toggleItemInNoteTile(familyNotes[0].id, itemIdx);
+    if (!safeNotes[0]) return;
+    await toggleItemInNoteTile(safeNotes[0].id, itemIdx);
   };
 
   const deleteShoppingItem = async (itemIdx) => {
-    if (!familyNotes[0]) return;
-    await deleteItemInNoteTile(familyNotes[0].id, itemIdx);
+    if (!safeNotes[0]) return;
+    await deleteItemInNoteTile(safeNotes[0].id, itemIdx);
   };
 
   const clearCompletedShoppingItems = () => {
     lastLocalEditTimeRef.current = Date.now();
-    setFamilyNotes(prev => prev.map((n, idx) => idx === 0 ? {
+    setFamilyNotes(prev => (Array.isArray(prev) ? prev : DEFAULT_NOTES).map((n, idx) => idx === 0 ? {
       ...n,
-      items: (n.items || []).filter(it => !it.done)
+      items: (Array.isArray(n.items) ? n.items : []).filter(it => !it.done)
     } : n));
   };
 
@@ -643,17 +770,17 @@ export default function TouchwallApp() {
     const clean = String(titleStr || '').trim();
     if (!clean) return;
     lastLocalEditTimeRef.current = Date.now();
-    const memberObj = members.find(m => m.id === memberId);
-    const targetProjId = customProjectId || memberObj?.todoistProjectId || todoistConfig.tasksProjectId;
+    const memberObj = safeMembers.find(m => m.id === memberId);
+    const targetProjId = customProjectId || memberObj?.todoistProjectId || safeTodoistConfig.tasksProjectId;
     const dueLabel = dueDateStr
       ? `Bis ${dueDateStr.slice(8, 10)}.${dueDateStr.slice(5, 7)}.${dueTimeStr ? ' ' + dueTimeStr + ' Uhr' : ''}`
       : (dueTimeStr ? `Heute bis ${dueTimeStr} Uhr` : 'Offen');
 
     let todoistId = null;
-    if (todoistConfig.apiToken && targetProjId) {
+    if (safeTodoistConfig.apiToken && targetProjId) {
       try {
         const created = await createTodoistTaskItem(
-          todoistConfig.apiToken,
+          safeTodoistConfig.apiToken,
           targetProjId,
           clean,
           memberObj,
@@ -683,7 +810,7 @@ export default function TouchwallApp() {
       notifyTime: notifyStr,
       done: false
     };
-    setFamilyTasks(prev => [newTask, ...prev]);
+    setFamilyTasks(prev => [newTask, ...(Array.isArray(prev) ? prev : [])]);
     showToast('Aufgabe & Frist angelegt', `${clean} → ${memberObj?.name || memberId}`, '📲');
 
     if (pushToCal) {
@@ -698,32 +825,32 @@ export default function TouchwallApp() {
         notifyUsers: [memberId],
         fromGoogle: true
       };
-      setEvents(prev => [...prev, calEv]);
+      setEvents(prev => [...(Array.isArray(prev) ? prev : []), calEv]);
       await sendCalendarApiAction({ action: 'createEvent', event: calEv }, '📲 Sende zusätzlichen Kalender-Wecker...');
     }
   };
 
   const toggleTaskDone = async (taskId, makeDone) => {
     lastLocalEditTimeRef.current = Date.now();
-    const target = familyTasks.find(t => t.id === taskId);
-    setFamilyTasks(prev => prev.map(t => t.id === taskId ? { ...t, done: makeDone } : t));
-    if (target?.todoistId && todoistConfig.apiToken) {
-      try { await closeOrReopenTodoistTask(todoistConfig.apiToken, target.todoistId, makeDone); } catch (e) {}
+    const target = safeTasks.find(t => t.id === taskId);
+    setFamilyTasks(prev => (Array.isArray(prev) ? prev : []).map(t => t.id === taskId ? { ...t, done: makeDone } : t));
+    if (target?.todoistId && safeTodoistConfig.apiToken) {
+      try { await closeOrReopenTodoistTask(safeTodoistConfig.apiToken, target.todoistId, makeDone); } catch (e) {}
     }
   };
 
   const deleteTaskItem = async (taskId) => {
     lastLocalEditTimeRef.current = Date.now();
-    const target = familyTasks.find(t => t.id === taskId);
-    setFamilyTasks(prev => prev.filter(t => t.id !== taskId));
-    if (target?.todoistId && todoistConfig.apiToken) {
-      try { await deleteTodoistTask(todoistConfig.apiToken, target.todoistId); } catch (e) {}
+    const target = safeTasks.find(t => t.id === taskId);
+    setFamilyTasks(prev => (Array.isArray(prev) ? prev : []).filter(t => t.id !== taskId));
+    if (target?.todoistId && safeTodoistConfig.apiToken) {
+      try { await deleteTodoistTask(safeTodoistConfig.apiToken, target.todoistId); } catch (e) {}
     }
   };
 
   const clearCompletedMemberTasks = (memberId) => {
     lastLocalEditTimeRef.current = Date.now();
-    setFamilyTasks(prev => prev.filter(t => !(t.member === memberId && t.done)));
+    setFamilyTasks(prev => (Array.isArray(prev) ? prev : []).filter(t => !(t.member === memberId && t.done)));
   };
 
   // =========================================================
@@ -732,7 +859,7 @@ export default function TouchwallApp() {
   const duplicateEventToTarget = async (sourceEv, targetMemberId, targetDateStr) => {
     const newDate = targetDateStr || sourceEv.date || todayStr;
     const newMember = targetMemberId || sourceEv.member || 'all';
-    const targetM = members.find(m => m.id === newMember);
+    const targetM = safeMembers.find(m => m.id === newMember);
     const copiedNewEv = {
       id: String(Date.now() + Math.floor(Math.random() * 1000)),
       title: String(sourceEv.title || 'Termin').trim(),
@@ -744,7 +871,7 @@ export default function TouchwallApp() {
       notifyUsers: newMember === 'all' ? ['hans', 'sarah', 'dean', 'valentina'] : [newMember],
       fromGoogle: true
     };
-    setEvents(prev => [...prev, copiedNewEv]);
+    setEvents(prev => [...(Array.isArray(prev) ? prev : []), copiedNewEv]);
     showToast('Termin eingefügt', `„${copiedNewEv.title}“ → ${targetM ? targetM.name : newMember}`, '📋');
     await sendCalendarApiAction({ action: 'createEvent', event: copiedNewEv }, '⏳ Speichere Kopie...');
   };
@@ -781,7 +908,7 @@ export default function TouchwallApp() {
     if (!eventModal.title.trim()) return;
     if (eventModal.id) {
       const updatedEv = { ...eventModal, title: eventModal.title.trim(), fromGoogle: true };
-      setEvents(prev => prev.map(item => String(item.id) === String(eventModal.id) ? updatedEv : item));
+      setEvents(prev => (Array.isArray(prev) ? prev : []).map(item => String(item.id) === String(eventModal.id) ? updatedEv : item));
       setEventModal({ ...eventModal, open: false });
       await sendCalendarApiAction({
         action: 'updateEvent', event: updatedEv,
@@ -791,15 +918,15 @@ export default function TouchwallApp() {
       });
     } else {
       const newEv = { ...eventModal, id: String(Date.now()), title: eventModal.title.trim(), fromGoogle: true };
-      setEvents(prev => [...prev, newEv]);
+      setEvents(prev => [...(Array.isArray(prev) ? prev : []), newEv]);
       setEventModal({ ...eventModal, open: false });
       await sendCalendarApiAction({ action: 'createEvent', event: newEv });
     }
   };
 
   const deleteEventById = async (id) => {
-    const targetEv = events.find(ev => String(ev.id) === String(id));
-    setEvents(prev => prev.filter(ev => String(ev.id) !== String(id)));
+    const targetEv = safeEvents.find(ev => String(ev.id) === String(id));
+    setEvents(prev => (Array.isArray(prev) ? prev : []).filter(ev => String(ev.id) !== String(id)));
     setEventModal({ ...eventModal, open: false });
     if (targetEv) {
       await sendCalendarApiAction({
@@ -810,12 +937,12 @@ export default function TouchwallApp() {
   };
 
   const transferEvent = async (evId, targetMemberId, targetDateStr) => {
-    const targetEv = events.find(ev => String(ev.id) === String(evId));
+    const targetEv = safeEvents.find(ev => String(ev.id) === String(evId));
     if (!targetEv) return;
     const newDate = targetDateStr || targetEv.date;
     if (targetEv.member === targetMemberId && targetEv.date === newDate) return;
     const snapshot = { ...targetEv };
-    setEvents(prev => prev.map(ev => String(ev.id) === String(evId) ? { ...ev, member: targetMemberId, date: newDate } : ev));
+    setEvents(prev => (Array.isArray(prev) ? prev : []).map(ev => String(ev.id) === String(evId) ? { ...ev, member: targetMemberId, date: newDate } : ev));
     await sendCalendarApiAction({
       action: 'moveEvent', eventId: String(snapshot.id),
       oldMember: snapshot.member, targetMember: targetMemberId,
@@ -824,10 +951,20 @@ export default function TouchwallApp() {
   };
 
   const pushToCloudAndDrive = async (customMembersList, showFeedback = true) => {
-    const listToSave = customMembersList || members;
+    const listToSave = Array.isArray(customMembersList) ? customMembersList : safeMembers;
     const calMap = {};
     listToSave.forEach(m => { calMap[m.id] = (m.calendarId || '').trim(); });
-    const payload = { members: listToSave, calendars: calMap, mealPlan, familyNotes, schoolData, familyTasks, currentTheme, customLogoUrl, todoistConfig };
+    const payload = {
+      members: listToSave,
+      calendars: calMap,
+      mealPlan: safeMeals,
+      familyNotes: safeNotes,
+      schoolData: safeSchoolData,
+      familyTasks: safeTasks,
+      currentTheme,
+      customLogoUrl,
+      todoistConfig: safeTodoistConfig
+    };
     await sendCalendarApiAction({ action: 'saveDriveAndSync', payload, calendars: calMap }, '⏳ Speichere...');
     if (showFeedback) showToast('Gespeichert', 'Alle Konten & Daten wurden gesichert.', '✅');
   };
@@ -860,15 +997,15 @@ export default function TouchwallApp() {
   };
 
   const visibleMembers = useMemo(() => {
-    return activeMemberFilter === 'all' ? members : members.filter(m => m.id === activeMemberFilter || m.id === 'all');
-  }, [members, activeMemberFilter]);
+    return activeMemberFilter === 'all' ? safeMembers : safeMembers.filter(m => m.id === activeMemberFilter || m.id === 'all');
+  }, [safeMembers, activeMemberFilter]);
 
   return (
     <div
       onPointerDown={spawnTouchRipple}
       className={`w-screen h-screen overflow-hidden flex flex-col p-1.5 sm:p-2.5 select-none transition-colors duration-300 ${themeStyles.outer}`}
     >
-      {/* GLOBALE TOUCH- & HOVER-GLOW ENGINE (BLAUES LEUCHTEN, PULSIEREN & FEDER-EFFEKT) */}
+      {/* GLOBALE TOUCH- & HOVER-GLOW ENGINE */}
       <style>{`
         @keyframes twShockwave {
           0% { transform: translate(-50%, -50%) scale(0.15); opacity: 0.9; }
@@ -911,7 +1048,6 @@ export default function TouchwallApp() {
         }
       `}</style>
 
-      {/* VISUELLE TOUCH-WELLEN BEI JEDEM FINGER-TIPP / MAUSKLICK */}
       {touchRipples.map(r => (
         <span
           key={r.id}
@@ -1063,7 +1199,7 @@ export default function TouchwallApp() {
                 >
                   Alle
                 </button>
-                {members.filter(m => m.id !== 'all').map(m => (
+                {safeMembers.filter(m => m.id !== 'all').map(m => (
                   <button
                     key={m.id}
                     onClick={() => setActiveMemberFilter(m.id === activeMemberFilter ? 'all' : m.id)}
@@ -1096,8 +1232,8 @@ export default function TouchwallApp() {
                 currentBaseDate={currentBaseDate}
                 todayStr={todayStr}
                 visibleMembers={visibleMembers}
-                members={members}
-                events={events}
+                members={safeMembers}
+                events={safeEvents}
                 themeStyles={themeStyles}
                 getMemberStyles={getMemberStyles}
                 renderAvatar={renderAvatar}
@@ -1117,12 +1253,12 @@ export default function TouchwallApp() {
 
             {activeSection === 'aufgaben' && (
               <TasksTodoistSection
-                members={members}
+                members={safeMembers}
                 setMembers={setMembers}
-                familyTasks={familyTasks}
+                familyTasks={safeTasks}
                 shoppingNoteBlock={shoppingNoteBlock}
                 setShoppingTileProjectId={setShoppingTileProjectId}
-                todoistConfig={todoistConfig}
+                todoistConfig={safeTodoistConfig}
                 createAndSelectTodoistProject={createAndSelectTodoistProject}
                 isSyncing={isSyncing}
                 lastAutoSyncTime={lastAutoSyncTime}
@@ -1161,16 +1297,16 @@ export default function TouchwallApp() {
             {['schule', 'essen', 'listen', 'design', 'google'].includes(activeSection) && (
               <OtherSections
                 activeSection={activeSection}
-                members={members}
+                members={safeMembers}
                 setMembers={setMembers}
-                schoolData={schoolData}
+                schoolData={safeSchoolData}
                 setSchoolData={setSchoolData}
                 activeSchoolChild={activeSchoolChild}
                 setActiveSchoolChild={setActiveSchoolChild}
                 setSchoolModal={setSchoolModal}
-                mealPlan={mealPlan}
+                mealPlan={safeMeals}
                 setMealPlan={setMealPlan}
-                familyNotes={familyNotes}
+                familyNotes={safeNotes}
                 setFamilyNotes={setFamilyNotes}
                 addItemToNoteTile={addItemToNoteTile}
                 toggleItemInNoteTile={toggleItemInNoteTile}
@@ -1190,11 +1326,11 @@ export default function TouchwallApp() {
                   const f = e.target.files?.[0];
                   if (!f) return;
                   const r = new FileReader();
-                  r.onload = (ev) => setMembers(prev => prev.map(m => m.id === mid ? { ...m, photoUrl: ev.target.result, avatarType: 'photo' } : m));
+                  r.onload = (ev) => setMembers(prev => (Array.isArray(prev) ? prev : DEFAULT_MEMBERS).map(m => m.id === mid ? { ...m, photoUrl: ev.target.result, avatarType: 'photo' } : m));
                   r.readAsDataURL(f);
                 }}
                 restoreScreenshotDefaults={() => {
-                  setMembers(prev => prev.map(m => {
+                  setMembers(prev => (Array.isArray(prev) ? prev : DEFAULT_MEMBERS).map(m => {
                     const def = DEFAULT_MEMBERS.find(d => d.id === m.id);
                     return def ? { ...def, calendarId: m.calendarId, todoistUserId: m.todoistUserId, todoistProjectId: m.todoistProjectId } : m;
                   }));
@@ -1202,7 +1338,7 @@ export default function TouchwallApp() {
                 }}
                 appsScriptUrl={appsScriptUrl}
                 setAppsScriptUrl={setAppsScriptUrl}
-                todoistConfig={todoistConfig}
+                todoistConfig={safeTodoistConfig}
                 setTodoistConfig={setTodoistConfig}
                 connectAndDiscoverTodoist={connectAndDiscoverTodoist}
                 createAndSelectTodoistProject={createAndSelectTodoistProject}
@@ -1216,7 +1352,7 @@ export default function TouchwallApp() {
                   const name = prompt('Name für neuen Kalender / Person:');
                   if (!name?.trim()) return;
                   const calId = prompt('Google Kalender-ID:') || '';
-                  setMembers(prev => [...prev, { id: 'cal_' + Date.now(), name: name.trim(), role: 'Zusatz', badge: name.trim().charAt(0).toUpperCase(), color: 'teal_bold', avatarType: 'emoji', emoji: '📅', calendarId: calId.trim(), todoistProjectId: '', ok: Boolean(calId.trim()) }]);
+                  setMembers(prev => [...(Array.isArray(prev) ? prev : DEFAULT_MEMBERS), { id: 'cal_' + Date.now(), name: name.trim(), role: 'Zusatz', badge: name.trim().charAt(0).toUpperCase(), color: 'teal_bold', avatarType: 'emoji', emoji: '📅', calendarId: calId.trim(), todoistProjectId: '', ok: Boolean(calId.trim()) }]);
                 }}
                 importBackupJson={(e) => {
                   const f = e.target.files?.[0];
@@ -1225,18 +1361,18 @@ export default function TouchwallApp() {
                   r.onload = (ev) => {
                     try {
                       const d = JSON.parse(ev.target.result);
-                      if (d.members) setMembers(d.members);
-                      if (d.mealPlan) setMealPlan(d.mealPlan);
-                      if (d.familyNotes) setFamilyNotes(d.familyNotes);
+                      if (Array.isArray(d.members)) setMembers(d.members);
+                      if (Array.isArray(d.mealPlan)) setMealPlan(d.mealPlan);
+                      if (Array.isArray(d.familyNotes)) setFamilyNotes(d.familyNotes);
                       if (d.schoolData) setSchoolData(d.schoolData);
-                      if (d.familyTasks) setFamilyTasks(d.familyTasks);
+                      if (Array.isArray(d.familyTasks)) setFamilyTasks(d.familyTasks);
                       showToast('Import erfolgreich', 'Backup wiederhergestellt.', '🎉');
                     } catch (err) {}
                   };
                   r.readAsText(f);
                 }}
                 exportBackupJson={() => {
-                  const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify({ members, events, mealPlan, familyNotes, schoolData, familyTasks, todoistConfig }, null, 2));
+                  const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify({ members: safeMembers, events: safeEvents, mealPlan: safeMeals, familyNotes: safeNotes, schoolData: safeSchoolData, familyTasks: safeTasks, todoistConfig: safeTodoistConfig }, null, 2));
                   const a = document.createElement('a');
                   a.setAttribute('href', dataStr);
                   a.setAttribute('download', `touchwall_backup_${todayStr}.json`);
@@ -1272,7 +1408,7 @@ export default function TouchwallApp() {
               className={`w-full px-4 py-3 rounded-2xl border font-bold text-base ${themeStyles.input}`}
             />
             <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
-              {members.map(m => (
+              {safeMembers.map(m => (
                 <button
                   key={m.id}
                   type="button"
@@ -1288,7 +1424,7 @@ export default function TouchwallApp() {
               <div className={`p-3 rounded-2xl border flex flex-wrap items-center justify-between gap-2 ${themeStyles.subtle}`}>
                 <span className="text-xs font-extrabold flex items-center gap-1"><Copy className="w-3.5 h-3.5 text-amber-400" /> Kopie einfügen bei:</span>
                 <div className="flex flex-wrap gap-1.5">
-                  {members.map(tm => (
+                  {safeMembers.map(tm => (
                     <button key={tm.id} type="button" onClick={() => duplicateEventToTarget(eventModal, tm.id, eventModal.date)} style={getMemberStyles(tm).badgeStyle} className="tw-glow-btn px-2.5 py-1 rounded-xl text-xs font-extrabold cursor-pointer">
                       + {tm.id === 'all' ? 'Familie' : tm.name.split(' ')[0]}
                     </button>
@@ -1345,7 +1481,7 @@ export default function TouchwallApp() {
                 ? `Bis ${taskModal.dueDate.slice(8, 10)}.${taskModal.dueDate.slice(5, 7)}.${taskModal.dueTime ? ' ' + taskModal.dueTime + ' Uhr' : ''}`
                 : (taskModal.dueTime ? `Heute bis ${taskModal.dueTime} Uhr` : 'Offen');
 
-              setFamilyTasks(prev => prev.map(t => t.id === taskModal.id ? {
+              setFamilyTasks(prev => (Array.isArray(prev) ? prev : []).map(t => t.id === taskModal.id ? {
                 ...t,
                 title: taskModal.title,
                 description: taskModal.description,
@@ -1357,10 +1493,10 @@ export default function TouchwallApp() {
                 notifyTime: taskModal.notifyTime
               } : t));
 
-              const targetMemberObj = members.find(m => m.id === taskModal.member);
-              if (taskModal.todoistId && todoistConfig.apiToken) {
+              const targetMemberObj = safeMembers.find(m => m.id === taskModal.member);
+              if (taskModal.todoistId && safeTodoistConfig.apiToken) {
                 try {
-                  await updateTodoistTaskItem(todoistConfig.apiToken, taskModal.todoistId, {
+                  await updateTodoistTaskItem(safeTodoistConfig.apiToken, taskModal.todoistId, {
                     title: taskModal.title,
                     description: taskModal.description,
                     priority: taskModal.priority,
@@ -1384,7 +1520,7 @@ export default function TouchwallApp() {
                   notifyUsers: [taskModal.member],
                   fromGoogle: true
                 };
-                setEvents(prev => [...prev, calEv]);
+                setEvents(prev => [...(Array.isArray(prev) ? prev : []), calEv]);
                 await sendCalendarApiAction({ action: 'createEvent', event: calEv });
               }
 
@@ -1426,7 +1562,7 @@ export default function TouchwallApp() {
                   onChange={(e) => setTaskModal({ ...taskModal, member: e.target.value })}
                   className={`w-full px-3 py-2.5 rounded-xl border text-xs font-extrabold ${themeStyles.input}`}
                 >
-                  {members.filter(m => m.id !== 'all').map(m => (
+                  {safeMembers.filter(m => m.id !== 'all').map(m => (
                     <option key={m.id} value={m.id} className="bg-slate-800 text-white">👤 {m.name}</option>
                   ))}
                 </select>
@@ -1503,7 +1639,7 @@ export default function TouchwallApp() {
 
       {/* MODAL 2: JAHRESWAND TAGES-DETAILS */}
       {yearDayModal.open && (() => {
-        const dayEvents = events.filter(e => e.date === yearDayModal.dateStr);
+        const dayEvents = safeEvents.filter(e => e.date === yearDayModal.dateStr);
         return (
           <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
             <div className={`w-full max-w-xl rounded-3xl border-2 border-sky-400/50 p-6 shadow-2xl space-y-4 ${themeStyles.modal}`}>
@@ -1513,7 +1649,7 @@ export default function TouchwallApp() {
               </div>
               <div className="space-y-2 max-h-60 overflow-y-auto">
                 {dayEvents.map(ev => {
-                  const mem = members.find(m => m.id === ev.member) || members[0];
+                  const mem = safeMembers.find(m => m.id === ev.member) || safeMembers[0];
                   return (
                     <div key={ev.id} style={getMemberStyles(mem).headerStyle} className="p-3 rounded-2xl border flex items-center justify-between gap-2">
                       <span className="font-extrabold text-sm">{ev.title} ({mem.name})</span>
@@ -1535,10 +1671,12 @@ export default function TouchwallApp() {
               e.preventDefault();
               const key = `${schoolModal.dayIdx}-${schoolModal.periodIdx}`;
               setSchoolData(prev => {
-                const nextSlots = { ...prev[activeSchoolChild].slots };
+                const base = prev && typeof prev === 'object' ? prev : DEFAULT_SCHOOL;
+                const childObj = base[activeSchoolChild] || DEFAULT_SCHOOL[activeSchoolChild];
+                const nextSlots = { ...(childObj.slots || {}) };
                 if (!schoolModal.subject.trim()) delete nextSlots[key];
                 else nextSlots[key] = { subject: schoolModal.subject.trim(), room: schoolModal.room.trim(), status: schoolModal.status };
-                return { ...prev, [activeSchoolChild]: { ...prev[activeSchoolChild], slots: nextSlots } };
+                return { ...base, [activeSchoolChild]: { ...childObj, slots: nextSlots } };
               });
               setSchoolModal({ ...schoolModal, open: false });
             }}
