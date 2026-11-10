@@ -1,4 +1,4 @@
-// @ts-nocheck
+ // @ts-nocheck
 /* eslint-disable react/no-unescaped-entities */
 
 export function safeArr(val, fallback = []) {
@@ -14,7 +14,7 @@ export function formatDateStr(dateObj) {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+  return y + '-' + m + '-' + day;
 }
 
 export function addDays(dateObj, days) {
@@ -43,7 +43,10 @@ export function getISOWeek(d) {
 export function hexToRgba(hex, alpha) {
   const clean = String(hex || '#0284c7').replace('#', '');
   const num = parseInt(clean, 16);
-  return `rgba(${(num >> 16) & 255}, ${(num >> 8) & 255}, ${num & 255}, ${alpha})`;
+  const r = (num >> 16) & 255;
+  const g = (num >> 8) & 255;
+  const b = num & 255;
+  return 'rgba(' + r + ', ' + g + ', ' + b + ', ' + alpha + ')';
 }
 
 export function playTouchwallAlarmSound() {
@@ -91,13 +94,13 @@ export function getBWHolidayName(dateStr) {
   if (!bwHolidayCache[year]) {
     const map = {};
     const easter = computeEasterSunday(year);
-    map[`${year}-01-01`] = 'Neujahr';
-    map[`${year}-01-06`] = 'Heilige Drei Könige';
-    map[`${year}-05-01`] = 'Tag der Arbeit';
-    map[`${year}-10-03`] = 'Tag der Dt. Einheit';
-    map[`${year}-11-01`] = 'Allerheiligen';
-    map[`${year}-12-25`] = '1. Weihnachtstag';
-    map[`${year}-12-26`] = '2. Weihnachtstag';
+    map[year + '-01-01'] = 'Neujahr';
+    map[year + '-01-06'] = 'Heilige Drei Könige';
+    map[year + '-05-01'] = 'Tag der Arbeit';
+    map[year + '-10-03'] = 'Tag der Dt. Einheit';
+    map[year + '-11-01'] = 'Allerheiligen';
+    map[year + '-12-25'] = '1. Weihnachtstag';
+    map[year + '-12-26'] = '2. Weihnachtstag';
     map[formatDateStr(addDays(easter, -2))] = 'Karfreitag';
     map[formatDateStr(addDays(easter, 1))] = 'Ostermontag';
     map[formatDateStr(addDays(easter, 39))] = 'Christi Himmelfahrt';
@@ -173,9 +176,6 @@ export const COLOR_PALETTES = {
   cyan:    { name: 'Petrol',     hex: '#0891b2', border: '#0e7490', light: '#cffafe', text: '#0e7490', bold: false }
 };
 
-// =========================================================
-// 12 BELIEBTE DASHBOARD-THEMES (INKL. 5 NEUER TOP-FARBKOMBINATIONEN)
-// =========================================================
 export const PAGE_THEMES = [
   { id: 'metal',     name: '⚙️ Metal Silver',   desc: 'Titan-Grau mit Sky-Indigo Glow-Buttons',   dark: true },
   { id: 'ocean',     name: '🌊 Ocean Deep',     desc: 'Tiefes Meeresblau & leuchtendes Türkis',   dark: true },
@@ -268,9 +268,6 @@ export const DEFAULT_SCHOOL = {
 
 export const DEFAULT_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwdbSP-zoHwk7Y_UqSG7qzC84OAKUeHGCGFuRvaaWq7D6Jh8PN6f7Fk_8m8h42a0YzG/exec';
 
-// =========================================================
-// THEME-ENGINE INKL. DYNAMISCHER "SCHULE"-BUTTON-FARBEN PRO THEME
-// =========================================================
 export function buildThemeStyles(currentTheme) {
   switch (currentTheme) {
     case 'ocean':
@@ -534,19 +531,19 @@ export function buildMemberStyles(member, isDark) {
     return {
       cardStyle: {
         background: isDark
-          ? `linear-gradient(135deg, ${hexToRgba(p.hex, 0.65)} 0%, ${hexToRgba(p.hex, 0.45)} 100%)`
-          : `linear-gradient(135deg, ${hexToRgba(p.hex, 0.82)} 0%, ${hexToRgba(p.hex, 0.68)} 100%)`,
-        borderLeft: `5px solid ${p.hex}`,
-        borderTop: `1px solid ${hexToRgba(p.hex, 0.5)}`,
-        borderRight: `1px solid ${hexToRgba(p.hex, 0.35)}`,
-        borderBottom: `1px solid ${hexToRgba(p.hex, 0.35)}`,
+          ? 'linear-gradient(135deg, ' + hexToRgba(p.hex, 0.65) + ' 0%, ' + hexToRgba(p.hex, 0.45) + ' 100%)'
+          : 'linear-gradient(135deg, ' + hexToRgba(p.hex, 0.82) + ' 0%, ' + hexToRgba(p.hex, 0.68) + ' 100%)',
+        borderLeft: '5px solid ' + p.hex,
+        borderTop: '1px solid ' + hexToRgba(p.hex, 0.5),
+        borderRight: '1px solid ' + hexToRgba(p.hex, 0.35),
+        borderBottom: '1px solid ' + hexToRgba(p.hex, 0.35),
         color: '#ffffff'
       },
       headerStyle: {
         background: isDark
-          ? `linear-gradient(90deg, ${hexToRgba(p.hex, 0.32)} 0%, ${hexToRgba(p.hex, 0.12)} 100%)`
-          : `linear-gradient(90deg, ${hexToRgba(p.hex, 0.20)} 0%, ${hexToRgba(p.hex, 0.08)} 100%)`,
-        borderLeft: `6px solid ${p.hex}`
+          ? 'linear-gradient(90deg, ' + hexToRgba(p.hex, 0.32) + ' 0%, ' + hexToRgba(p.hex, 0.12) + ' 100%)'
+          : 'linear-gradient(90deg, ' + hexToRgba(p.hex, 0.20) + ' 0%, ' + hexToRgba(p.hex, 0.08) + ' 100%)',
+        borderLeft: '6px solid ' + p.hex
       },
       cellStyle: (isWeekend) => ({
         backgroundColor: isWeekend
@@ -559,12 +556,12 @@ export function buildMemberStyles(member, isDark) {
   return {
     cardStyle: {
       backgroundColor: isDark ? hexToRgba(p.hex, 0.32) : p.light,
-      borderLeft: `4px solid ${p.hex}`,
+      borderLeft: '4px solid ' + p.hex,
       color: isDark ? '#f8fafc' : p.text
     },
     headerStyle: {
       backgroundColor: isDark ? hexToRgba(p.hex, 0.22) : p.light,
-      borderLeft: `6px solid ${p.hex}`
+      borderLeft: '6px solid ' + p.hex
     },
     cellStyle: (isWeekend) => ({
       backgroundColor: isWeekend
@@ -589,11 +586,11 @@ export async function todoistFetch(token, path, options = {}) {
 
   try {
     const sep = path.includes('?') ? '&' : '?';
-    const url = method === 'GET' ? `${TODOIST_V1_DIRECT}${path}${sep}_t=${Date.now()}` : `${TODOIST_V1_DIRECT}${path}`;
+    const url = method === 'GET' ? TODOIST_V1_DIRECT + path + sep + '_t=' + Date.now() : TODOIST_V1_DIRECT + path;
     const directRes = await fetch(url, {
       method,
       headers: {
-        Authorization: `Bearer ${cleanToken}`,
+        Authorization: 'Bearer ' + cleanToken,
         ...(cleanBody ? { 'Content-Type': 'application/json' } : {})
       },
       body: cleanBody && method !== 'GET' ? JSON.stringify(cleanBody) : undefined,
@@ -603,7 +600,7 @@ export async function todoistFetch(token, path, options = {}) {
     if (directRes.status === 204) return { ok: true };
     const text = await directRes.text();
     if (!directRes.ok) {
-      throw new Error(`Todoist-v1 (${directRes.status}): ${text}`);
+      throw new Error('Todoist-v1 (' + directRes.status + '): ' + text);
     }
     const data = text ? JSON.parse(text) : {};
     return (method === 'GET' && data && !Array.isArray(data) && Array.isArray(data.results))
@@ -614,7 +611,7 @@ export async function todoistFetch(token, path, options = {}) {
       throw directErr;
     }
 
-    const proxyRes = await fetch(`/api/todoist?_t=${Date.now()}`, {
+    const proxyRes = await fetch('/api/todoist?_t=' + Date.now(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -661,16 +658,71 @@ export async function addTodoistRelativeReminder(token, itemId, notifyTimeStr) {
 
   try {
     const formBody = new URLSearchParams({ commands: JSON.stringify(cmd) });
-    await fetch(`${TODOIST_V1_DIRECT}/sync`, {
+    await fetch(TODOIST_V1_DIRECT + '/sync', {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${cleanToken}`,
+        Authorization: 'Bearer ' + cleanToken,
         'Content-Type': 'application/x-www-form-urlencoded'
       },
       body: formBody.toString(),
       cache: 'no-store'
     });
   } catch (e) {}
+}
+
+export async function pushTodoistTaskToPhoneNow(token, itemId, title, assigneeTodoistId, allCollaborators = []) {
+  const cleanToken = String(token || '').replace(/[^a-zA-Z0-9_-]/g, '');
+  if (!cleanToken || !itemId) return false;
+
+  const notifyIds = [];
+  if (assigneeTodoistId) {
+    notifyIds.push(String(assigneeTodoistId));
+  }
+  (Array.isArray(allCollaborators) ? allCollaborators : []).forEach(c => {
+    if (c?.id && !notifyIds.includes(String(c.id))) {
+      notifyIds.push(String(c.id));
+    }
+  });
+
+  const nowPlus1Min = new Date(Date.now() + 65000).toISOString();
+  const commands = [
+    {
+      type: 'reminder_add',
+      temp_id: 'rem-now-' + Date.now(),
+      uuid: 'tw-rem-now-' + Date.now() + '-' + Math.floor(Math.random() * 100000),
+      args: {
+        item_id: String(itemId),
+        type: 'absolute',
+        due: { date: nowPlus1Min }
+      }
+    },
+    {
+      type: 'note_add',
+      temp_id: 'note-push-' + Date.now(),
+      uuid: 'tw-note-push-' + Date.now() + '-' + Math.floor(Math.random() * 100000),
+      args: {
+        item_id: String(itemId),
+        content: '📲 Direkt-Push von der Familien-Touchwall: „' + (title || 'Aufgabe') + '“',
+        ...(notifyIds.length > 0 ? { uids_to_notify: notifyIds } : {})
+      }
+    }
+  ];
+
+  try {
+    const formBody = new URLSearchParams({ commands: JSON.stringify(commands) });
+    const res = await fetch(TODOIST_V1_DIRECT + '/sync', {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer ' + cleanToken,
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: formBody.toString(),
+      cache: 'no-store'
+    });
+    return res.ok;
+  } catch (e) {
+    return false;
+  }
 }
 
 export async function discoverTodoistWorkspace(token) {
@@ -694,7 +746,7 @@ export async function discoverTodoistWorkspace(token) {
   for (const p of projects) {
     if (p.is_shared || p.id === tasksProj?.id || p.id === shoppingProj?.id) {
       try {
-        const cols = await todoistFetch(cleanToken, `/projects/${p.id}/collaborators`);
+        const cols = await todoistFetch(cleanToken, '/projects/' + p.id + '/collaborators');
         if (Array.isArray(cols)) {
           cols.forEach(c => {
             if (c?.id) {
@@ -715,10 +767,10 @@ export async function discoverTodoistWorkspace(token) {
       sync_token: '*',
       resource_types: JSON.stringify(['collaborators', 'user'])
     });
-    const syncRes = await fetch(`${TODOIST_V1_DIRECT}/sync`, {
+    const syncRes = await fetch(TODOIST_V1_DIRECT + '/sync', {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${cleanToken}`,
+        Authorization: 'Bearer ' + cleanToken,
         'Content-Type': 'application/x-www-form-urlencoded'
       },
       body: formBody.toString(),
@@ -857,7 +909,7 @@ export async function pullFromTodoistTwoWay(token, config, currentTasks, current
       ? rt.due.datetime.slice(11, 16)
       : (rt.due?.date && rt.due.date.length >= 16 ? rt.due.date.slice(11, 16) : '');
     const dueLabel = dueDate
-      ? `Bis ${dueDate.slice(8, 10)}.${dueDate.slice(5, 7)}.${dueTime ? ' ' + dueTime + ' Uhr' : ''}`
+      ? 'Bis ' + dueDate.slice(8, 10) + '.' + dueDate.slice(5, 7) + '.' + (dueTime ? ' ' + dueTime + ' Uhr' : '')
       : (rt.due?.string || 'Offen');
 
     const priorityNum = Number(rt.priority || 1);
@@ -906,11 +958,13 @@ export async function createTodoistTaskItem(
   dueTime,
   priority = 1,
   description = '',
-  notifyTime = '15m'
+  notifyTime = '15m',
+  collaborators = [],
+  instantMobilePush = true
 ) {
   if (!token || !projectId) return null;
   const rawBody = {
-    content: memberObj?.todoistUserId ? title : (memberObj?.name ? `[${memberObj.name}] ${title}` : title),
+    content: memberObj?.todoistUserId ? title : (memberObj?.name ? '[' + memberObj.name + '] ' + title : title),
     project_id: String(projectId),
     priority: Number(priority || 1)
   };
@@ -922,12 +976,12 @@ export async function createTodoistTaskItem(
     rawBody.assignee_id = String(memberObj.todoistUserId);
   }
   if (dueDate && dueTime) {
-    rawBody.due_datetime = new Date(`${dueDate}T${dueTime}:00`).toISOString();
+    rawBody.due_datetime = new Date(dueDate + 'T' + dueTime + ':00').toISOString();
   } else if (dueDate) {
     rawBody.due_date = dueDate;
   } else if (dueTime) {
     const today = formatDateStr(new Date());
-    rawBody.due_datetime = new Date(`${today}T${dueTime}:00`).toISOString();
+    rawBody.due_datetime = new Date(today + 'T' + dueTime + ':00').toISOString();
   }
 
   const created = await todoistFetch(token, '/tasks', {
@@ -935,8 +989,13 @@ export async function createTodoistTaskItem(
     rawBody
   });
 
-  if (created?.id && notifyTime && notifyTime !== 'none' && (dueTime || dueDate)) {
-    await addTodoistRelativeReminder(token, created.id, notifyTime);
+  if (created?.id) {
+    if (notifyTime && notifyTime !== 'none' && (dueTime || dueDate)) {
+      await addTodoistRelativeReminder(token, created.id, notifyTime);
+    }
+    if (instantMobilePush) {
+      await pushTodoistTaskToPhoneNow(token, created.id, title, memberObj?.todoistUserId, collaborators);
+    }
   }
 
   return created;
@@ -951,12 +1010,12 @@ export async function updateTodoistTaskItem(token, todoistId, updates) {
   if (updates.assigneeId) rawBody.assignee_id = String(updates.assigneeId);
 
   if (updates.dueDate && updates.dueTime) {
-    rawBody.due_datetime = new Date(`${updates.dueDate}T${updates.dueTime}:00`).toISOString();
+    rawBody.due_datetime = new Date(updates.dueDate + 'T' + updates.dueTime + ':00').toISOString();
   } else if (updates.dueDate) {
     rawBody.due_date = updates.dueDate;
   }
 
-  const res = await todoistFetch(token, `/tasks/${todoistId}`, {
+  const res = await todoistFetch(token, '/tasks/' + todoistId, {
     method: 'POST',
     rawBody
   });
@@ -970,10 +1029,10 @@ export async function updateTodoistTaskItem(token, todoistId, updates) {
 export async function closeOrReopenTodoistTask(token, todoistId, makeDone) {
   if (!token || !todoistId) return;
   const action = makeDone ? 'close' : 'reopen';
-  return todoistFetch(token, `/tasks/${todoistId}/${action}`, { method: 'POST' });
+  return todoistFetch(token, '/tasks/' + todoistId + '/' + action, { method: 'POST' });
 }
 
 export async function deleteTodoistTask(token, todoistId) {
   if (!token || !todoistId) return;
-  return todoistFetch(token, `/tasks/${todoistId}`, { method: 'DELETE' });
+  return todoistFetch(token, '/tasks/' + todoistId, { method: 'DELETE' });
 }
