@@ -187,11 +187,11 @@ export const PAGE_THEMES = [
 export const AVATAR_EMOJIS = ['👨‍👩‍👧‍👦', '👨', '👩', '👦', '👧', '🏎️', '💻', '🐕', '🐴', '⚽', '🎮', '🎨', '🦸‍♂️', '🦸‍♀️', '👑', '🦊'];
 
 export const DEFAULT_MEMBERS = [
-  { id: 'all',       name: 'Familie & Events', role: 'Alle gemeinsam', badge: 'FR', color: 'orange_bold',  avatarType: 'emoji', emoji: '👨‍👩‍👧‍👦', photoUrl: '', calendarId: 'primary', todoistUserId: '', statusMsg: 'Hauptkalender', ok: true },
-  { id: 'hans',      name: 'Hans',             role: 'Vater',          badge: 'H',  color: 'navy_bold',    avatarType: 'photo', emoji: '🏎️',     photoUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=120&q=80', calendarId: '', todoistUserId: '', statusMsg: 'Bereit', ok: false },
-  { id: 'sarah',     name: 'Sarah',            role: 'Mutter',         badge: 'S',  color: 'pink',         avatarType: 'photo', emoji: '👩',     photoUrl: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=120&q=80', calendarId: '', todoistUserId: '', statusMsg: 'Bereit', ok: false },
-  { id: 'dean',      name: 'Dean',             role: 'Sohn',           badge: 'D',  color: 'crimson_bold', avatarType: 'emoji', emoji: '⚽',     photoUrl: 'https://images.unsplash.com/photo-1503454537195-1dcabb73ffb9?auto=format&fit=crop&w=120&q=80', calendarId: '', todoistUserId: '', statusMsg: 'Bereit', ok: false },
-  { id: 'valentina', name: 'Valentina',        role: 'Tochter',        badge: 'V',  color: 'teal_bold',    avatarType: 'emoji', emoji: '🐴',     photoUrl: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=120&q=80', calendarId: '', todoistUserId: '', statusMsg: 'Bereit', ok: false }
+  { id: 'all',       name: 'Familie & Events', role: 'Alle gemeinsam', badge: 'FR', color: 'orange_bold',  avatarType: 'emoji', emoji: '👨‍👩‍👧‍👦', photoUrl: '', calendarId: 'primary', todoistUserId: '', todoistProjectId: '', statusMsg: 'Hauptkalender', ok: true },
+  { id: 'hans',      name: 'Hans',             role: 'Vater',          badge: 'H',  color: 'navy_bold',    avatarType: 'photo', emoji: '🏎️',     photoUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=120&q=80', calendarId: '', todoistUserId: '', todoistProjectId: '', statusMsg: 'Bereit', ok: false },
+  { id: 'sarah',     name: 'Sarah',            role: 'Mutter',         badge: 'S',  color: 'pink',         avatarType: 'photo', emoji: '👩',     photoUrl: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=120&q=80', calendarId: '', todoistUserId: '', todoistProjectId: '', statusMsg: 'Bereit', ok: false },
+  { id: 'dean',      name: 'Dean',             role: 'Sohn',           badge: 'D',  color: 'crimson_bold', avatarType: 'emoji', emoji: '⚽',     photoUrl: 'https://images.unsplash.com/photo-1503454537195-1dcabb73ffb9?auto=format&fit=crop&w=120&q=80', calendarId: '', todoistUserId: '', todoistProjectId: '', statusMsg: 'Bereit', ok: false },
+  { id: 'valentina', name: 'Valentina',        role: 'Tochter',        badge: 'V',  color: 'teal_bold',    avatarType: 'emoji', emoji: '🐴',     photoUrl: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=120&q=80', calendarId: '', todoistUserId: '', todoistProjectId: '', statusMsg: 'Bereit', ok: false }
 ];
 
 export const DEFAULT_MEALS = [
@@ -205,9 +205,9 @@ export const DEFAULT_MEALS = [
 ];
 
 export const DEFAULT_NOTES = [
-  { id: 1, title: '🛒 Einkaufsliste (Geteilt)', color: 'amber', author: 'Sarah & Hans', items: [{ text: 'Glutenfreier Blätterteig', done: false }, { text: 'Fisch Seesternchen', done: false }, { text: 'Katzenfutter Norma', done: false }] },
-  { id: 2, title: '📌 Wichtige Familien-Infos', color: 'sky',   author: 'Hans',         items: [{ text: 'Ponyhof Dienstplan am Wochenende prüfen', done: false }, { text: 'Müllabfuhr Gelber Sack: Dienstag früh', done: false }] },
-  { id: 3, title: '🎁 Ideen & Besorgungen',     color: 'pink',  author: 'Familie',      items: [{ text: 'Dean: Neue Fußballschuhe schauen', done: false }, { text: 'Valentina: Bastelset & Reithandschuhe', done: false }] }
+  { id: 1, title: '🛒 Einkaufsliste (Geteilt)', color: 'amber', author: 'Sarah & Hans', todoistProjectId: '', items: [{ text: 'Glutenfreier Blätterteig', done: false }, { text: 'Fisch Seesternchen', done: false }, { text: 'Katzenfutter Norma', done: false }] },
+  { id: 2, title: '📌 Wichtige Familien-Infos', color: 'sky',   author: 'Hans',         todoistProjectId: '', items: [{ text: 'Ponyhof Dienstplan am Wochenende prüfen', done: false }, { text: 'Müllabfuhr Gelber Sack: Dienstag früh', done: false }] },
+  { id: 3, title: '🎁 Ideen & Besorgungen',     color: 'pink',  author: 'Familie',      todoistProjectId: '', items: [{ text: 'Dean: Neue Fußballschuhe schauen', done: false }, { text: 'Valentina: Bastelset & Reithandschuhe', done: false }] }
 ];
 
 export const DEFAULT_SCHOOL = {
@@ -265,34 +265,34 @@ export function buildThemeStyles(currentTheme) {
   switch (currentTheme) {
     case 'metal':
       return {
-        outer: 'bg-[#262626] text-slate-100',
-        shell: 'bg-[#3b3b3b] border-[#525252]',
-        sidebar: 'bg-gradient-to-b from-[#4a4a4a] via-[#333333] to-[#262626] border-[#6e6e6e]',
-        header: 'bg-gradient-to-r from-[#4f4f4f] via-[#383838] to-[#2b2b2b] border-[#6e6e6e]',
-        viewport: 'bg-gradient-to-br from-[#404040] via-[#333333] to-[#292929]',
-        card: 'bg-[#464646] border-[#6e6e6e] text-slate-100',
-        subtle: 'bg-[#383838] border-[#5c5c5c] text-slate-100',
-        modal: 'bg-[#3d3d3d] border-[#757575] text-slate-100',
-        input: 'bg-[#2e2e2e] border-[#636363] text-slate-100 placeholder-zinc-400',
-        banner: 'bg-[#1f1f1f] text-white',
-        divider: 'border-[#6e6e6e]',
+        outer: 'bg-[#202225] text-slate-100',
+        shell: 'bg-[#32363b] border-[#525860]',
+        sidebar: 'bg-gradient-to-b from-[#3f444a] via-[#2c3035] to-[#202327] border-[#606872]',
+        header: 'bg-gradient-to-r from-[#42474d] via-[#31353a] to-[#26292d] border-[#606872]',
+        viewport: 'bg-gradient-to-br from-[#373b40] via-[#2b2e33] to-[#222529]',
+        card: 'bg-[#3e4349]/95 border-[#646d78] text-slate-100 tw-glow-card',
+        subtle: 'bg-[#303439] border-[#525a63] text-slate-100 tw-glow-subtle',
+        modal: 'bg-[#35393e] border-[#6e7782] text-slate-100',
+        input: 'bg-[#26292d] border-[#586069] text-slate-100 placeholder-zinc-400',
+        banner: 'bg-[#191b1e] text-white',
+        divider: 'border-[#5c646e]',
         textMain: 'text-slate-100',
         textMuted: 'text-zinc-300',
         dark: true
       };
     case 'lightdark':
       return {
-        outer: 'bg-[#161d20] text-slate-100',
-        shell: 'bg-[#212a2e] border-[#37474f]',
-        sidebar: 'bg-[#1c2428] border-[#37474f]',
-        header: 'bg-[#1c2428] border-[#37474f]',
-        viewport: 'bg-[#192125]',
-        card: 'bg-[#2b363c] border-[#455a64] text-slate-100',
-        subtle: 'bg-[#222b30] border-[#37474f] text-slate-100',
-        modal: 'bg-[#252f34] border-[#455a64] text-slate-100',
-        input: 'bg-[#1b2327] border-[#455a64] text-slate-100 placeholder-slate-400',
-        banner: 'bg-[#12181b] text-white',
-        divider: 'border-[#455a64]',
+        outer: 'bg-[#11171a] text-slate-100',
+        shell: 'bg-[#1c262b] border-[#334650]',
+        sidebar: 'bg-[#161f24] border-[#334650]',
+        header: 'bg-[#161f24] border-[#334650]',
+        viewport: 'bg-[#141c20]',
+        card: 'bg-[#233036]/95 border-[#3d5561] text-slate-100 tw-glow-card',
+        subtle: 'bg-[#1b252a] border-[#334650] text-slate-100 tw-glow-subtle',
+        modal: 'bg-[#202c32] border-[#45606e] text-slate-100',
+        input: 'bg-[#151d21] border-[#3d5561] text-slate-100 placeholder-slate-400',
+        banner: 'bg-[#0e1417] text-white',
+        divider: 'border-[#3d5561]',
         textMain: 'text-slate-100',
         textMuted: 'text-slate-300',
         dark: true
@@ -304,8 +304,8 @@ export function buildThemeStyles(currentTheme) {
         sidebar: 'bg-[#131417] border-[#33363d]',
         header: 'bg-[#15171a] border-[#33363d]',
         viewport: 'bg-[#111215]',
-        card: 'bg-[#212327] border-[#383b42] text-zinc-100',
-        subtle: 'bg-[#191b1f] border-[#33363d] text-zinc-100',
+        card: 'bg-[#212327] border-[#383b42] text-zinc-100 tw-glow-card',
+        subtle: 'bg-[#191b1f] border-[#33363d] text-zinc-100 tw-glow-subtle',
         modal: 'bg-[#1e2024] border-[#3f434c] text-zinc-100',
         input: 'bg-[#141518] border-[#383b42] text-zinc-100 placeholder-zinc-500',
         banner: 'bg-[#090a0c] text-white',
@@ -321,8 +321,8 @@ export function buildThemeStyles(currentTheme) {
         sidebar: 'bg-slate-950 border-slate-800',
         header: 'bg-slate-900 border-slate-800',
         viewport: 'bg-slate-950',
-        card: 'bg-slate-800 border-slate-700 text-slate-100',
-        subtle: 'bg-slate-900 border-slate-700 text-slate-100',
+        card: 'bg-slate-800/95 border-slate-700 text-slate-100 tw-glow-card',
+        subtle: 'bg-slate-900 border-slate-700 text-slate-100 tw-glow-subtle',
         modal: 'bg-slate-900 border-slate-700 text-slate-100',
         input: 'bg-slate-950 border-slate-700 text-slate-100 placeholder-slate-500',
         banner: 'bg-indigo-950 text-white',
@@ -338,8 +338,8 @@ export function buildThemeStyles(currentTheme) {
         sidebar: 'bg-[#f5efe6] border-[#dfd3c3]',
         header: 'bg-[#fffdf9] border-[#dfd3c3]',
         viewport: 'bg-[#faf6f0]',
-        card: 'bg-[#fffdf9] border-[#dfd3c3] text-[#3d2f1d]',
-        subtle: 'bg-[#f5efe6] border-[#dfd3c3] text-[#3d2f1d]',
+        card: 'bg-[#fffdf9] border-[#dfd3c3] text-[#3d2f1d] tw-glow-card',
+        subtle: 'bg-[#f5efe6] border-[#dfd3c3] text-[#3d2f1d] tw-glow-subtle',
         modal: 'bg-[#fffdf9] border-[#d5c5b0] text-[#3d2f1d]',
         input: 'bg-white border-[#d5c5b0] text-[#3d2f1d] placeholder-[#9c8974]',
         banner: 'bg-[#5c4738] text-white',
@@ -355,8 +355,8 @@ export function buildThemeStyles(currentTheme) {
         sidebar: 'bg-[#eaf4f4] border-[#c7e5d9]',
         header: 'bg-[#f6fff8] border-[#c7e5d9]',
         viewport: 'bg-[#edf6f3]',
-        card: 'bg-[#f8fffa] border-[#b7ded0] text-[#1b4332]',
-        subtle: 'bg-[#e3f2ed] border-[#b7ded0] text-[#1b4332]',
+        card: 'bg-[#f8fffa] border-[#b7ded0] text-[#1b4332] tw-glow-card',
+        subtle: 'bg-[#e3f2ed] border-[#b7ded0] text-[#1b4332] tw-glow-subtle',
         modal: 'bg-[#f6fff8] border-[#a3d5c3] text-[#1b4332]',
         input: 'bg-white border-[#a3d5c3] text-[#1b4332] placeholder-[#689689]',
         banner: 'bg-[#1b4332] text-white',
@@ -372,8 +372,8 @@ export function buildThemeStyles(currentTheme) {
         sidebar: 'bg-slate-50 border-slate-300',
         header: 'bg-white border-slate-300',
         viewport: 'bg-slate-100',
-        card: 'bg-white border-slate-300 text-slate-900',
-        subtle: 'bg-slate-50 border-slate-200 text-slate-800',
+        card: 'bg-white border-slate-300 text-slate-900 tw-glow-card',
+        subtle: 'bg-slate-50 border-slate-200 text-slate-800 tw-glow-subtle',
         modal: 'bg-white border-slate-300 text-slate-900',
         input: 'bg-slate-50 border-slate-300 text-slate-900 placeholder-slate-400',
         banner: 'bg-slate-800 text-white',
@@ -433,11 +433,11 @@ export function buildMemberStyles(member, isDark) {
 }
 
 // =========================================================
-// 4. TODOIST API v1 ENGINE (DIREKT-AUFRUF /api/v1 + PROXY-FALLBACK)
+// 4. TODOIST API v1 ENGINE (MULTI-PROJEKT & ECHTZEIT-SYNC)
 // =========================================================
 const TODOIST_V1_DIRECT = 'https://api.todoist.com/api/v1';
 
-async function todoistFetch(token, path, options = {}) {
+export async function todoistFetch(token, path, options = {}) {
   const cleanToken = String(token || '').replace(/[^a-zA-Z0-9_-]/g, '');
   if (!cleanToken) throw new Error('Kein Todoist API-Token eingetragen.');
 
@@ -447,9 +447,10 @@ async function todoistFetch(token, path, options = {}) {
     cleanBody.due_datetime = new Date(cleanBody.due_datetime).toISOString();
   }
 
-  // Stufe 1: Direkter Aufruf von https://api.todoist.com/api/v1 (umgeht jeglichen alten Server-Cache!)
   try {
-    const directRes = await fetch(`${TODOIST_V1_DIRECT}${path}`, {
+    const sep = path.includes('?') ? '&' : '?';
+    const url = method === 'GET' ? `${TODOIST_V1_DIRECT}${path}${sep}_t=${Date.now()}` : `${TODOIST_V1_DIRECT}${path}`;
+    const directRes = await fetch(url, {
       method,
       headers: {
         Authorization: `Bearer ${cleanToken}`,
@@ -469,12 +470,10 @@ async function todoistFetch(token, path, options = {}) {
       ? data.results
       : data;
   } catch (directErr) {
-    // Falls es ein echter Todoist-Statusfehler (z.B. 401/403 falsches Token) war, direkt melden:
     if (String(directErr.message || '').startsWith('Todoist-v1 (')) {
       throw directErr;
     }
 
-    // Stufe 2: Fallback über den Vercel Server-Proxy /api/todoist
     const proxyRes = await fetch(`/api/todoist?_t=${Date.now()}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -494,6 +493,15 @@ async function todoistFetch(token, path, options = {}) {
       ? proxyData.results
       : proxyData;
   }
+}
+
+// Erstellt direkt aus der Touchwall heraus ein neues Todoist-Projekt
+export async function createNewTodoistProject(token, projectName) {
+  if (!token || !projectName?.trim()) return null;
+  return todoistFetch(token, '/projects', {
+    method: 'POST',
+    rawBody: { name: projectName.trim() }
+  });
 }
 
 export async function addTodoistRelativeReminder(token, itemId, notifyTimeStr) {
@@ -523,18 +531,10 @@ export async function addTodoistRelativeReminder(token, itemId, notifyTimeStr) {
       body: formBody.toString(),
       cache: 'no-store'
     });
-  } catch (e) {
-    try {
-      await fetch(`/api/todoist?_t=${Date.now()}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: cleanToken, action: 'addReminder', itemId: String(itemId), minuteOffset })
-      });
-    } catch (err) {}
-  }
+  } catch (e) {}
 }
 
-// Lädt alle Todoist-Projekte & Team-Mitglieder (Collaborators) von "Familie Richter" über /api/v1
+// Lädt alle Todoist-Projekte & Team-Mitglieder (Collaborators) von "Familie Richter"
 export async function discoverTodoistWorkspace(token) {
   const cleanToken = String(token || '').replace(/[^a-zA-Z0-9_-]/g, '');
   let projects = await todoistFetch(cleanToken, '/projects');
@@ -544,23 +544,15 @@ export async function discoverTodoistWorkspace(token) {
   let tasksProj = projects.find(p => /aufgaben|familie|touchwall|tasks|richter/i.test(p.name) && (!shoppingProj || p.id !== shoppingProj.id));
 
   if (!shoppingProj) {
-    shoppingProj = await todoistFetch(cleanToken, '/projects', {
-      method: 'POST',
-      rawBody: { name: '🛒 Einkaufsliste' }
-    });
+    shoppingProj = await createNewTodoistProject(cleanToken, '🛒 Einkaufsliste');
     if (shoppingProj?.id) projects.push(shoppingProj);
   }
   if (!tasksProj) {
-    tasksProj = await todoistFetch(cleanToken, '/projects', {
-      method: 'POST',
-      rawBody: { name: '✅ Familien-Aufgaben' }
-    });
+    tasksProj = await createNewTodoistProject(cleanToken, '✅ Familien-Aufgaben');
     if (tasksProj?.id) projects.push(tasksProj);
   }
 
   const collaboratorMap = {};
-
-  // 1. Collaborators pro Projekt über /api/v1/projects/{id}/collaborators abrufen
   for (const p of projects) {
     if (p.is_shared || p.id === tasksProj?.id || p.id === shoppingProj?.id) {
       try {
@@ -580,7 +572,6 @@ export async function discoverTodoistWorkspace(token) {
     }
   }
 
-  // 2. Zusätzlich alle Workspace-/Team-Mitglieder über /api/v1/sync laden
   try {
     const formBody = new URLSearchParams({
       sync_token: '*',
@@ -620,55 +611,126 @@ export async function discoverTodoistWorkspace(token) {
 
   return {
     projects,
-    shoppingProjectId: shoppingProj?.id || projects[0]?.id || '',
-    tasksProjectId: tasksProj?.id || projects[0]?.id || '',
+    shoppingProjectId: String(shoppingProj?.id || projects[0]?.id || ''),
+    tasksProjectId: String(tasksProj?.id || projects[0]?.id || ''),
     collaborators: Object.values(collaboratorMap)
   };
 }
 
-// 2-Wege-Pull über /api/v1
-export async function pullFromTodoistTwoWay(token, config, currentTasks, currentShoppingItems, members) {
-  if (!token || !config?.tasksProjectId) return null;
+// =========================================================
+// SCHNELLER MULTI-PROJEKT 2-WEGE-SYNC FÜR ALLE KACHELN (AUFGABEN & NOTIZEN)
+// =========================================================
+export async function pullFromTodoistTwoWay(token, config, currentTasks, currentFamilyNotes, members) {
+  if (!token || !token.trim()) return null;
 
-  const [remoteTasksRaw, remoteShopRaw] = await Promise.all([
-    todoistFetch(token, `/tasks?project_id=${config.tasksProjectId}`),
-    config.shoppingProjectId ? todoistFetch(token, `/tasks?project_id=${config.shoppingProjectId}`) : Promise.resolve([])
-  ]);
+  // Holt in EINEM einzigen schnellen Aufruf alle aktiven Aufgaben über sämtliche Projekte!
+  const allRemoteRaw = await todoistFetch(token, '/tasks');
+  const allRemote = Array.isArray(allRemoteRaw) ? allRemoteRaw : [];
+  const activeRemoteIds = new Set(allRemote.map(rt => String(rt.id)));
 
-  const remoteTasks = Array.isArray(remoteTasksRaw) ? remoteTasksRaw : [];
-  const remoteShop = Array.isArray(remoteShopRaw) ? remoteShopRaw : [];
+  // Ermittle, welche Projekte an Notiz-/Einkaufs-Kacheln gebunden sind
+  const defaultShopProjId = String(
+    currentFamilyNotes?.[0]?.todoistProjectId || config?.shoppingProjectId || ''
+  );
+  const defaultTasksProjId = String(config?.tasksProjectId || '');
 
-  const activeTaskIds = new Set(remoteTasks.map(rt => String(rt.id)));
-  const updatedTasks = currentTasks.map(lt => {
-    if (lt.todoistId && !activeTaskIds.has(String(lt.todoistId))) {
+  const noteProjectIds = new Set();
+  (currentFamilyNotes || []).forEach((note, idx) => {
+    const pid = idx === 0 ? (note.todoistProjectId || defaultShopProjId) : note.todoistProjectId;
+    if (pid) noteProjectIds.add(String(pid));
+  });
+
+  // 1. ALLE NOTIZ- & EINKAUFS-KACHELN MIT IHREN JEWEILIGEN TODOIST-PROJEKTEN ABGLEICHEN
+  const updatedNotes = (currentFamilyNotes || []).map((note, idx) => {
+    const pid = String((idx === 0 ? (note.todoistProjectId || defaultShopProjId) : note.todoistProjectId) || '');
+    if (!pid) return note;
+
+    const projRemoteItems = allRemote.filter(rt => String(rt.project_id) === pid);
+
+    // a) Was in Todoist abgehakt wurde, ist nicht mehr in allRemote -> sofort done = true!
+    const nextItems = (note.items || []).map(item => {
+      if (item.todoistId && !activeRemoteIds.has(String(item.todoistId))) {
+        return { ...item, done: true };
+      }
+      return item;
+    });
+
+    // b) Neue oder offene Punkte aus diesem Todoist-Projekt einfügen/aktualisieren
+    projRemoteItems.forEach(rs => {
+      const cleanTxt = String(rs.content || '').trim();
+      if (!cleanTxt) return;
+      const existingIdx = nextItems.findIndex(it =>
+        (it.todoistId && String(it.todoistId) === String(rs.id)) ||
+        String(it.text || '').trim().toLowerCase() === cleanTxt.toLowerCase()
+      );
+      if (existingIdx > -1) {
+        nextItems[existingIdx] = {
+          ...nextItems[existingIdx],
+          text: cleanTxt,
+          todoistId: String(rs.id),
+          done: false
+        };
+      } else {
+        nextItems.unshift({
+          text: cleanTxt,
+          done: false,
+          todoistId: String(rs.id)
+        });
+      }
+    });
+
+    return { ...note, todoistProjectId: pid, items: nextItems };
+  });
+
+  // 2. ALLE MITGLIEDER- & PROJEKT-AUFGABEN-KACHELN ABGLEICHEN
+  // a) Aufgaben, die auf dem Handy in Todoist abgehakt wurden, sofort als done = true markieren!
+  const updatedTasks = (currentTasks || []).map(lt => {
+    if (lt.todoistId && !activeRemoteIds.has(String(lt.todoistId))) {
       return { ...lt, done: true };
     }
     return lt;
   });
 
-  remoteTasks.forEach(rt => {
+  // b) Offene Aufgaben aus Todoist den Mitgliedern / Kacheln zuordnen
+  allRemote.forEach(rt => {
+    const rtProjId = String(rt.project_id || '');
+    // Wenn diese Aufgabe ausschließlich in einer reinen Notiz-/Einkaufskachel liegt (und keine Personen-Kachel dieses Projekt nutzt), überspringen
+    const memberWithThisProject = members.find(m => m.id !== 'all' && String(m.todoistProjectId || '') === rtProjId);
+    if (noteProjectIds.has(rtProjId) && !memberWithThisProject && rtProjId !== defaultTasksProjId) {
+      return;
+    }
+
     const cleanContent = String(rt.content || '').replace(/^\[.*?\]\s*/, '').trim();
+    if (!cleanContent) return;
+
     const existingIdx = updatedTasks.findIndex(lt =>
       (lt.todoistId && String(lt.todoistId) === String(rt.id)) ||
-      String(lt.title || '').trim().toLowerCase() === cleanContent.toLowerCase()
+      (String(lt.title || '').trim().toLowerCase() === cleanContent.toLowerCase() && !lt.done)
     );
 
-    // Todoist v1 nutzt responsible_uid oder assignee_id
     const assignedUid = rt.assignee_id || rt.responsible_uid || null;
     let memberKey = 'hans';
+
     if (assignedUid) {
       const matchedMem = members.find(m => String(m.todoistUserId) === String(assignedUid));
       if (matchedMem) memberKey = matchedMem.id;
+    } else if (memberWithThisProject) {
+      memberKey = memberWithThisProject.id;
     } else {
       const prefix = String(rt.content || '').match(/^\[(.*?)\]/);
       if (prefix) {
-        const byName = members.find(m => m.name.toLowerCase().startsWith(prefix[1].toLowerCase()) || m.id === prefix[1].toLowerCase());
+        const byName = members.find(m =>
+          m.name.toLowerCase().startsWith(prefix[1].toLowerCase()) ||
+          m.id.toLowerCase() === prefix[1].toLowerCase()
+        );
         if (byName) memberKey = byName.id;
       }
     }
 
     const dueDate = rt.due?.date ? rt.due.date.slice(0, 10) : '';
-    const dueTime = rt.due?.datetime ? rt.due.datetime.slice(11, 16) : (rt.due?.date && rt.due.date.length >= 16 ? rt.due.date.slice(11, 16) : '');
+    const dueTime = rt.due?.datetime
+      ? rt.due.datetime.slice(11, 16)
+      : (rt.due?.date && rt.due.date.length >= 16 ? rt.due.date.slice(11, 16) : '');
     const dueLabel = dueDate
       ? `Bis ${dueDate.slice(8, 10)}.${dueDate.slice(5, 7)}.${dueTime ? ' ' + dueTime + ' Uhr' : ''}`
       : (rt.due?.string || 'Offen');
@@ -679,6 +741,7 @@ export async function pullFromTodoistTwoWay(token, config, currentTasks, current
       updatedTasks[existingIdx] = {
         ...updatedTasks[existingIdx],
         todoistId: String(rt.id),
+        projectId: rtProjId,
         title: cleanContent,
         description: rt.description || updatedTasks[existingIdx].description || '',
         priority: priorityNum,
@@ -690,8 +753,9 @@ export async function pullFromTodoistTwoWay(token, config, currentTasks, current
       };
     } else {
       updatedTasks.unshift({
-        id: Date.now() + Math.floor(Math.random() * 10000),
+        id: Date.now() + Math.floor(Math.random() * 100000),
         todoistId: String(rt.id),
+        projectId: rtProjId,
         member: memberKey,
         title: cleanContent,
         description: rt.description || '',
@@ -705,29 +769,7 @@ export async function pullFromTodoistTwoWay(token, config, currentTasks, current
     }
   });
 
-  const activeShopIds = new Set(remoteShop.map(rs => String(rs.id)));
-  const updatedShop = (currentShoppingItems || []).map(item => {
-    if (item.todoistId && !activeShopIds.has(String(item.todoistId))) {
-      return { ...item, done: true };
-    }
-    return item;
-  });
-
-  remoteShop.forEach(rs => {
-    const cleanTxt = String(rs.content || '').trim();
-    if (!cleanTxt) return;
-    const idx = updatedShop.findIndex(it =>
-      (it.todoistId && String(it.todoistId) === String(rs.id)) ||
-      String(it.text || '').trim().toLowerCase() === cleanTxt.toLowerCase()
-    );
-    if (idx > -1) {
-      updatedShop[idx] = { ...updatedShop[idx], todoistId: String(rs.id), done: false };
-    } else {
-      updatedShop.unshift({ text: cleanTxt, done: false, todoistId: String(rs.id) });
-    }
-  });
-
-  return { tasks: updatedTasks, shoppingItems: updatedShop };
+  return { tasks: updatedTasks, familyNotes: updatedNotes };
 }
 
 export async function createTodoistTaskItem(
@@ -744,7 +786,7 @@ export async function createTodoistTaskItem(
   if (!token || !projectId) return null;
   const rawBody = {
     content: memberObj?.todoistUserId ? title : (memberObj?.name ? `[${memberObj.name}] ${title}` : title),
-    project_id: projectId,
+    project_id: String(projectId),
     priority: Number(priority || 1)
   };
 
