@@ -37,7 +37,7 @@ export default function CalendarSection({
   const [dragOverCell, setDragOverCell] = useState(null);
 
   // =========================================================
-  // ANSICHT 1: 1-WOCHE & 2-WOCHEN
+  // ANSICHT 1: 1-WOCHE & 2-WOCHEN 4
   // =========================================================
   if (currentView === '1w' || currentView === '2w') {
     const numDays = currentView === '1w' ? 7 : 14;
