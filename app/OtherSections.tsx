@@ -4,8 +4,8 @@
 'use client';
 
 import React, { useState } from 'react';
-import { QrCode, ShieldCheck, RefreshCw, Cloud, Upload, Download, Check, FolderKanban } from 'lucide-react';
-import { COLOR_PALETTES, PAGE_THEMES, AVATAR_EMOJIS } from './touchwallConfig';
+import { QrCode, ShieldCheck, RefreshCw, Cloud, Upload, Download, Check } from 'lucide-react';
+import { COLOR_PALETTES, PAGE_THEMES, AVATAR_EMOJIS, safeArr } from './touchwallConfig';
 
 export default function OtherSections({
   activeSection,
@@ -57,19 +57,19 @@ export default function OtherSections({
   const [newMealDay, setNewMealDay] = useState('');
   const [newMealDish, setNewMealDish] = useState('');
 
-  // Für neue Notiz-Kacheln (inkl. direkter Todoist-Projekt-Auswahl!)
   const [newNoteTitle, setNewNoteTitle] = useState('');
   const [newNoteAuthor, setNewNoteAuthor] = useState('Familie');
   const [newNoteProjectId, setNewNoteProjectId] = useState('');
 
-  const projectsList = todoistConfig?.projects || [];
+  const safeMembers = safeArr(members);
+  const projectsList = safeArr(todoistConfig?.projects);
 
   // =========================================================
   // ANSICHT 4: SCHULE
   // =========================================================
   if (activeSection === 'schule') {
-    const childMember = members.find(m => m.id === activeSchoolChild) || members[3];
-    const sched = schoolData[activeSchoolChild];
+    const childMember = safeMembers.find(m => m.id === activeSchoolChild) || safeMembers[3] || safeMembers[0] || { name: 'Schule', color: 'royal_bold' };
+    const sched = (schoolData && schoolData[activeSchoolChild]) || { periods: [], slots: {}, announcements: [] };
     const schoolDays = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag'];
 
     return (
@@ -87,13 +87,13 @@ export default function OtherSections({
               onClick={() => setActiveSchoolChild('dean')}
               className={`tw-glow-btn px-6 py-3 rounded-2xl font-extrabold text-sm cursor-pointer ${activeSchoolChild === 'dean' ? 'bg-indigo-600 text-white shadow-md' : themeStyles.subtle}`}
             >
-              👦 {members.find(m => m.id === 'dean')?.name || 'Dean'}
+              👦 {safeMembers.find(m => m.id === 'dean')?.name || 'Dean'}
             </button>
             <button
               onClick={() => setActiveSchoolChild('valentina')}
               className={`tw-glow-btn px-6 py-3 rounded-2xl font-extrabold text-sm cursor-pointer ${activeSchoolChild === 'valentina' ? 'bg-indigo-600 text-white shadow-md' : themeStyles.subtle}`}
             >
-              👧 {members.find(m => m.id === 'valentina')?.name || 'Valentina'}
+              👧 {safeMembers.find(m => m.id === 'valentina')?.name || 'Valentina'}
             </button>
             <button
               onClick={() => {
@@ -101,7 +101,7 @@ export default function OtherSections({
                   ...prev,
                   [activeSchoolChild]: {
                     ...prev[activeSchoolChild],
-                    periods: [...prev[activeSchoolChild].periods, `${prev[activeSchoolChild].periods.length + 1}. Std (Nachmittag)`]
+                    periods: [...safeArr(prev?.[activeSchoolChild]?.periods), `${safeArr(prev?.[activeSchoolChild]?.periods).length + 1}. Std (Nachmittag)`]
                   }
                 }));
               }}
@@ -121,7 +121,7 @@ export default function OtherSections({
               </tr>
             </thead>
             <tbody className={`divide-y-2 ${themeStyles.divider}`}>
-              {sched.periods.map((periodLabel, pIdx) => (
+              {safeArr(sched.periods).map((periodLabel, pIdx) => (
                 <tr key={pIdx}>
                   <td className={`p-3.5 border-r-2 font-bold text-sm ${themeStyles.subtle} ${themeStyles.divider}`}>
                     <div className="flex items-center justify-between gap-2">
@@ -131,21 +131,21 @@ export default function OtherSections({
                         onChange={(e) => {
                           const val = e.target.value;
                           setSchoolData(prev => {
-                            const nextP = [...prev[activeSchoolChild].periods];
+                            const nextP = [...safeArr(prev?.[activeSchoolChild]?.periods)];
                             nextP[pIdx] = val;
                             return { ...prev, [activeSchoolChild]: { ...prev[activeSchoolChild], periods: nextP } };
                           });
                         }}
                         className="w-full bg-transparent font-extrabold focus:outline-none"
                       />
-                      {sched.periods.length > 1 && (
+                      {safeArr(sched.periods).length > 1 && (
                         <button
                           onClick={() => {
                             setSchoolData(prev => ({
                               ...prev,
                               [activeSchoolChild]: {
                                 ...prev[activeSchoolChild],
-                                periods: prev[activeSchoolChild].periods.filter((_, i) => i !== pIdx)
+                                periods: safeArr(prev?.[activeSchoolChild]?.periods).filter((_, i) => i !== pIdx)
                               }
                             }));
                           }}
@@ -158,7 +158,7 @@ export default function OtherSections({
                   </td>
                   {schoolDays.map((_, dIdx) => {
                     const key = `${dIdx}-${pIdx}`;
-                    const slot = sched.slots[key] || { subject: '', room: '', status: 'normal' };
+                    const slot = (sched.slots && sched.slots[key]) || { subject: '', room: '', status: 'normal' };
                     const childSt = getMemberStyles(childMember);
 
                     return (
@@ -216,7 +216,7 @@ export default function OtherSections({
                       ...prev,
                       [activeSchoolChild]: {
                         ...prev[activeSchoolChild],
-                        announcements: [newSchoolNote.trim(), ...prev[activeSchoolChild].announcements]
+                        announcements: [newSchoolNote.trim(), ...safeArr(prev?.[activeSchoolChild]?.announcements)]
                       }
                     }));
                     setNewSchoolNote('');
@@ -232,7 +232,7 @@ export default function OtherSections({
                     ...prev,
                     [activeSchoolChild]: {
                       ...prev[activeSchoolChild],
-                      announcements: [newSchoolNote.trim(), ...prev[activeSchoolChild].announcements]
+                      announcements: [newSchoolNote.trim(), ...safeArr(prev?.[activeSchoolChild]?.announcements)]
                     }
                   }));
                   setNewSchoolNote('');
@@ -245,7 +245,7 @@ export default function OtherSections({
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-            {(sched.announcements || []).map((info, idx) => (
+            {safeArr(sched.announcements).map((info, idx) => (
               <div key={idx} className="flex items-center justify-between gap-3 px-5 py-3.5 rounded-2xl bg-amber-500/20 border-2 border-amber-400/50 text-sm font-bold">
                 <span>🔔 {info}</span>
                 <button
@@ -254,7 +254,7 @@ export default function OtherSections({
                       ...prev,
                       [activeSchoolChild]: {
                         ...prev[activeSchoolChild],
-                        announcements: prev[activeSchoolChild].announcements.filter((_, i) => i !== idx)
+                        announcements: safeArr(prev?.[activeSchoolChild]?.announcements).filter((_, i) => i !== idx)
                       }
                     }));
                   }}
@@ -300,7 +300,7 @@ export default function OtherSections({
             />
             <button
               onClick={() => {
-                setMealPlan(prev => [...prev, { id: Date.now(), dayLabel: newMealDay.trim() || 'Zusatz-Tag', dish: newMealDish.trim() || '🍲 Wunschgericht', ingredients: [] }]);
+                setMealPlan(prev => [...safeArr(prev), { id: Date.now(), dayLabel: newMealDay.trim() || 'Zusatz-Tag', dish: newMealDish.trim() || '🍲 Wunschgericht', ingredients: [] }]);
                 setNewMealDay('');
                 setNewMealDish('');
               }}
@@ -312,16 +312,17 @@ export default function OtherSections({
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          {mealPlan.map(meal => {
-            const missing = meal.ingredients.filter(i => !i.done);
+          {safeArr(mealPlan).map(meal => {
+            const safeIngs = safeArr(meal?.ingredients);
+            const missing = safeIngs.filter(i => !i.done);
             return (
               <div key={meal.id} className={`rounded-3xl border-2 shadow-sm flex flex-col justify-between overflow-hidden min-h-[420px] ${themeStyles.card}`}>
                 <div className="flex-1 flex flex-col">
                   <div className={`px-5 py-4 border-b flex items-center justify-between gap-2 ${themeStyles.subtle} ${themeStyles.divider}`}>
                     <input
                       type="text"
-                      value={meal.dayLabel}
-                      onChange={(e) => setMealPlan(prev => prev.map(m => m.id === meal.id ? { ...m, dayLabel: e.target.value } : m))}
+                      value={meal.dayLabel || ''}
+                      onChange={(e) => setMealPlan(prev => safeArr(prev).map(m => m.id === meal.id ? { ...m, dayLabel: e.target.value } : m))}
                       className="bg-transparent font-extrabold text-base uppercase tracking-wider flex-1 min-w-0 focus:outline-none"
                     />
                     <span className={`px-3 py-1 rounded-full text-xs font-extrabold ${missing.length === 0 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}`}>
@@ -332,15 +333,15 @@ export default function OtherSections({
                   <div className={`p-5 border-b ${themeStyles.divider}`}>
                     <input
                       type="text"
-                      value={meal.dish}
-                      onChange={(e) => setMealPlan(prev => prev.map(m => m.id === meal.id ? { ...m, dish: e.target.value } : m))}
+                      value={meal.dish || ''}
+                      onChange={(e) => setMealPlan(prev => safeArr(prev).map(m => m.id === meal.id ? { ...m, dish: e.target.value } : m))}
                       className={`w-full px-4 py-3 rounded-2xl border font-extrabold text-base ${themeStyles.input}`}
                     />
                   </div>
 
                   <div className="p-5 flex-1 flex flex-col space-y-3">
                     <div className="flex items-center justify-between gap-2">
-                      <span className={`text-xs font-extrabold uppercase ${themeStyles.textMuted}`}>Zutaten ({meal.ingredients.length})</span>
+                      <span className={`text-xs font-extrabold uppercase ${themeStyles.textMuted}`}>Zutaten ({safeIngs.length})</span>
                       <button
                         onClick={() => {
                           if (missing.length === 0) {
@@ -356,16 +357,16 @@ export default function OtherSections({
                     </div>
 
                     <div className="space-y-2 flex-1">
-                      {meal.ingredients.map((ing, iIdx) => (
+                      {safeIngs.map((ing, iIdx) => (
                         <div key={iIdx} className={`flex items-center justify-between gap-2 px-3.5 py-2 rounded-2xl border text-sm ${themeStyles.subtle}`}>
                           <label className="flex items-center gap-3 cursor-pointer flex-1 min-w-0">
                             <input
                               type="checkbox"
-                              checked={ing.done}
+                              checked={Boolean(ing.done)}
                               onChange={() => {
-                                setMealPlan(prev => prev.map(m => m.id === meal.id ? {
+                                setMealPlan(prev => safeArr(prev).map(m => m.id === meal.id ? {
                                   ...m,
-                                  ingredients: m.ingredients.map((item, idx) => idx === iIdx ? { ...item, done: !item.done } : item)
+                                  ingredients: safeArr(m.ingredients).map((item, idx) => idx === iIdx ? { ...item, done: !item.done } : item)
                                 } : m));
                               }}
                               className="w-5 h-5 accent-emerald-600 rounded cursor-pointer"
@@ -374,9 +375,9 @@ export default function OtherSections({
                           </label>
                           <button
                             onClick={() => {
-                              setMealPlan(prev => prev.map(m => m.id === meal.id ? {
+                              setMealPlan(prev => safeArr(prev).map(m => m.id === meal.id ? {
                                 ...m,
-                                ingredients: m.ingredients.filter((_, idx) => idx !== iIdx)
+                                ingredients: safeArr(m.ingredients).filter((_, idx) => idx !== iIdx)
                               } : m));
                             }}
                             className="opacity-50 hover:opacity-100 hover:text-rose-400 font-bold cursor-pointer"
@@ -397,7 +398,7 @@ export default function OtherSections({
                     onKeyDown={(e) => {
                       const val = (ingInputs[meal.id] || '').trim();
                       if (e.key === 'Enter' && val) {
-                        setMealPlan(prev => prev.map(m => m.id === meal.id ? { ...m, ingredients: [...m.ingredients, { name: val, done: false }] } : m));
+                        setMealPlan(prev => safeArr(prev).map(m => m.id === meal.id ? { ...m, ingredients: [...safeArr(m.ingredients), { name: val, done: false }] } : m));
                         setIngInputs({ ...ingInputs, [meal.id]: '' });
                       }
                     }}
@@ -408,7 +409,7 @@ export default function OtherSections({
                     onClick={() => {
                       const val = (ingInputs[meal.id] || '').trim();
                       if (!val) return;
-                      setMealPlan(prev => prev.map(m => m.id === meal.id ? { ...m, ingredients: [...m.ingredients, { name: val, done: false }] } : m));
+                      setMealPlan(prev => safeArr(prev).map(m => m.id === meal.id ? { ...m, ingredients: [...safeArr(m.ingredients), { name: val, done: false }] } : m));
                       setIngInputs({ ...ingInputs, [meal.id]: '' });
                     }}
                     className="tw-glow-btn w-10 h-10 rounded-xl bg-indigo-600 text-white font-bold cursor-pointer"
@@ -425,7 +426,7 @@ export default function OtherSections({
   }
 
   // =========================================================
-  // ANSICHT 7: NOTIZEN & LISTEN (MIT PROJEKT-AUSWAHL BEIM ANLEGEN & AUF JEDER KACHEL!)
+  // ANSICHT 7: NOTIZEN & LISTEN (MIT PROJEKT-AUSWAHL BEIM ANLEGEN & AUF JEDER KACHEL)
   // =========================================================
   if (activeSection === 'listen') {
     const handleCreateNoteTile = async () => {
@@ -436,7 +437,7 @@ export default function OtherSections({
         if (created?.id) targetProjId = String(created.id);
       }
       setFamilyNotes(prev => [
-        ...prev,
+        ...safeArr(prev),
         {
           id: Date.now(),
           title: cleanTitle,
@@ -497,7 +498,7 @@ export default function OtherSections({
               onChange={(e) => setNewNoteAuthor(e.target.value)}
               className={`px-3.5 py-3 rounded-xl border text-xs font-bold ${themeStyles.input}`}
             >
-              {['Familie', ...members.filter(m => m.id !== 'all').map(m => m.name)].map(a => (
+              {['Familie', ...safeMembers.filter(m => m.id !== 'all').map(m => m.name)].map(a => (
                 <option key={a} value={a} className="bg-slate-800 text-white">👤 {a}</option>
               ))}
             </select>
@@ -511,25 +512,25 @@ export default function OtherSections({
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-          {familyNotes.map((note, noteIdx) => {
+          {safeArr(familyNotes).map((note, noteIdx) => {
             const activeProjId = noteIdx === 0
-              ? (note.todoistProjectId || todoistConfig.shoppingProjectId || '')
-              : (note.todoistProjectId || '');
+              ? (note?.todoistProjectId || todoistConfig?.shoppingProjectId || '')
+              : (note?.todoistProjectId || '');
 
             return (
-              <div key={note.id} className={`rounded-3xl border-2 p-6 shadow-sm flex flex-col justify-between min-h-[450px] ${themeStyles.card}`}>
+              <div key={note.id || noteIdx} className={`rounded-3xl border-2 p-6 shadow-sm flex flex-col justify-between min-h-[450px] ${themeStyles.card}`}>
                 <div className="flex-1 flex flex-col">
                   <div className="flex items-center justify-between gap-2 mb-2.5">
                     <input
                       type="text"
-                      value={note.title}
-                      onChange={(e) => setFamilyNotes(prev => prev.map(n => n.id === note.id ? { ...n, title: e.target.value } : n))}
+                      value={note.title || ''}
+                      onChange={(e) => setFamilyNotes(prev => safeArr(prev).map(n => n.id === note.id ? { ...n, title: e.target.value } : n))}
                       className="font-extrabold text-xl bg-transparent focus:outline-none flex-1 min-w-0"
                     />
                     <span className={`px-3 py-1 rounded-full text-xs font-extrabold border ${themeStyles.subtle}`}>{note.author}</span>
                     {noteIdx > 0 && (
                       <button
-                        onClick={() => setFamilyNotes(prev => prev.filter(n => n.id !== note.id))}
+                        onClick={() => setFamilyNotes(prev => safeArr(prev).filter(n => n.id !== note.id))}
                         className="w-8 h-8 rounded-full hover:bg-rose-500/20 text-rose-400 font-bold cursor-pointer"
                       >
                         ✕
@@ -537,10 +538,8 @@ export default function OtherSections({
                     )}
                   </div>
 
-                  {/* PROJEKT-AUSWAHL DIREKT AUF JEDER BESTEHENDEN NOTIZ-KACHEL */}
                   <div className={`flex items-center gap-2 mb-3 pb-3 border-b ${themeStyles.divider}`}>
-                    <FolderKanban className="w-4 h-4 text-sky-400 shrink-0" />
-                    <span className="text-[11px] font-black uppercase opacity-75 shrink-0">Todoist-Projekt:</span>
+                    <span className="text-[11px] font-black uppercase text-sky-400 shrink-0">📂 Todoist-Projekt:</span>
                     <select
                       value={activeProjId}
                       onChange={async (e) => {
@@ -548,10 +547,10 @@ export default function OtherSections({
                         if (val === '__NEW__') {
                           const created = await createAndSelectTodoistProject(note.title);
                           if (created?.id) {
-                            setFamilyNotes(prev => prev.map(n => n.id === note.id ? { ...n, todoistProjectId: String(created.id) } : n));
+                            setFamilyNotes(prev => safeArr(prev).map(n => n.id === note.id ? { ...n, todoistProjectId: String(created.id) } : n));
                           }
                         } else {
-                          setFamilyNotes(prev => prev.map(n => n.id === note.id ? { ...n, todoistProjectId: val } : n));
+                          setFamilyNotes(prev => safeArr(prev).map(n => n.id === note.id ? { ...n, todoistProjectId: val } : n));
                         }
                       }}
                       className={`flex-1 px-3 py-1.5 rounded-xl border text-xs font-extrabold cursor-pointer ${themeStyles.input}`}
@@ -569,7 +568,7 @@ export default function OtherSections({
                   </div>
 
                   <ul className="space-y-2 my-1 flex-1">
-                    {(note.items || []).map((item, idx) => (
+                    {safeArr(note.items).map((item, idx) => (
                       <li
                         key={idx}
                         onClick={() => toggleItemInNoteTile(note.id, idx)}
@@ -578,11 +577,11 @@ export default function OtherSections({
                         <div className="flex items-center gap-3 flex-1 min-w-0">
                           <input
                             type="checkbox"
-                            checked={Boolean(item.done)}
+                            checked={Boolean(item?.done)}
                             readOnly
                             className="w-5 h-5 accent-indigo-600 rounded cursor-pointer"
                           />
-                          <span className={`break-words ${item.done ? 'line-through opacity-50' : ''}`}>{item.text}</span>
+                          <span className={`break-words ${item?.done ? 'line-through opacity-50' : ''}`}>{item?.text}</span>
                         </div>
                         <button
                           onClick={(e) => {
@@ -699,7 +698,7 @@ export default function OtherSections({
         <div className={`p-6 rounded-3xl border shadow-sm space-y-5 ${themeStyles.card}`}>
           <h2 className="text-2xl font-extrabold">2. Persönliche Farbe & Avatar pro Kachel</h2>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-            {members.map(m => {
+            {safeMembers.map(m => {
               const st = getMemberStyles(m);
               return (
                 <div key={m.id} style={st.headerStyle} className={`p-5 rounded-3xl border-2 flex flex-col justify-between gap-4 ${themeStyles.divider}`}>
@@ -716,7 +715,7 @@ export default function OtherSections({
                       {['emoji', 'photo', 'badge'].map(type => (
                         <button
                           key={type}
-                          onClick={() => setMembers(prev => prev.map(item => item.id === m.id ? { ...item, avatarType: type } : item))}
+                          onClick={() => setMembers(prev => safeArr(prev).map(item => item.id === m.id ? { ...item, avatarType: type } : item))}
                           className={`px-3 py-1.5 rounded-lg cursor-pointer ${m.avatarType === type ? 'bg-indigo-600 text-white' : ''}`}
                         >
                           {type === 'emoji' ? 'Emoji' : type === 'photo' ? 'Foto' : `Kürzel (${m.badge})`}
@@ -733,7 +732,7 @@ export default function OtherSections({
                         return (
                           <button
                             key={cKey}
-                            onClick={() => setMembers(prev => prev.map(item => item.id === m.id ? { ...item, color: cKey } : item))}
+                            onClick={() => setMembers(prev => safeArr(prev).map(item => item.id === m.id ? { ...item, color: cKey } : item))}
                             style={{ backgroundColor: pal.hex, color: '#fff' }}
                             className={`px-2.5 py-1 rounded-xl text-xs font-extrabold cursor-pointer ${m.color === cKey ? 'ring-2 ring-white scale-105' : 'opacity-80 hover:opacity-100'}`}
                           >
@@ -750,7 +749,7 @@ export default function OtherSections({
                         return (
                           <button
                             key={cKey}
-                            onClick={() => setMembers(prev => prev.map(item => item.id === m.id ? { ...item, color: cKey } : item))}
+                            onClick={() => setMembers(prev => safeArr(prev).map(item => item.id === m.id ? { ...item, color: cKey } : item))}
                             style={{ backgroundColor: pal.light, color: pal.text, border: `2px solid ${pal.hex}` }}
                             className={`px-2.5 py-1 rounded-xl text-xs font-extrabold cursor-pointer ${m.color === cKey ? 'ring-2 ring-indigo-400 scale-105' : 'opacity-85 hover:opacity-100'}`}
                           >
@@ -767,7 +766,7 @@ export default function OtherSections({
                         {AVATAR_EMOJIS.map(em => (
                           <button
                             key={em}
-                            onClick={() => setMembers(prev => prev.map(item => item.id === m.id ? { ...item, emoji: em, avatarType: 'emoji' } : item))}
+                            onClick={() => setMembers(prev => safeArr(prev).map(item => item.id === m.id ? { ...item, emoji: em, avatarType: 'emoji' } : item))}
                             className={`w-9 h-9 rounded-xl border text-base flex items-center justify-center cursor-pointer ${themeStyles.card} ${m.emoji === em ? 'ring-2 ring-indigo-400' : ''}`}
                           >
                             {em}
@@ -780,7 +779,7 @@ export default function OtherSections({
                         <input
                           type="url"
                           value={m.photoUrl || ''}
-                          onChange={(e) => setMembers(prev => prev.map(item => item.id === m.id ? { ...item, photoUrl: e.target.value } : item))}
+                          onChange={(e) => setMembers(prev => safeArr(prev).map(item => item.id === m.id ? { ...item, photoUrl: e.target.value } : item))}
                           placeholder="https://... (Bild-URL)"
                           className={`flex-1 px-3 py-2 rounded-xl border text-xs font-semibold ${themeStyles.input}`}
                         />
@@ -804,12 +803,10 @@ export default function OtherSections({
   }
 
   // =========================================================
-  // ANSICHT 9: KONTEN (AUFGERÄUMT: NUR NOCH API-TOKEN + BENUTZERZUORDNUNG)
+  // ANSICHT 9: KONTEN (AUFGERÄUMT: NUR API-TOKEN + BENUTZERZUORDNUNG)
   // =========================================================
   return (
     <div className="p-6 flex flex-col gap-6">
-
-      {/* 1. TODOIST TEAM "FAMILIE RICHTER" API-VERBINDUNG (OHNE PROJEKT-FELDER, DA DIREKT AUF DEN KACHELN!) */}
       <div className={`rounded-3xl p-6 shadow-xl border-2 border-sky-500/40 space-y-4 ${themeStyles.card}`}>
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
@@ -833,20 +830,19 @@ export default function OtherSections({
           <span className="text-xs font-extrabold uppercase text-sky-400 shrink-0">🔑 Todoist API-Token:</span>
           <input
             type="password"
-            value={todoistConfig.apiToken || ''}
+            value={todoistConfig?.apiToken || ''}
             onChange={(e) => setTodoistConfig(prev => ({ ...prev, apiToken: e.target.value }))}
             placeholder="Dein Todoist API-Token..."
             className={`flex-1 min-w-[260px] px-4 py-2.5 rounded-xl border text-xs font-mono ${themeStyles.input}`}
           />
           <span className="px-3.5 py-2 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-xs font-extrabold">
-            📂 {projectsList.length} Projekte & 👥 {(todoistConfig.collaborators || []).length} Team-Mitglieder aktiv
+            📂 {projectsList.length} Projekte & 👥 {safeArr(todoistConfig?.collaborators).length} Team-Mitglieder aktiv
           </span>
         </div>
       </div>
 
-      {/* 2. BENUTZERNAMEN, ROLLEN, TODOIST-MITGLIED & GOOGLE KALENDER-ID */}
       <div className={`rounded-3xl border overflow-hidden divide-y ${themeStyles.card} ${themeStyles.divider}`}>
-        {members.map(m => {
+        {safeMembers.map(m => {
           const isCustom = !['all', 'hans', 'sarah', 'dean', 'valentina'].includes(m.id);
           const st = getMemberStyles(m);
           return (
@@ -860,11 +856,11 @@ export default function OtherSections({
                     </label>
                     <input
                       type="text"
-                      value={m.name}
+                      value={m.name || ''}
                       onChange={(e) => {
                         const newName = e.target.value;
                         const newBadge = m.id === 'all' ? 'FR' : (newName.trim().charAt(0).toUpperCase() || m.badge);
-                        setMembers(prev => prev.map(item => item.id === m.id ? { ...item, name: newName, badge: newBadge } : item));
+                        setMembers(prev => safeArr(prev).map(item => item.id === m.id ? { ...item, name: newName, badge: newBadge } : item));
                       }}
                       className={`w-full px-3 py-2 rounded-xl border text-sm font-extrabold ${themeStyles.input}`}
                     />
@@ -878,7 +874,7 @@ export default function OtherSections({
                       value={m.role || ''}
                       onChange={(e) => {
                         const newRole = e.target.value;
-                        setMembers(prev => prev.map(item => item.id === m.id ? { ...item, role: newRole } : item));
+                        setMembers(prev => safeArr(prev).map(item => item.id === m.id ? { ...item, role: newRole } : item));
                       }}
                       className={`w-full px-3 py-2 rounded-xl border text-xs font-bold ${themeStyles.input}`}
                     />
@@ -895,12 +891,12 @@ export default function OtherSections({
                     value={m.todoistUserId || ''}
                     onChange={(e) => {
                       const val = e.target.value;
-                      setMembers(prev => prev.map(item => item.id === m.id ? { ...item, todoistUserId: val } : item));
+                      setMembers(prev => safeArr(prev).map(item => item.id === m.id ? { ...item, todoistUserId: val } : item));
                     }}
                     className={`w-full px-3 py-2 rounded-xl border text-xs font-bold ${themeStyles.input}`}
                   >
                     <option value="" className="bg-slate-800 text-white">-- Nicht zugewiesen --</option>
-                    {(todoistConfig.collaborators || []).map(col => (
+                    {safeArr(todoistConfig?.collaborators).map(col => (
                       <option key={col.id} value={col.id} className="bg-slate-800 text-white">
                         {col.name} ({col.email || 'Team'})
                       </option>
@@ -918,7 +914,7 @@ export default function OtherSections({
                   value={m.calendarId || ''}
                   onChange={(e) => {
                     const val = e.target.value;
-                    setMembers(prev => prev.map(item => item.id === m.id ? { ...item, calendarId: val, ok: Boolean(val.trim()), statusMsg: val.trim() ? 'Bereit' : 'Leer' } : item));
+                    setMembers(prev => safeArr(prev).map(item => item.id === m.id ? { ...item, calendarId: val, ok: Boolean(val.trim()), statusMsg: val.trim() ? 'Bereit' : 'Leer' } : item));
                   }}
                   placeholder={m.id === 'all' ? 'primary' : 'name@gmail.com'}
                   className={`w-full px-3.5 py-2 rounded-xl border text-sm font-bold ${themeStyles.input}`}
@@ -929,7 +925,7 @@ export default function OtherSections({
                 {isCustom && (
                   <button
                     onClick={() => {
-                      const filtered = members.filter(item => item.id !== m.id);
+                      const filtered = safeMembers.filter(item => item.id !== m.id);
                       setMembers(filtered);
                       pushToCloudAndDrive(filtered, true);
                     }}
@@ -947,12 +943,11 @@ export default function OtherSections({
         })}
       </div>
 
-      {/* 3. GOOGLE APPS SCRIPT BRÜCKE & SYSTEMTEST */}
       <div className={`rounded-3xl p-6 shadow-md border space-y-4 ${themeStyles.card}`}>
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h3 className="text-lg font-extrabold">☁️ Google Kalender & Cloud-Speicher Brücke</h3>
-            <p className={`text-xs ${themeStyles.textMuted}`}>Speichert deine Einstellungen, Kachel-Projekte und Google-Kalender-Termine.</p>
+            <h3 className="text-lg font-extrabold">☁️ Google Kalender & Cloud-Speicher Brücke (Server-Proxy aktiv)</h3>
+            <p className={`text-xs ${themeStyles.textMuted}`}>Kommuniziert jetzt über die Vercel-Server-Route komplett ohne Browser-CORS-Blockade mit deiner Code.gs.</p>
           </div>
           <div className="flex flex-wrap gap-2.5">
             <button
@@ -970,7 +965,7 @@ export default function OtherSections({
               <RefreshCw className="w-4 h-4" /> Aus Google laden
             </button>
             <button
-              onClick={() => pushToCloudAndDrive(members, true)}
+              onClick={() => pushToCloudAndDrive(safeMembers, true)}
               className="tw-glow-btn px-5 py-2.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-xs flex items-center gap-1.5 cursor-pointer"
             >
               <Cloud className="w-4 h-4" /> Alles in Cloud sichern
@@ -989,8 +984,8 @@ export default function OtherSections({
             <div className={diagResult.calendarReadWrite ? 'text-emerald-400' : 'text-rose-400'}>
               {diagResult.calendarReadWrite ? '✅ Google Kalender: OK' : '❌ Kalender Fehler'}
             </div>
-            <div className={todoistConfig.apiToken ? 'text-emerald-400' : 'text-amber-400'}>
-              {todoistConfig.apiToken ? '✅ Todoist API: Aktiv' : 'ℹ️ Todoist Token noch leer'}
+            <div className={todoistConfig?.apiToken ? 'text-emerald-400' : 'text-amber-400'}>
+              {todoistConfig?.apiToken ? '✅ Todoist API: Aktiv' : 'ℹ️ Todoist Token noch leer'}
             </div>
             <div className={diagResult.propertiesReadWrite ? 'text-emerald-400' : 'text-rose-400'}>
               {diagResult.propertiesReadWrite ? '✅ Cloud-Properties: OK' : '❌ Properties Fehler'}
