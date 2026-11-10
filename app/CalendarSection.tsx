@@ -36,8 +36,70 @@ export default function CalendarSection({
   const [draggedEv, setDraggedEv] = useState(null);
   const [dragOverCell, setDragOverCell] = useState(null);
 
+  const safeVisibleMembers = Array.isArray(visibleMembers) ? visibleMembers : [];
+  const safeAllMembers = Array.isArray(members) ? members : [];
+  const safeEvents = Array.isArray(events) ? events : [];
+
+  // Gemeinsamer Style-Block für den 3D-Hover-Zoom & den "Nach-innen-gedrückt"-Touch-Effekt
+  const tileAnimationStyles = (
+    <style>{`
+      .tw-day-tile {
+        position: relative;
+        transition:
+          transform 0.22s cubic-bezier(0.22, 1, 0.36, 1),
+          box-shadow 0.22s cubic-bezier(0.22, 1, 0.36, 1),
+          filter 0.2s ease,
+          border-radius 0.2s ease;
+        will-change: transform, box-shadow;
+      }
+      .tw-day-tile:hover {
+        transform: scale(1.028);
+        z-index: 15;
+        border-radius: 14px;
+        filter: brightness(1.12);
+        box-shadow:
+          0 14px 28px -6px rgba(0, 0, 0, 0.55),
+          0 0 22px rgba(56, 189, 248, 0.45),
+          inset 0 1px 2px rgba(255, 255, 255, 0.28);
+      }
+      .tw-day-tile:active {
+        transform: scale(0.962) translateY(1.5px) !important;
+        z-index: 15;
+        border-radius: 14px;
+        filter: brightness(0.92);
+        box-shadow:
+          inset 0 7px 18px rgba(0, 0, 0, 0.72),
+          inset 0 0 20px rgba(56, 189, 248, 0.55),
+          0 0 10px rgba(56, 189, 248, 0.35) !important;
+        transition:
+          transform 0.07s ease-out,
+          box-shadow 0.07s ease-out !important;
+      }
+      .tw-event-chip {
+        transition:
+          transform 0.18s cubic-bezier(0.22, 1, 0.36, 1),
+          box-shadow 0.18s ease,
+          filter 0.18s ease;
+      }
+      .tw-event-chip:hover {
+        transform: translateY(-2px) scale(1.02);
+        filter: brightness(1.08);
+        box-shadow:
+          0 8px 18px -3px rgba(0, 0, 0, 0.5),
+          0 0 14px rgba(255, 255, 255, 0.25);
+      }
+      .tw-event-chip:active {
+        transform: scale(0.95) translateY(1px) !important;
+        filter: brightness(0.9);
+        box-shadow:
+          inset 0 5px 12px rgba(0, 0, 0, 0.65),
+          0 0 12px rgba(56, 189, 248, 0.5) !important;
+      }
+    `}</style>
+  );
+
   // =========================================================
-  // ANSICHT 1: 1-WOCHE & 2-WOCHEN 4
+  // ANSICHT 1: 1-WOCHE & 2-WOCHEN
   // =========================================================
   if (currentView === '1w' || currentView === '2w') {
     const numDays = currentView === '1w' ? 7 : 14;
@@ -50,6 +112,7 @@ export default function CalendarSection({
 
     return (
       <div className="min-w-full min-h-full flex flex-col">
+        {tileAnimationStyles}
         <div className={`sticky top-0 z-20 shadow-sm ${themeStyles.card}`}>
           <div className={`grid text-xs font-extrabold uppercase tracking-wider border-b ${themeStyles.banner} ${themeStyles.divider}`} style={{ gridTemplateColumns: gridCols }}>
             <div className={`px-3 py-2 bg-black/25 flex items-center border-r-2 ${themeStyles.divider}`}>Zeitraum</div>
@@ -117,11 +180,11 @@ export default function CalendarSection({
         </div>
 
         <div className={`flex-1 flex flex-col divide-y-2 ${themeStyles.divider}`}>
-          {visibleMembers.map(member => {
+          {safeVisibleMembers.map(member => {
             const st = getMemberStyles(member);
             return (
               <div key={member.id} className="grid flex-1 min-h-[128px] items-stretch" style={{ gridTemplateColumns: gridCols }}>
-                <div style={st.headerStyle} className={`p-3 border-r-2 flex flex-col justify-center sticky left-0 z-10 ${themeStyles.divider}`}>
+                <div style={st.headerStyle} className={`p-3 border-r-2 flex flex-col justify-center sticky left-0 z-20 ${themeStyles.divider}`}>
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2.5 min-w-0">
                       {renderAvatar(member, 'w-11 h-11', 'text-lg')}
@@ -142,7 +205,7 @@ export default function CalendarSection({
                   const isWeekend = d.getDay() === 0 || d.getDay() === 6;
                   const isToday = dateStr === todayStr;
                   const isDragTarget = dragOverCell === cellKey;
-                  const cellEvents = events.filter(e => e.date === dateStr && e.member === member.id);
+                  const cellEvents = safeEvents.filter(e => e.date === dateStr && e.member === member.id);
 
                   return (
                     <div
@@ -174,12 +237,12 @@ export default function CalendarSection({
                         }
                       }}
                       style={st.cellStyle(isWeekend)}
-                      className={`p-2 border-r-2 flex flex-col gap-1.5 transition-all duration-200 cursor-pointer relative ${themeStyles.divider} ${
+                      className={`tw-day-tile p-2 border-r-2 flex flex-col gap-1.5 cursor-pointer ${themeStyles.divider} ${
                         idx === 7 ? 'border-l-4' : ''
                       } ${isToday ? 'ring-2 ring-inset ring-orange-400' : ''} ${
                         isDragTarget
-                          ? 'ring-4 ring-inset ring-sky-400 !bg-sky-500/25 shadow-[0_0_28px_rgba(56,189,248,0.75)] scale-[1.02] animate-pulse z-20 rounded-xl'
-                          : 'hover:brightness-105'
+                          ? 'ring-4 ring-inset ring-sky-400 !bg-sky-500/25 shadow-[0_0_28px_rgba(56,189,248,0.75)] scale-[1.03] animate-pulse z-20 rounded-xl'
+                          : ''
                       }`}
                     >
                       {copiedEvent && (
@@ -201,8 +264,8 @@ export default function CalendarSection({
                             }}
                             onClick={(e) => openEditEventModal(e, ev)}
                             style={st.cardStyle}
-                            className={`group rounded-xl p-2 shadow-sm flex flex-col justify-between cursor-grab active:cursor-grabbing transition-all relative ${
-                              isBeingDragged ? 'opacity-40 scale-95 ring-2 ring-sky-400' : 'hover:shadow-md'
+                            className={`tw-event-chip group rounded-xl p-2 shadow-sm flex flex-col justify-between cursor-grab active:cursor-grabbing relative ${
+                              isBeingDragged ? 'opacity-40 scale-95 ring-2 ring-sky-400' : ''
                             }`}
                           >
                             <div className="flex items-start justify-between gap-1">
@@ -245,6 +308,7 @@ export default function CalendarSection({
     const startMonday = getMonday(currentBaseDate);
     return (
       <div className="p-5 space-y-6">
+        {tileAnimationStyles}
         {[0, 1, 2, 3].map(w => {
           const weekStart = addDays(startMonday, w * 7);
           const weekEnd = addDays(weekStart, 6);
@@ -283,11 +347,11 @@ export default function CalendarSection({
               </div>
 
               <div className={`divide-y ${themeStyles.divider}`}>
-                {visibleMembers.map(member => {
+                {safeVisibleMembers.map(member => {
                   const st = getMemberStyles(member);
                   return (
                     <div key={member.id} className="grid items-stretch" style={{ gridTemplateColumns: '165px repeat(7, minmax(0, 1fr))' }}>
-                      <div style={st.headerStyle} className={`px-3 py-2 border-r-2 flex items-center gap-2 ${themeStyles.divider}`}>
+                      <div style={st.headerStyle} className={`px-3 py-2 border-r-2 flex items-center gap-2 z-20 ${themeStyles.divider}`}>
                         {renderAvatar(member, 'w-7 h-7', 'text-xs')}
                         <span className="text-xs font-bold truncate">{member.name.split(' ')[0]}</span>
                       </div>
@@ -297,7 +361,7 @@ export default function CalendarSection({
                         const cellKey = `4w_${dateStr}_${member.id}`;
                         const isWeekend = dayObj.getDay() === 0 || dayObj.getDay() === 6;
                         const isDragTarget = dragOverCell === cellKey;
-                        const cellEvents = events.filter(e => e.date === dateStr && e.member === member.id);
+                        const cellEvents = safeEvents.filter(e => e.date === dateStr && e.member === member.id);
                         return (
                           <div
                             key={d}
@@ -324,9 +388,9 @@ export default function CalendarSection({
                               }
                             }}
                             style={st.cellStyle(isWeekend)}
-                            className={`min-h-[58px] p-1.5 border-r-2 flex flex-col gap-1 cursor-pointer transition-all duration-200 ${themeStyles.divider} ${
+                            className={`tw-day-tile min-h-[58px] p-1.5 border-r-2 flex flex-col gap-1 cursor-pointer ${themeStyles.divider} ${
                               isDragTarget
-                                ? 'ring-4 ring-inset ring-sky-400 !bg-sky-500/25 shadow-[0_0_25px_rgba(56,189,248,0.75)] scale-[1.02] animate-pulse z-20 rounded-xl'
+                                ? 'ring-4 ring-inset ring-sky-400 !bg-sky-500/25 shadow-[0_0_25px_rgba(56,189,248,0.75)] scale-[1.03] animate-pulse z-20 rounded-xl'
                                 : ''
                             }`}
                           >
@@ -338,7 +402,7 @@ export default function CalendarSection({
                                 onDragEnd={() => { setDraggedEv(null); setDragOverCell(null); }}
                                 onClick={(e) => openEditEventModal(e, ev)}
                                 style={st.cardStyle}
-                                className="px-2 py-1 rounded text-xs font-bold flex items-center justify-between gap-1 cursor-grab"
+                                className="tw-event-chip px-2 py-1 rounded text-xs font-bold flex items-center justify-between gap-1 cursor-grab"
                               >
                                 <span className="truncate">{ev.title}</span>
                                 <button
@@ -374,6 +438,7 @@ export default function CalendarSection({
   const year = currentBaseDate.getFullYear();
   return (
     <div className="p-3 w-full h-full flex flex-col gap-2 overflow-hidden">
+      {tileAnimationStyles}
       <div className={`px-4 py-2 rounded-2xl border flex flex-wrap items-center justify-between gap-3 shrink-0 ${themeStyles.card}`}>
         <span className="font-extrabold text-xs sm:text-sm uppercase tracking-wider">📅 Jahreswand {year} (Baden-Württemberg)</span>
         <div className="flex flex-wrap items-center gap-3 text-xs font-extrabold">
@@ -402,9 +467,9 @@ export default function CalendarSection({
                 const isToday = dateStr === todayStr;
                 const hol = getBWHolidayName(dateStr);
                 const vacInfo = getBWVacationInfo(dateStr);
-                const dayEvents = events.filter(e => e.date === dateStr);
+                const dayEvents = safeEvents.filter(e => e.date === dateStr);
                 const firstEv = dayEvents[0];
-                const firstMem = firstEv ? members.find(m => m.id === firstEv.member) || members[0] : null;
+                const firstMem = firstEv ? safeAllMembers.find(m => m.id === firstEv.member) || safeAllMembers[0] : null;
 
                 return (
                   <div
@@ -430,7 +495,7 @@ export default function CalendarSection({
                         ? { borderLeft: '6px solid #f43f5e', backgroundColor: themeStyles.dark ? 'rgba(244, 63, 94, 0.28)' : 'rgba(244, 63, 94, 0.18)' }
                         : undefined
                     }
-                    className={`flex-1 min-h-[16px] px-1.5 flex items-center gap-1 cursor-pointer hover:bg-indigo-500/25 overflow-hidden ${
+                    className={`tw-day-tile flex-1 min-h-[16px] px-1.5 flex items-center gap-1 cursor-pointer overflow-hidden ${
                       !hol && !vacInfo && isWeekend ? 'bg-black/15' : ''
                     } ${isToday ? 'ring-2 ring-inset ring-orange-500' : ''}`}
                   >
