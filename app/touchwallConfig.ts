@@ -250,7 +250,7 @@ export const DEFAULT_SCHOOL = {
   }
 };
 
-export const DEFAULT_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyY2AOKbYqdHNbdcjbTRGW2w-8xqjL3fDN7mdLpKQtmBaQfYcA54NIM97FxmLca7-1L/exec';
+export const DEFAULT_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwdbSP-zoHwk7Y_UqSG7qzC84OAKUeHGCGFuRvaaWq7D6Jh8PN6f7Fk_8m8h42a0YzG/exec';
 
 export function buildThemeStyles(currentTheme) {
   switch (currentTheme) {
