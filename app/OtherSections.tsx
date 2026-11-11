@@ -15,7 +15,7 @@ const CALENDAR_PROVIDERS = [
 ];
 
 export default function OtherSections({
-  activeSection,
+activeSection,
   members,
   setMembers,
   schoolData,
@@ -25,6 +25,10 @@ export default function OtherSections({
   setSchoolModal,
   mealPlan,
   setMealPlan,
+  pantryItems,
+  setPantryItems,
+  setPantryTrash,
+  todayStr,
   familyNotes,
   setFamilyNotes,
   addItemToNoteTile,
@@ -358,16 +362,59 @@ export default function OtherSections({
   }
 
   // =========================================================
-  // ANSICHT 6: ESSENSPLAN
+  // ANSICHT 6: ESSENSPLAN (MIT "GEKOCHT & VORRAT ABBUCHEN")
   // =========================================================
   if (activeSection === 'essen') {
+    const safePantry = Array.isArray(pantryItems) ? pantryItems : [];
+
+    const handleCookMealAndDeductPantry = (meal) => {
+      const ingList = Array.isArray(meal.ingredients) ? meal.ingredients : [];
+      const searchWords = [
+        ...String(meal.dish || '').toLowerCase().split(/[\s,()/&-]+/),
+        ...ingList.flatMap(i => String(i.name || '').toLowerCase().split(/[\s,()/&-]+/))
+      ].filter(w => w.length >= 3 && !/mit|und|aus|vom|für|oder|vorrat|beilage|nachtisch/.test(w));
+
+      const matchedInPantry = safePantry.filter(pItem => {
+        const pLower = String(pItem.name || '').toLowerCase();
+        return searchWords.some(w => pLower.includes(w));
+      });
+
+      if (matchedInPantry.length > 0 && typeof setPantryItems === 'function') {
+        const matchedIds = new Set(matchedInPantry.map(x => x.id));
+        setPantryItems(prev => (Array.isArray(prev) ? prev : []).filter(x => !matchedIds.has(x.id)));
+        if (typeof setPantryTrash === 'function') {
+          const trashEntries = matchedInPantry.map(x => ({
+            ...x,
+            trashedAt: todayStr || new Date().toISOString().slice(0, 10),
+            reason: 'consumed',
+            reasonLabel: '🍽️ Verzehrt beim Kochen (' + meal.dayLabel + ')'
+          }));
+          setPantryTrash(prev => [...trashEntries, ...(Array.isArray(prev) ? prev : [])]);
+        }
+      }
+
+      setMealPlan(prev => (Array.isArray(prev) ? prev : []).map(m =>
+        m.id === meal.id
+          ? { ...m, ingredients: (Array.isArray(m.ingredients) ? m.ingredients : []).map(ing => ({ ...ing, done: true })) }
+          : m
+      ));
+
+      showToast(
+        'Gericht gekocht!',
+        matchedInPantry.length > 0
+          ? (matchedInPantry.length + ' Zutat(en) wurden als „Verzehrt“ aus der Speisekammer ausgebucht!')
+          : ('„' + meal.dish + '“ wurde als gekocht markiert.'),
+        '🍽️'
+      );
+    };
+
     return (
       <div className="p-6 flex flex-col gap-6">
         <div className={'p-6 rounded-3xl border shadow-sm flex flex-wrap items-center justify-between gap-4 ' + themeStyles.card}>
           <div>
-            <h2 className="text-2xl font-extrabold">🍲 Familien-Essensplan & Todoist-Zutaten</h2>
+            <h2 className="text-2xl font-extrabold">🍲 Familien-Essensplan & Vorrats-Abbuchung</h2>
             <p className={'text-sm font-semibold ' + themeStyles.textMuted}>
-              Ein Klick auf „🛒 In Todoist-Einkaufsliste“ überträgt alle fehlenden Zutaten sofort in eure Einkaufslisten-Kachel!
+              Mit „🛒 Fehlendes einkaufen“ überträgst du fehlende Zutaten – und mit „🍽️ Gekocht & Vorrat abbuchen“ werden verbrauchte Lebensmittel direkt aus der Speisekammer gebucht!
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2.5">
@@ -403,9 +450,9 @@ export default function OtherSections({
             const ingList = Array.isArray(meal.ingredients) ? meal.ingredients : [];
             const missing = ingList.filter(i => !i.done);
             return (
-              <div key={meal.id} className={'rounded-3xl border-2 shadow-sm flex flex-col justify-between overflow-hidden min-h-[420px] ' + themeStyles.card}>
+              <div key={meal.id} className={'rounded-3xl border-2 shadow-sm flex flex-col justify-between overflow-hidden min-h-[430px] ' + themeStyles.card}>
                 <div className="flex-1 flex flex-col">
-                  <div className={'px-5 py-4 border-b flex items-center justify-between gap-2 ' + themeStyles.subtle + ' ' + themeStyles.divider}>
+                  <div className={'px-5 py-3.5 border-b flex items-center justify-between gap-2 ' + themeStyles.subtle + ' ' + themeStyles.divider}>
                     <input
                       type="text"
                       value={meal.dayLabel}
@@ -417,16 +464,23 @@ export default function OtherSections({
                     </span>
                   </div>
 
-                  <div className={'p-5 border-b ' + themeStyles.divider}>
+                  <div className={'p-4 border-b space-y-2.5 ' + themeStyles.divider}>
                     <input
                       type="text"
                       value={meal.dish}
                       onChange={(e) => setMealPlan(prev => (Array.isArray(prev) ? prev : []).map(m => m.id === meal.id ? { ...m, dish: e.target.value } : m))}
-                      className={'w-full px-4 py-3 rounded-2xl border font-extrabold text-base ' + themeStyles.input}
+                      className={'w-full px-4 py-2.5 rounded-2xl border font-extrabold text-sm ' + themeStyles.input}
                     />
+                    <button
+                      type="button"
+                      onClick={() => handleCookMealAndDeductPantry(meal)}
+                      className="tw-glow-btn w-full py-2 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <span>🍽️ Gekocht & Vorrat abbuchen</span>
+                    </button>
                   </div>
 
-                  <div className="p-5 flex-1 flex flex-col space-y-3">
+                  <div className="p-4 flex-1 flex flex-col space-y-2.5">
                     <div className="flex items-center justify-between gap-2">
                       <span className={'text-xs font-extrabold uppercase ' + themeStyles.textMuted}>Zutaten ({ingList.length})</span>
                       <button
@@ -437,16 +491,16 @@ export default function OtherSections({
                           }
                           addShoppingItemsBatch(missing.map(i => i.name + ' (' + meal.dayLabel + ')'));
                         }}
-                        className="tw-glow-btn px-3 py-1.5 rounded-xl text-xs font-extrabold cursor-pointer"
+                        className="tw-glow-btn px-2.5 py-1 rounded-xl text-[11px] font-extrabold cursor-pointer"
                       >
-                        🛒 In Todoist-Einkaufsliste
+                        🛒 Fehlendes einkaufen
                       </button>
                     </div>
 
-                    <div className="space-y-2 flex-1">
+                    <div className="space-y-1.5 flex-1">
                       {ingList.map((ing, iIdx) => (
-                        <div key={iIdx} className={'flex items-center justify-between gap-2 px-3.5 py-2 rounded-2xl border text-sm ' + themeStyles.subtle}>
-                          <label className="flex items-center gap-3 cursor-pointer flex-1 min-w-0">
+                        <div key={iIdx} className={'flex items-center justify-between gap-2 px-3 py-1.5 rounded-xl border text-xs ' + themeStyles.subtle}>
+                          <label className="flex items-center gap-2.5 cursor-pointer flex-1 min-w-0">
                             <input
                               type="checkbox"
                               checked={Boolean(ing.done)}
@@ -456,7 +510,7 @@ export default function OtherSections({
                                   ingredients: (Array.isArray(m.ingredients) ? m.ingredients : []).map((item, idx) => idx === iIdx ? { ...item, done: !item.done } : item)
                                 } : m));
                               }}
-                              className="w-5 h-5 accent-emerald-600 rounded cursor-pointer"
+                              className="w-4 h-4 accent-emerald-600 rounded cursor-pointer"
                             />
                             <span className={'font-bold break-words ' + (ing.done ? 'line-through opacity-50' : '')}>{ing.name}</span>
                           </label>
@@ -477,7 +531,7 @@ export default function OtherSections({
                   </div>
                 </div>
 
-                <div className={'p-4 border-t flex gap-2 ' + themeStyles.subtle + ' ' + themeStyles.divider}>
+                <div className={'p-3.5 border-t flex gap-2 ' + themeStyles.subtle + ' ' + themeStyles.divider}>
                   <input
                     type="text"
                     value={ingInputs[meal.id] || ''}
@@ -490,7 +544,7 @@ export default function OtherSections({
                       }
                     }}
                     placeholder="Zutat hinzufügen..."
-                    className={'flex-1 px-4 py-2 rounded-xl border text-sm font-semibold ' + themeStyles.input}
+                    className={'flex-1 px-3.5 py-2 rounded-xl border text-xs font-semibold ' + themeStyles.input}
                   />
                   <button
                     onClick={() => {
@@ -499,7 +553,7 @@ export default function OtherSections({
                       setMealPlan(prev => (Array.isArray(prev) ? prev : []).map(m => m.id === meal.id ? { ...m, ingredients: [...(Array.isArray(m.ingredients) ? m.ingredients : []), { name: val, done: false }] } : m));
                       setIngInputs({ ...ingInputs, [meal.id]: '' });
                     }}
-                    className="tw-glow-btn w-10 h-10 rounded-xl font-bold cursor-pointer"
+                    className="tw-glow-btn w-9 h-9 rounded-xl font-bold cursor-pointer"
                   >
                     +
                   </button>
