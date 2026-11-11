@@ -1,4 +1,4 @@
- // @ts-nocheck
+// @ts-nocheck
 /* eslint-disable react/no-unescaped-entities */
 
 export function safeArr(val, fallback = []) {
@@ -7,6 +7,27 @@ export function safeArr(val, fallback = []) {
 
 export function safeObj(val, fallback = {}) {
   return val && typeof val === 'object' && !Array.isArray(val) ? val : fallback;
+}
+
+// =========================================================
+// COOKIE- & SESSION-HELFER FÜR DEN LOGIN-SCHUTZ
+// =========================================================
+export function setTouchwallAuthCookie(familyName = 'Familien-Touchwall') {
+  if (typeof document === 'undefined') return;
+  const maxAge = 60 * 60 * 24 * 365; // 1 Jahr gültig
+  document.cookie = 'tw_auth_session=1; path=/; max-age=' + maxAge + '; SameSite=Lax';
+  document.cookie = 'tw_family_name=' + encodeURIComponent(familyName) + '; path=/; max-age=' + maxAge + '; SameSite=Lax';
+}
+
+export function hasTouchwallAuthCookie() {
+  if (typeof document === 'undefined') return false;
+  return document.cookie.split(';').some(c => c.trim().startsWith('tw_auth_session=1'));
+}
+
+export function clearTouchwallAuthCookie() {
+  if (typeof document === 'undefined') return;
+  document.cookie = 'tw_auth_session=; path=/; max-age=0; SameSite=Lax';
+  document.cookie = 'tw_family_name=; path=/; max-age=0; SameSite=Lax';
 }
 
 export function formatDateStr(dateObj) {
@@ -193,80 +214,57 @@ export const PAGE_THEMES = [
 
 export const AVATAR_EMOJIS = ['👨‍👩‍👧‍👦', '👨', '👩', '👦', '👧', '🏎️', '💻', '🐕', '🐴', '⚽', '🎮', '🎨', '🦸‍♂️', '🦸‍♀️', '👑', '🦊'];
 
+// =========================================================
+// 100% NEUTRALE PLATZHALTER-DATEN (KEINE PERSÖNLICHEN DATEN IM CODE!)
+// =========================================================
 export const DEFAULT_MEMBERS = [
-  { id: 'all',       name: 'Familie & Events', role: 'Alle gemeinsam', badge: 'FR', color: 'orange_bold',  avatarType: 'emoji', emoji: '👨‍👩‍👧‍👦', photoUrl: '', calendarId: 'primary', todoistUserId: '', todoistProjectId: '', statusMsg: 'Hauptkalender', ok: true },
-  { id: 'hans',      name: 'Hans',             role: 'Vater',          badge: 'H',  color: 'navy_bold',    avatarType: 'photo', emoji: '🏎️',     photoUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=120&q=80', calendarId: '', todoistUserId: '', todoistProjectId: '', statusMsg: 'Bereit', ok: false },
-  { id: 'sarah',     name: 'Sarah',            role: 'Mutter',         badge: 'S',  color: 'pink',         avatarType: 'photo', emoji: '👩',     photoUrl: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=120&q=80', calendarId: '', todoistUserId: '', todoistProjectId: '', statusMsg: 'Bereit', ok: false },
-  { id: 'dean',      name: 'Dean',             role: 'Sohn',           badge: 'D',  color: 'crimson_bold', avatarType: 'emoji', emoji: '⚽',     photoUrl: 'https://images.unsplash.com/photo-1503454537195-1dcabb73ffb9?auto=format&fit=crop&w=120&q=80', calendarId: '', todoistUserId: '', todoistProjectId: '', statusMsg: 'Bereit', ok: false },
-  { id: 'valentina', name: 'Valentina',        role: 'Tochter',        badge: 'V',  color: 'teal_bold',    avatarType: 'emoji', emoji: '🐴',     photoUrl: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=120&q=80', calendarId: '', todoistUserId: '', todoistProjectId: '', statusMsg: 'Bereit', ok: false }
+  { id: 'all',       name: 'Familie & Events', role: 'Alle gemeinsam', badge: 'FA', color: 'orange_bold',  avatarType: 'emoji', emoji: '👨‍👩‍👧‍👦', photoUrl: '', calendarId: 'primary', todoistUserId: '', todoistProjectId: '', statusMsg: 'Hauptkalender', ok: true },
+  { id: 'hans',      name: 'Person 1',         role: 'Elternteil',     badge: 'P1', color: 'navy_bold',    avatarType: 'emoji', emoji: '👨',     photoUrl: '', calendarId: '', todoistUserId: '', todoistProjectId: '', statusMsg: 'Bereit', ok: false },
+  { id: 'sarah',     name: 'Person 2',         role: 'Elternteil',     badge: 'P2', color: 'pink',         avatarType: 'emoji', emoji: '👩',     photoUrl: '', calendarId: '', todoistUserId: '', todoistProjectId: '', statusMsg: 'Bereit', ok: false },
+  { id: 'dean',      name: 'Kind 1',           role: 'Kind',           badge: 'K1', color: 'crimson_bold', avatarType: 'emoji', emoji: '👦',     photoUrl: '', calendarId: '', todoistUserId: '', todoistProjectId: '', statusMsg: 'Bereit', ok: false },
+  { id: 'valentina', name: 'Kind 2',           role: 'Kind',           badge: 'K2', color: 'teal_bold',    avatarType: 'emoji', emoji: '👧',     photoUrl: '', calendarId: '', todoistUserId: '', todoistProjectId: '', statusMsg: 'Bereit', ok: false }
 ];
 
 export const DEFAULT_MEALS = [
-  { id: 1, dayLabel: 'Montag',     dish: '🍝 Glutenfreie Spaghetti Bolognese', ingredients: [{ name: 'Glutenfreie Spaghetti', done: true }, { name: 'Rinderhackfleisch 500g', done: false }, { name: 'Passierte Tomaten', done: true }, { name: 'Parmesan', done: false }] },
-  { id: 2, dayLabel: 'Dienstag',   dish: '🥞 Pfannkuchen mit Apfelmus',        ingredients: [{ name: 'Glutenfreies Mehl', done: true }, { name: 'Eier (6 Stück)', done: true }, { name: 'Milch', done: false }, { name: 'Apfelmus im Glas', done: false }] },
-  { id: 3, dayLabel: 'Mittwoch',   dish: '🥦 Gemüse-Wok mit Reis',             ingredients: [{ name: 'Basmatireis', done: true }, { name: 'Brokkoli & Paprika', done: false }, { name: 'Hähnchenbrust', done: false }, { name: 'Tamari (GF Sojasoße)', done: true }] },
-  { id: 4, dayLabel: 'Donnerstag', dish: '🧀 Hausgemachte Mac & Cheese (GF)',  ingredients: [{ name: 'Glutenfreie Hörnchennudeln', done: true }, { name: 'Cheddar & Gouda gerieben', done: false }, { name: 'Maisstärke', done: true }, { name: 'Butter & Milch', done: true }] },
-  { id: 5, dayLabel: 'Freitag',    dish: '🌮 Familien-Taco Abend',             ingredients: [{ name: 'Mais-Tacoschalen', done: false }, { name: 'Hackfleisch & Mais', done: false }, { name: 'Guacamole / Avocado', done: false }, { name: 'Salsa & Sauerrahm', done: true }] },
-  { id: 6, dayLabel: 'Samstag',    dish: '🍕 Pizza-Abend',                     ingredients: [{ name: 'Glutenfreier Pizzateig', done: false }, { name: 'Mozzarella', done: false }, { name: 'Salami & Champignons', done: false }] },
-  { id: 7, dayLabel: 'Sonntag',    dish: '🍗 Sonntagsbraten & Ofenkartoffeln', ingredients: [{ name: 'Kartoffeln 1,5 kg', done: true }, { name: 'Sonntagsbraten / Hähnchen', done: false }, { name: 'Grüner Salat', done: false }] }
+  { id: 1, dayLabel: 'Montag',     dish: '🍝 Pasta mit Tomatensoße',       ingredients: [{ name: 'Nudeln', done: true }, { name: 'Passierte Tomaten', done: false }] },
+  { id: 2, dayLabel: 'Dienstag',   dish: '🥞 Pfannkuchen mit Apfelmus',    ingredients: [{ name: 'Mehl', done: true }, { name: 'Eier', done: true }, { name: 'Milch', done: false }] },
+  { id: 3, dayLabel: 'Mittwoch',   dish: '🥦 Gemüse-Pfanne mit Reis',      ingredients: [{ name: 'Reis', done: true }, { name: 'Frisches Gemüse', done: false }] },
+  { id: 4, dayLabel: 'Donnerstag', dish: '🧀 Auflauf aus dem Ofen',        ingredients: [{ name: 'Käse gerieben', done: false }] },
+  { id: 5, dayLabel: 'Freitag',    dish: '🌮 Familien-Abendessen',         ingredients: [{ name: 'Salat & Beilagen', done: false }] },
+  { id: 6, dayLabel: 'Samstag',    dish: '🍕 Selbstgemachte Pizza',        ingredients: [{ name: 'Pizzateig', done: false }, { name: 'Mozzarella', done: false }] },
+  { id: 7, dayLabel: 'Sonntag',    dish: '🍗 Sonntagsessen & Kartoffeln',  ingredients: [{ name: 'Kartoffeln', done: true }, { name: 'Salat', done: false }] }
 ];
 
 export const DEFAULT_NOTES = [
-  { id: 1, title: '🛒 Einkaufsliste (Geteilt)', color: 'amber', author: 'Sarah & Hans', todoistProjectId: '', items: [{ text: 'Glutenfreier Blätterteig', done: false }, { text: 'Fisch Seesternchen', done: false }, { text: 'Katzenfutter Norma', done: false }] },
-  { id: 2, title: '📌 Wichtige Familien-Infos', color: 'sky',   author: 'Hans',         todoistProjectId: '', items: [{ text: 'Ponyhof Dienstplan am Wochenende prüfen', done: false }, { text: 'Müllabfuhr Gelber Sack: Dienstag früh', done: false }] },
-  { id: 3, title: '🎁 Ideen & Besorgungen',     color: 'pink',  author: 'Familie',      todoistProjectId: '', items: [{ text: 'Dean: Neue Fußballschuhe schauen', done: false }, { text: 'Valentina: Bastelset & Reithandschuhe', done: false }] }
+  { id: 1, title: '🛒 Einkaufsliste (Geteilt)', color: 'amber', author: 'Familie', todoistProjectId: '', items: [] },
+  { id: 2, title: '📌 Wichtige Familien-Infos', color: 'sky',   author: 'Familie', todoistProjectId: '', items: [] },
+  { id: 3, title: '🎁 Ideen & Besorgungen',     color: 'pink',  author: 'Familie', todoistProjectId: '', items: [] }
 ];
 
 export const DEFAULT_SCHOOL = {
   dean: {
     periods: ['1. Std (07:55)', '2. Std (08:45)', '3. Std (09:50)', '4. Std (10:40)', '5. Std (11:40)', '6. Std (12:30)'],
     slots: {
-      '0-0': { subject: '📐 Mathe', room: 'R. 204', status: 'normal' },
-      '0-1': { subject: '📖 Deutsch', room: 'Fr. Kiefer', status: 'normal' },
-      '0-2': { subject: '🇬🇧 Englisch', room: 'Hr. Wiedemann', status: 'normal' },
-      '0-3': { subject: '🔬 NWT / Technik', room: 'Werkraum', status: 'normal' },
-      '0-4': { subject: '⚽ Sport', room: 'Sporthalle', status: 'normal' },
-      '1-0': { subject: '🇬🇧 Englisch', room: 'Hr. Wiedemann', status: 'exam' },
-      '1-1': { subject: '📐 Mathe', room: 'R. 204', status: 'normal' },
-      '1-2': { subject: '🌍 Geschichte', room: 'R. 204', status: 'normal' },
-      '1-3': { subject: '📖 Deutsch', room: 'Fr. Kiefer', status: 'change' },
-      '2-0': { subject: '📐 Mathe', room: 'R. 204', status: 'normal' },
-      '2-1': { subject: '🔬 Physik / Chemie', room: 'Labor', status: 'normal' },
-      '2-2': { subject: '📖 Deutsch', room: 'Fr. Kiefer', status: 'normal' },
-      '3-0': { subject: '🇬🇧 Englisch', room: 'Hr. Wiedemann', status: 'normal' },
-      '3-1': { subject: '🎨 Kunst / Werk', room: 'Kunstraum', status: 'normal' },
-      '4-0': { subject: '📖 Deutsch', room: 'Fr. Kiefer', status: 'normal' },
-      '4-1': { subject: '📐 Mathe', room: 'R. 204', status: 'normal' }
+      '0-0': { subject: '📐 Mathe', room: 'Raum 101', status: 'normal' },
+      '0-1': { subject: '📖 Deutsch', room: 'Raum 101', status: 'normal' },
+      '1-0': { subject: '🇬🇧 Englisch', room: 'Raum 102', status: 'normal' },
+      '2-0': { subject: '⚽ Sport', room: 'Sporthalle', status: 'normal' }
     },
-    announcements: [
-      'Dienstag 1. Stunde: Englisch-Vokabeltest bei Herrn Wiedemann',
-      'Donnerstag: Sportzeug für Nachmittag nicht vergessen'
-    ]
+    announcements: []
   },
   valentina: {
     periods: ['1. Std (08:00)', '2. Std (08:50)', '3. Std (09:55)', '4. Std (10:45)', '5. Std (11:45)'],
     slots: {
       '0-0': { subject: '📖 Deutsch', room: 'Klassenzimmer', status: 'normal' },
       '0-1': { subject: '📐 Mathe', room: 'Klassenzimmer', status: 'normal' },
-      '0-2': { subject: '🌿 Sachunterricht', room: 'Klassenzimmer', status: 'normal' },
-      '0-3': { subject: '🎨 Kunst', room: 'Werkraum', status: 'normal' },
-      '1-0': { subject: '📐 Mathe', room: 'Klassenzimmer', status: 'normal' },
-      '1-1': { subject: '📖 Deutsch / Lesen', room: 'Klassenzimmer', status: 'normal' },
-      '1-2': { subject: '⚽ Sport', room: 'Turnhalle', status: 'normal' },
-      '2-0': { subject: '📖 Deutsch', room: 'Klassenzimmer', status: 'normal' },
-      '2-1': { subject: '🎵 Musik', room: 'Musikraum', status: 'change' },
-      '3-0': { subject: '📐 Mathe', room: 'Klassenzimmer', status: 'normal' },
-      '3-1': { subject: '🌿 Sachunterricht', room: 'Klassenzimmer', status: 'normal' },
-      '4-0': { subject: '📖 Wochenabschluss', room: 'Klassenzimmer', status: 'normal' }
+      '1-0': { subject: '🎨 Kunst', room: 'Werkraum', status: 'normal' }
     },
-    announcements: [
-      'Mittwoch: Musikraum-Wechsel (Vertretung)',
-      'Freitag: Lesebuch mitbringen'
-    ]
+    announcements: []
   }
 };
 
-export const DEFAULT_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwdbSP-zoHwk7Y_UqSG7qzC84OAKUeHGCGFuRvaaWq7D6Jh8PN6f7Fk_8m8h42a0YzG/exec';
+// LEER IM QUELLCODE -> WIRD ERST BEIM LOGIN EINGETRAGEN UND IM COOKIE/STORAGE GESPEICHERT!
+export const DEFAULT_APPS_SCRIPT_URL = '';
 
 export function buildThemeStyles(currentTheme) {
   switch (currentTheme) {
@@ -731,7 +729,7 @@ export async function discoverTodoistWorkspace(token) {
   if (!Array.isArray(projects)) projects = [];
 
   let shoppingProj = projects.find(p => /einkauf|shopping|supermarkt/i.test(p.name));
-  let tasksProj = projects.find(p => /aufgaben|familie|touchwall|tasks|richter/i.test(p.name) && (!shoppingProj || p.id !== shoppingProj.id));
+  let tasksProj = projects.find(p => /aufgaben|familie|touchwall|tasks/i.test(p.name) && (!shoppingProj || p.id !== shoppingProj.id));
 
   if (!shoppingProj) {
     shoppingProj = await createNewTodoistProject(cleanToken, '🛒 Einkaufsliste');
@@ -870,6 +868,8 @@ export async function pullFromTodoistTwoWay(token, config, currentTasks, current
     return lt;
   });
 
+  const firstPersonId = (Array.isArray(members) ? members : DEFAULT_MEMBERS).find(m => m.id !== 'all')?.id || 'hans';
+
   allRemote.forEach(rt => {
     const rtProjId = String(rt.project_id || '');
     const memberWithThisProject = (Array.isArray(members) ? members : DEFAULT_MEMBERS).find(m => m.id !== 'all' && String(m.todoistProjectId || '') === rtProjId);
@@ -886,7 +886,7 @@ export async function pullFromTodoistTwoWay(token, config, currentTasks, current
     );
 
     const assignedUid = rt.assignee_id || rt.responsible_uid || null;
-    let memberKey = 'hans';
+    let memberKey = firstPersonId;
 
     if (assignedUid) {
       const matchedMem = (Array.isArray(members) ? members : DEFAULT_MEMBERS).find(m => String(m.todoistUserId) === String(assignedUid));
