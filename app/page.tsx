@@ -8,7 +8,7 @@ import {
   Calendar, GraduationCap, CheckSquare, Utensils, FileText,
   Palette, Cloud, Plus, ChevronLeft, ChevronRight, Maximize2,
   Smartphone, RefreshCw, X, Volume2, BellRing, Copy, ClipboardPaste,
-  Clock, Lock, LogOut, KeyRound, Sparkles, ShieldCheck, Share2, ChevronDown, Upload
+  Clock, Lock, LogOut, KeyRound, Sparkles, ShieldCheck, Share2, UserPlus
 } from 'lucide-react';
 
 import * as Cfg from './touchwallConfig';
@@ -27,7 +27,6 @@ const {
   DEFAULT_MEALS,
   DEFAULT_NOTES,
   DEFAULT_SCHOOL,
-  DEFAULT_APPS_SCRIPT_URL,
   buildThemeStyles,
   buildMemberStyles,
   discoverTodoistWorkspace,
@@ -39,51 +38,50 @@ const {
   pushTodoistTaskToPhoneNow
 } = Cfg;
 
-// =========================================================
-// EINGEBAUTER COOKIE-FALLBACK (FUNKTIONIERT IMMER & ABSTURZSICHER)
-// =========================================================
-function writeAuthCookie(familyName = 'Familien-Touchwall') {
+// Feste öffentliche Cloud-Server-URL (Niemand muss mehr eine Apps-Script-URL kennen!)
+const PUBLIC_CLOUD_BACKEND_URL = 'https://script.google.com/macros/s/AKfycbzBs3ewHvp78OCIgWQkOQ80vXyKcM6wR5hQSn-WfYPU4puS7Gu0lPCX0KMwkxzeDxoE4g/exec';
+
+function writeAuthSession(accountId, authKey, familyName) {
   try {
-    if (typeof Cfg.setTouchwallAuthCookie === 'function') {
-      Cfg.setTouchwallAuthCookie(familyName);
-    }
+    const maxAge = 60 * 60 * 24 * 365;
     if (typeof document !== 'undefined') {
-      const maxAge = 60 * 60 * 24 * 365;
       document.cookie = 'tw_auth_session=1; path=/; max-age=' + maxAge + '; SameSite=Lax';
-      document.cookie = 'tw_family_name=' + encodeURIComponent(familyName) + '; path=/; max-age=' + maxAge + '; SameSite=Lax';
+      document.cookie = 'tw_account_id=' + encodeURIComponent(accountId || 'local') + '; path=/; max-age=' + maxAge + '; SameSite=Lax';
     }
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem('richter_tw_auth_active', '1');
+      localStorage.setItem('richter_tw_account_id', accountId || 'local');
+      localStorage.setItem('richter_tw_auth_key', authKey || '');
+      if (familyName) localStorage.setItem('richter_tw_family_name', familyName);
     }
   } catch (e) {}
 }
 
-function checkAuthCookie() {
+function readAuthSession() {
   try {
-    if (typeof Cfg.hasTouchwallAuthCookie === 'function' && Cfg.hasTouchwallAuthCookie()) {
-      return true;
-    }
-    if (typeof document !== 'undefined' && document.cookie.split(';').some(c => c.trim().startsWith('tw_auth_session=1'))) {
-      return true;
-    }
-    if (typeof localStorage !== 'undefined' && localStorage.getItem('richter_tw_auth_active') === '1') {
-      return true;
-    }
-  } catch (e) {}
-  return false;
+    if (typeof localStorage === 'undefined') return { active: false, accountId: '', authKey: '' };
+    const cookieActive = typeof document !== 'undefined' && document.cookie.split(';').some(c => c.trim().startsWith('tw_auth_session=1'));
+    const storageActive = localStorage.getItem('richter_tw_auth_active') === '1';
+    return {
+      active: Boolean(cookieActive || storageActive),
+      accountId: localStorage.getItem('richter_tw_account_id') || '',
+      authKey: localStorage.getItem('richter_tw_auth_key') || ''
+    };
+  } catch (e) {
+    return { active: false, accountId: '', authKey: '' };
+  }
 }
 
-function removeAuthCookie() {
+function clearAuthSession() {
   try {
-    if (typeof Cfg.clearTouchwallAuthCookie === 'function') {
-      Cfg.clearTouchwallAuthCookie();
-    }
     if (typeof document !== 'undefined') {
       document.cookie = 'tw_auth_session=; path=/; max-age=0; SameSite=Lax';
-      document.cookie = 'tw_family_name=; path=/; max-age=0; SameSite=Lax';
+      document.cookie = 'tw_account_id=; path=/; max-age=0; SameSite=Lax';
     }
     if (typeof localStorage !== 'undefined') {
       localStorage.removeItem('richter_tw_auth_active');
+      localStorage.removeItem('richter_tw_account_id');
+      localStorage.removeItem('richter_tw_auth_key');
     }
   } catch (e) {}
 }
@@ -91,12 +89,14 @@ function removeAuthCookie() {
 export default function TouchwallApp() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
-  const [authTab, setAuthTab] = useState('new');
-  const [showAdvancedSetup, setShowAdvancedSetup] = useState(false);
+  const [authTab, setAuthTab] = useState('login'); // 'login' | 'register'
+  const [accountId, setAccountId] = useState('');
+  const [authKey, setAuthKey] = useState('');
   const [familyName, setFamilyName] = useState('Familien-Touchwall');
 
-  const [loginGasUrl, setLoginGasUrl] = useState('');
-  const [loginTodoistToken, setLoginTodoistToken] = useState('');
+  // Formularfelder für Login & Registrierung
+  const [formUsername, setFormUsername] = useState('');
+  const [formPassword, setFormPassword] = useState('');
   const [loginFamilyName, setLoginFamilyName] = useState('');
   const [setupMemberNames, setSetupMemberNames] = useState(['Mama / Person 1', 'Papa / Person 2', 'Kind 1', 'Kind 2']);
   const [loginError, setLoginError] = useState('');
@@ -111,7 +111,7 @@ export default function TouchwallApp() {
   const [customLogoUrl, setCustomLogoUrl] = useState('');
   const [clockStr, setClockStr] = useState('');
 
-  const [appsScriptUrl, setAppsScriptUrl] = useState(DEFAULT_APPS_SCRIPT_URL || '');
+  const [appsScriptUrl, setAppsScriptUrl] = useState(PUBLIC_CLOUD_BACKEND_URL);
   const [todoistConfig, setTodoistConfig] = useState({
     apiToken: '',
     shoppingProjectId: '',
@@ -541,16 +541,23 @@ export default function TouchwallApp() {
     };
   }, [isAuthenticated]);
 
-  const callGoogleAppsScript = async (targetUrl, method = 'GET', postBody = null) => {
+  const callGoogleAppsScript = async (targetUrl, method = 'POST', postBody = null) => {
+    const cleanTarget = (targetUrl || PUBLIC_CLOUD_BACKEND_URL).trim();
+    const enrichedBody = postBody ? {
+      ...postBody,
+      accountId: postBody.accountId !== undefined ? postBody.accountId : accountId,
+      authKey: postBody.authKey !== undefined ? postBody.authKey : authKey
+    } : null;
+
     try {
       const proxyRes = await fetch('/api/todoist?_t=' + Date.now(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'gasProxy',
-          gasUrl: targetUrl,
+          gasUrl: cleanTarget,
           gasMethod: method,
-          gasBody: postBody
+          gasBody: enrichedBody
         }),
         cache: 'no-store'
       });
@@ -563,26 +570,28 @@ export default function TouchwallApp() {
     } catch (e) {}
 
     if (method === 'GET') {
-      const sep = targetUrl.includes('?') ? '&' : '?';
-      const res = await fetch(targetUrl + sep + 'action=json&_t=' + Date.now(), {
+      const sep = cleanTarget.includes('?') ? '&' : '?';
+      const query = 'action=json&accountId=' + encodeURIComponent(accountId || '') + '&authKey=' + encodeURIComponent(authKey || '') + '&_t=' + Date.now();
+      const res = await fetch(cleanTarget + sep + query, {
         method: 'GET',
         redirect: 'follow',
         cache: 'no-store'
       });
       return res.json();
     } else {
-      const res = await fetch(targetUrl, {
+      const res = await fetch(cleanTarget, {
         method: 'POST',
         redirect: 'follow',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(postBody)
+        body: JSON.stringify(enrichedBody)
       });
       return res.json();
     }
   };
 
   const sendCalendarApiAction = async (bodyData, statusLabel = '⏳ Synchronisiere...') => {
-    const targetUrl = (appsScriptUrl || '').trim();
+    if (!accountId || accountId === 'local') return null;
+    const targetUrl = (appsScriptUrl || PUBLIC_CLOUD_BACKEND_URL).trim();
     if (!targetUrl) return null;
     isMutatingCalendar.current = true;
     setIsSyncing(true);
@@ -599,7 +608,7 @@ export default function TouchwallApp() {
       setSyncStatusText('⚡ Live-Sync (' + String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0') + ')');
       return json;
     } catch (err) {
-      setSyncStatusText('⚠️ Google-Sync prüfen');
+      setSyncStatusText('⚠️ Cloud-Sync prüfen');
       return null;
     } finally {
       isMutatingCalendar.current = false;
@@ -607,59 +616,71 @@ export default function TouchwallApp() {
     }
   };
 
-  const pullFromCloud = async (urlOverride, showFeedback = true) => {
+  const applyBundleData = (bundle) => {
+    if (!bundle) return;
+    isApplyingRemoteState.current = true;
+    const calMap = bundle?.calendarData?.calendars || {};
+    const statusMap = bundle?.calendarData?.status || {};
+
+    if (bundle?.state) {
+      const s = bundle.state;
+      if (s.familyName) setFamilyName(s.familyName);
+      const baseMembers = (Array.isArray(s.members) && s.members.length >= 2) ? s.members : safeMembers;
+      setMembers(baseMembers.map(m => {
+        const cid = calMap[m.id] !== undefined && calMap[m.id] !== '' ? calMap[m.id] : (m.calendarId || '');
+        const st = statusMap[m.id];
+        return { ...m, calendarId: cid, ok: st ? Boolean(st.ok) : true, statusMsg: st?.msg || 'Cloud aktiv ✓' };
+      }));
+      if (Array.isArray(s.mealPlan) && s.mealPlan.length > 0) setMealPlan(s.mealPlan);
+      if (Array.isArray(s.familyNotes) && s.familyNotes.length > 0) setFamilyNotes(s.familyNotes);
+      if (s.schoolData?.dean) setSchoolData(s.schoolData);
+      if (Array.isArray(s.familyTasks)) setFamilyTasks(s.familyTasks);
+
+      const lockedTheme = typeof window !== 'undefined' ? localStorage.getItem('richter_tw_theme_lock') : null;
+      if (!lockedTheme && s.currentTheme && Date.now() - lastThemeChangeRef.current > 20000) {
+        setCurrentTheme(s.currentTheme);
+      }
+
+      if (s.customLogoUrl) setCustomLogoUrl(s.customLogoUrl);
+      if (s.todoistConfig?.apiToken) setTodoistConfig(prev => ({ ...prev, ...s.todoistConfig }));
+    }
+
+    if (Array.isArray(bundle?.calendarData?.events)) {
+      setEvents(bundle.calendarData.events);
+      try { localStorage.setItem('richter_touchwall_events_cache', JSON.stringify(bundle.calendarData.events)); } catch (e) {}
+    }
+
+    setTimeout(() => {
+      isApplyingRemoteState.current = false;
+      isInitialLoadDone.current = true;
+    }, 250);
+  };
+
+  const pullFromCloud = async (urlOverride, showFeedback = true, customAccId = undefined, customAuthKey = undefined) => {
+    const activeAcc = customAccId !== undefined ? customAccId : accountId;
+    const activeKey = customAuthKey !== undefined ? customAuthKey : authKey;
+    if (!activeAcc || activeAcc === 'local') return false;
     if ((isMutatingCalendar.current || Date.now() - lastLocalEditTimeRef.current < 8000) && !showFeedback) return false;
-    const targetUrl = (urlOverride !== undefined ? urlOverride : appsScriptUrl).trim();
+
+    const targetUrl = (urlOverride !== undefined ? urlOverride : (appsScriptUrl || PUBLIC_CLOUD_BACKEND_URL)).trim();
     if (!targetUrl) return false;
     if (showFeedback) setIsSyncing(true);
     try {
-      const bundle = await callGoogleAppsScript(targetUrl, 'GET', null);
-
-      isApplyingRemoteState.current = true;
-      const calMap = bundle?.calendarData?.calendars || {};
-      const statusMap = bundle?.calendarData?.status || {};
-
-      if (bundle?.state) {
-        const s = bundle.state;
-        if (s.familyName) setFamilyName(s.familyName);
-        const baseMembers = (Array.isArray(s.members) && s.members.length >= 2) ? s.members : safeMembers;
-        setMembers(baseMembers.map(m => {
-          const cid = calMap[m.id] !== undefined && calMap[m.id] !== '' ? calMap[m.id] : (m.calendarId || (m.id === 'all' ? 'primary' : ''));
-          const st = statusMap[m.id];
-          return { ...m, calendarId: cid, ok: st ? Boolean(st.ok) : Boolean(cid), statusMsg: st?.msg || (cid ? 'Verbunden ✓' : 'Bereit') };
-        }));
-        if (Array.isArray(s.mealPlan) && s.mealPlan.length > 0) setMealPlan(s.mealPlan);
-        if (Array.isArray(s.familyNotes) && s.familyNotes.length > 0) setFamilyNotes(s.familyNotes);
-        if (s.schoolData?.dean) setSchoolData(s.schoolData);
-        if (Array.isArray(s.familyTasks)) setFamilyTasks(s.familyTasks);
-
-        const lockedTheme = typeof window !== 'undefined' ? localStorage.getItem('richter_tw_theme_lock') : null;
-        if (!lockedTheme && s.currentTheme && Date.now() - lastThemeChangeRef.current > 20000) {
-          setCurrentTheme(s.currentTheme);
-        }
-
-        if (s.customLogoUrl) setCustomLogoUrl(s.customLogoUrl);
-        if (s.todoistConfig?.apiToken) setTodoistConfig(prev => ({ ...prev, ...s.todoistConfig }));
+      const bundle = await callGoogleAppsScript(targetUrl, 'POST', {
+        action: 'loadBundle',
+        accountId: activeAcc,
+        authKey: activeKey
+      });
+      if (bundle?.ok === false) {
+        if (showFeedback) showToast('Hinweis', bundle.error || 'Daten konnten nicht geladen werden.', '⚠️');
+        return false;
       }
-
-      if (Array.isArray(bundle?.calendarData?.events)) {
-        setEvents(bundle.calendarData.events);
-        try { localStorage.setItem('richter_touchwall_events_cache', JSON.stringify(bundle.calendarData.events)); } catch (e) {}
-      }
-
-      setTimeout(() => {
-        isApplyingRemoteState.current = false;
-        isInitialLoadDone.current = true;
-      }, 250);
-
+      applyBundleData(bundle);
       if (showFeedback) showToast('Synchronisiert', 'Kalender & Cloud sind aktuell.', '☁️');
       return true;
     } catch (err) {
       isInitialLoadDone.current = true;
       isApplyingRemoteState.current = false;
-      if (showFeedback) {
-        showToast('Google-Verbindung', 'Bitte prüfe die Apps-Script-URL und ob die Bereitstellung auf „Jeder“ steht.', '⚠️');
-      }
       return false;
     } finally {
       if (showFeedback) setIsSyncing(false);
@@ -669,42 +690,44 @@ export default function TouchwallApp() {
   const pullCloudRef = useRef(null);
   pullCloudRef.current = pullFromCloud;
 
+  // =========================================================
+  // AUTO-CHECK BEIM START: COOKIE, QR-EINLADUNGSLINK ODER LOKALES PROFIL
+  // =========================================================
   useEffect(() => {
     try {
       const params = new URLSearchParams(window.location.search);
-      const qrCloudUrl = params.get('cloud');
+      const qrAcc = params.get('account');
+      const qrKey = params.get('key');
       const qrFamily = params.get('family');
 
       const lockedTheme = localStorage.getItem('richter_tw_theme_lock');
       if (lockedTheme) setCurrentTheme(lockedTheme);
 
-      const savedGasUrl = localStorage.getItem('richter_tw_gas_url') || '';
+      // 1. Magic-QR-Einladungslink vom Smartphone gescannt
+      if (qrAcc && qrKey) {
+        const cleanTitle = qrFamily || 'Familien-Touchwall';
+        setAccountId(qrAcc);
+        setAuthKey(qrKey);
+        setFamilyName(cleanTitle);
+        writeAuthSession(qrAcc, qrKey, cleanTitle);
+        setIsAuthenticated(true);
+        setIsCheckingAuth(false);
+        window.history.replaceState({}, '', window.location.pathname);
+        setTimeout(() => pullCloudRef.current?.(PUBLIC_CLOUD_BACKEND_URL, true, qrAcc, qrKey), 200);
+        return;
+      }
+
+      // 2. Bestehende Sitzung aus Cookie / LocalStorage wiederherstellen
+      const session = readAuthSession();
       const rawState = localStorage.getItem('richter_touchwall_v6');
       let parsedState = null;
       if (rawState) {
         try { parsedState = JSON.parse(rawState); } catch (e) {}
       }
 
-      if (qrCloudUrl && qrCloudUrl.startsWith('https://script.google.com')) {
-        const cleanName = qrFamily || parsedState?.familyName || 'Familien-Touchwall';
-        setAppsScriptUrl(qrCloudUrl);
-        setFamilyName(cleanName);
-        localStorage.setItem('richter_tw_gas_url', qrCloudUrl);
-        writeAuthCookie(cleanName);
-        setIsAuthenticated(true);
-        setIsCheckingAuth(false);
-        window.history.replaceState({}, '', window.location.pathname);
-        setTimeout(() => pullCloudRef.current?.(qrCloudUrl, true), 200);
-        return;
-      }
-
-      const cookieActive = checkAuthCookie();
-      const hasExistingLocalSetup = Boolean(
-        cookieActive && (savedGasUrl || parsedState?.isConfigured || parsedState?.todoistConfig?.apiToken)
-      );
-
-      if (hasExistingLocalSetup) {
-        if (savedGasUrl) setAppsScriptUrl(savedGasUrl);
+      if (session.active && (session.accountId || parsedState?.isConfigured)) {
+        setAccountId(session.accountId || 'local');
+        setAuthKey(session.authKey || '');
         if (parsedState) {
           if (parsedState.familyName) setFamilyName(parsedState.familyName);
           if (Array.isArray(parsedState.members) && parsedState.members.length >= 2) setMembers(parsedState.members);
@@ -727,28 +750,21 @@ export default function TouchwallApp() {
         }
         setIsAuthenticated(true);
         isInitialLoadDone.current = true;
-        if (savedGasUrl) {
-          setTimeout(() => pullCloudRef.current?.(savedGasUrl, false), 300);
+        if (session.accountId && session.accountId !== 'local') {
+          setTimeout(() => pullCloudRef.current?.(PUBLIC_CLOUD_BACKEND_URL, false, session.accountId, session.authKey), 300);
         }
-      } else {
-        if (savedGasUrl || parsedState?.todoistConfig?.apiToken) {
-          setAuthTab('cloud');
-        }
-        if (savedGasUrl) setLoginGasUrl(savedGasUrl);
-        if (parsedState?.todoistConfig?.apiToken) setLoginTodoistToken(parsedState.todoistConfig.apiToken);
-        if (parsedState?.familyName) setLoginFamilyName(parsedState.familyName);
       }
     } catch (e) {}
     setIsCheckingAuth(false);
   }, []);
 
   useEffect(() => {
-    if (!isAuthenticated || !appsScriptUrl?.trim()) return;
+    if (!isAuthenticated || !accountId || accountId === 'local') return;
     const calInterval = setInterval(() => {
       pullCloudRef.current?.(undefined, false);
     }, 30000);
     return () => clearInterval(calInterval);
-  }, [isAuthenticated, appsScriptUrl]);
+  }, [isAuthenticated, accountId]);
 
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -766,87 +782,48 @@ export default function TouchwallApp() {
     };
     try { localStorage.setItem('richter_touchwall_v6', JSON.stringify(payload)); } catch (e) {}
     if (!isInitialLoadDone.current || isApplyingRemoteState.current) return;
+    if (!accountId || accountId === 'local') return;
 
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
     autoSaveTimer.current = setTimeout(async () => {
-      const targetUrl = (appsScriptUrl || '').trim();
-      if (!targetUrl) return;
       try {
-        await callGoogleAppsScript(targetUrl, 'POST', { action: 'saveState', payload });
+        await callGoogleAppsScript(appsScriptUrl || PUBLIC_CLOUD_BACKEND_URL, 'POST', {
+          action: 'saveState',
+          accountId,
+          authKey,
+          payload
+        });
       } catch (e) {}
     }, 600);
-  }, [isAuthenticated, familyName, safeMembers, safeMeals, safeNotes, safeSchoolData, safeTasks, currentTheme, customLogoUrl, safeTodoistConfig, appsScriptUrl]);
-
-  const handleCloudLoginSubmit = async (e) => {
-    if (e) e.preventDefault();
-    setLoginError('');
-    const cleanUrl = loginGasUrl.trim();
-    const cleanTok = loginTodoistToken.trim();
-    const chosenTitle = loginFamilyName.trim() || 'Familien-Touchwall';
-
-    if (!cleanUrl && !cleanTok) {
-      setLoginError('Bitte trage deine Google Apps-Script URL oder dein Todoist API-Token ein.');
-      return;
-    }
-
-    setIsLoggingIn(true);
-    try {
-      const existingRaw = localStorage.getItem('richter_touchwall_v6');
-      if (existingRaw) {
-        try {
-          const parsed = JSON.parse(existingRaw);
-          if (Array.isArray(parsed.members) && parsed.members.length >= 2) setMembers(parsed.members);
-          if (Array.isArray(parsed.mealPlan)) setMealPlan(parsed.mealPlan);
-          if (Array.isArray(parsed.familyNotes)) setFamilyNotes(parsed.familyNotes);
-          if (parsed.schoolData?.dean) setSchoolData(parsed.schoolData);
-          if (Array.isArray(parsed.familyTasks)) setFamilyTasks(parsed.familyTasks);
-        } catch (err) {}
-      }
-
-      if (cleanUrl) {
-        setAppsScriptUrl(cleanUrl);
-        localStorage.setItem('richter_tw_gas_url', cleanUrl);
-        await pullFromCloud(cleanUrl, false);
-      }
-
-      if (cleanTok) {
-        const disc = await discoverTodoistWorkspace(cleanTok);
-        setTodoistConfig({
-          apiToken: cleanTok,
-          projects: Array.isArray(disc?.projects) ? disc.projects : [],
-          shoppingProjectId: disc?.shoppingProjectId || '',
-          tasksProjectId: disc?.tasksProjectId || '',
-          collaborators: Array.isArray(disc?.collaborators) ? disc.collaborators : []
-        });
-      }
-
-      setFamilyName(chosenTitle);
-      writeAuthCookie(chosenTitle);
-      isInitialLoadDone.current = true;
-      setIsAuthenticated(true);
-      showToast('Willkommen!', chosenTitle + ' wurde erfolgreich verbunden und im Cookie gespeichert.', '🔓');
-    } catch (err) {
-      setLoginError('Verbindung fehlgeschlagen: ' + (err.message || 'Bitte Daten prüfen.'));
-    } finally {
-      setIsLoggingIn(false);
-    }
-  };
+  }, [isAuthenticated, accountId, authKey, familyName, safeMembers, safeMeals, safeNotes, safeSchoolData, safeTasks, currentTheme, customLogoUrl, safeTodoistConfig, appsScriptUrl]);
 
   // =========================================================
-  // SCHNELLSTART-FUNKTION (FUNKTIONIERT MIT 1 KLICK OHNE PFLICHTFELDER)
+  // 1. REGISTRIERUNG EINES NEUEN FAMILIEN-KONTOS
   // =========================================================
-  const handleCreateOwnTouchwallSubmit = (e) => {
+  const handleRegisterSubmit = async (e) => {
     if (e && typeof e.preventDefault === 'function') e.preventDefault();
     setLoginError('');
 
-    const chosenTitle = loginFamilyName.trim() || 'Unsere Familien-Touchwall';
+    const cleanUser = formUsername.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
+    const cleanPass = formPassword.trim();
+    const chosenTitle = loginFamilyName.trim() || 'Familie ' + (cleanUser.charAt(0).toUpperCase() + cleanUser.slice(1));
+
+    if (cleanUser.length < 3) {
+      setLoginError('Bitte wähle einen Benutzernamen mit mindestens 3 Buchstaben/Zahlen (z.B. familie-mueller).');
+      return;
+    }
+    if (cleanPass.length < 4) {
+      setLoginError('Bitte wähle ein Passwort / PIN mit mindestens 4 Zeichen.');
+      return;
+    }
+
     const colors = ['navy_bold', 'pink', 'crimson_bold', 'teal_bold'];
     const emojis = ['👨', '👩', '👦', '👧'];
     const roles = ['Elternteil', 'Elternteil', 'Kind', 'Kind'];
     const ids = ['hans', 'sarah', 'dean', 'valentina'];
 
     const customMembers = [
-      { id: 'all', name: 'Familie & Events', role: 'Alle gemeinsam', badge: 'FA', color: 'orange_bold', avatarType: 'emoji', emoji: '👨‍👩‍👧‍👦', photoUrl: '', calendarId: 'primary', todoistUserId: '', todoistProjectId: '', statusMsg: 'Hauptkalender', ok: true }
+      { id: 'all', name: 'Familie & Events', role: 'Alle gemeinsam', badge: 'FA', color: 'orange_bold', avatarType: 'emoji', emoji: '👨‍👩‍👧‍👦', photoUrl: '', calendarId: '', todoistUserId: '', todoistProjectId: '', statusMsg: 'Cloud-Kalender ✓', ok: true }
     ];
 
     setupMemberNames.forEach((rawName, idx) => {
@@ -863,65 +840,123 @@ export default function TouchwallApp() {
         calendarId: '',
         todoistUserId: '',
         todoistProjectId: '',
-        statusMsg: 'Bereit',
-        ok: false
+        statusMsg: 'Cloud-Kalender ✓',
+        ok: true
       });
     });
 
-    setFamilyName(chosenTitle);
-    setMembers(customMembers);
-    setEvents([]);
-    setFamilyTasks([]);
+    const initialPayload = {
+      isConfigured: true,
+      familyName: chosenTitle,
+      members: customMembers,
+      mealPlan: DEFAULT_MEALS,
+      familyNotes: DEFAULT_NOTES,
+      schoolData: DEFAULT_SCHOOL,
+      familyTasks: [],
+      currentTheme: 'metal',
+      customLogoUrl: '',
+      todoistConfig: { apiToken: '', shoppingProjectId: '', tasksProjectId: '', projects: [], collaborators: [] }
+    };
 
-    if (loginGasUrl.trim()) {
-      setAppsScriptUrl(loginGasUrl.trim());
-      try { localStorage.setItem('richter_tw_gas_url', loginGasUrl.trim()); } catch (err) {}
-    }
-    if (loginTodoistToken.trim()) {
-      setTodoistConfig(prev => ({ ...prev, apiToken: loginTodoistToken.trim() }));
-    }
+    setIsLoggingIn(true);
+    try {
+      const res = await callGoogleAppsScript(PUBLIC_CLOUD_BACKEND_URL, 'POST', {
+        action: 'registerAccount',
+        accountId: cleanUser,
+        authKey: cleanPass,
+        payload: initialPayload
+      });
 
-    writeAuthCookie(chosenTitle);
-    isInitialLoadDone.current = true;
-    setIsAuthenticated(true);
-    showToast('Touchwall gestartet!', chosenTitle + ' ist jetzt aktiv und im Cookie gespeichert.', '🎉');
+      if (!res || res.ok === false) {
+        setLoginError(res?.error || 'Registrierung fehlgeschlagen. Bitte anderen Benutzernamen probieren.');
+        setIsLoggingIn(false);
+        return;
+      }
+
+      setAccountId(cleanUser);
+      setAuthKey(cleanPass);
+      setFamilyName(chosenTitle);
+      setMembers(customMembers);
+      setEvents([]);
+      setFamilyTasks([]);
+      writeAuthSession(cleanUser, cleanPass, chosenTitle);
+      isInitialLoadDone.current = true;
+      setIsAuthenticated(true);
+      showToast('Konto erstellt!', 'Willkommen! Euer Konto „' + cleanUser + '“ ist jetzt aktiv.', '🎉');
+    } catch (err) {
+      setLoginError('Server-Verbindung fehlgeschlagen: ' + (err.message || 'Bitte Internet prüfen.'));
+    } finally {
+      setIsLoggingIn(false);
+    }
   };
 
-  const handleLoginWithBackupFile = (e) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    const r = new FileReader();
-    r.onload = (ev) => {
-      try {
-        const d = JSON.parse(ev.target.result);
-        const restoredFamily = d.familyName || 'Familien-Touchwall';
-        setFamilyName(restoredFamily);
-        if (Array.isArray(d.members) && d.members.length >= 2) setMembers(d.members);
-        if (Array.isArray(d.events)) setEvents(d.events);
-        if (Array.isArray(d.mealPlan)) setMealPlan(d.mealPlan);
-        if (Array.isArray(d.familyNotes)) setFamilyNotes(d.familyNotes);
-        if (d.schoolData) setSchoolData(d.schoolData);
-        if (Array.isArray(d.familyTasks)) setFamilyTasks(d.familyTasks);
-        if (d.todoistConfig) setTodoistConfig(prev => ({ ...prev, ...d.todoistConfig }));
-        writeAuthCookie(restoredFamily);
-        isInitialLoadDone.current = true;
-        setIsAuthenticated(true);
-        showToast('Backup geladen!', restoredFamily + ' wurde erfolgreich wiederhergestellt.', '📂');
-      } catch (err) {
-        setLoginError('Ungültige Backup-Datei (.json).');
+  // =========================================================
+  // 2. ANMELDUNG MIT BENUTZERNAME & PASSWORT
+  // =========================================================
+  const handleAccountLoginSubmit = async (e) => {
+    if (e && typeof e.preventDefault === 'function') e.preventDefault();
+    setLoginError('');
+
+    const cleanUser = formUsername.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
+    const cleanPass = formPassword.trim();
+
+    if (!cleanUser || !cleanPass) {
+      setLoginError('Bitte gib deinen Benutzernamen und dein Passwort ein.');
+      return;
+    }
+
+    setIsLoggingIn(true);
+    try {
+      const res = await callGoogleAppsScript(PUBLIC_CLOUD_BACKEND_URL, 'POST', {
+        action: 'loginAccount',
+        accountId: cleanUser,
+        authKey: cleanPass
+      });
+
+      if (!res || res.ok === false) {
+        setLoginError(res?.error || 'Anmeldung fehlgeschlagen. Bitte Benutzername und Passwort prüfen.');
+        setIsLoggingIn(false);
+        return;
       }
-    };
-    r.readAsText(f);
+
+      setAccountId(cleanUser);
+      setAuthKey(cleanPass);
+      applyBundleData(res);
+      const loadedTitle = res?.state?.familyName || ('Familie ' + cleanUser);
+      setFamilyName(loadedTitle);
+      writeAuthSession(cleanUser, cleanPass, loadedTitle);
+      isInitialLoadDone.current = true;
+      setIsAuthenticated(true);
+      showToast('Angemeldet!', loadedTitle + ' wurde erfolgreich aus der Cloud geladen.', '🔓');
+    } catch (err) {
+      setLoginError('Verbindung fehlgeschlagen: ' + (err.message || 'Bitte erneut versuchen.'));
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  // =========================================================
+  // 3. SOFORTIGER LOKALER SCHNELLSTART (OHNE REGISTRIERUNG)
+  // =========================================================
+  const handleInstantLocalStart = () => {
+    const chosenTitle = loginFamilyName.trim() || 'Unsere Familien-Touchwall';
+    setAccountId('local');
+    setAuthKey('');
+    setFamilyName(chosenTitle);
+    writeAuthSession('local', '', chosenTitle);
+    isInitialLoadDone.current = true;
+    setIsAuthenticated(true);
+    showToast('Lokaler Modus aktiv', 'Du nutzt die Touchwall direkt lokal im Browser.', '🚀');
   };
 
   const handleLogoutAndLock = () => {
-    removeAuthCookie();
+    clearAuthSession();
     try {
       localStorage.removeItem('richter_touchwall_v6');
       localStorage.removeItem('richter_touchwall_events_cache');
-      localStorage.removeItem('richter_tw_gas_url');
     } catch (e) {}
-    setAppsScriptUrl('');
+    setAccountId('');
+    setAuthKey('');
     setTodoistConfig({ apiToken: '', shoppingProjectId: '', tasksProjectId: '', projects: [], collaborators: [] });
     setMembers(DEFAULT_MEMBERS);
     setEvents([]);
@@ -1139,7 +1174,7 @@ export default function TouchwallApp() {
       done: false
     };
     setFamilyTasks(prev => [newTask, ...(Array.isArray(prev) ? prev : [])]);
-    showToast('Aufgabe & Handy-Push gesendet', clean + ' → ' + (memberObj?.name || memberId), '📲');
+    showToast('Aufgabe angelegt', clean + ' → ' + (memberObj?.name || memberId), '📲');
 
     if (pushToCal) {
       const calEv = {
@@ -1154,7 +1189,7 @@ export default function TouchwallApp() {
         fromGoogle: true
       };
       setEvents(prev => [...(Array.isArray(prev) ? prev : []), calEv]);
-      await sendCalendarApiAction({ action: 'createEvent', event: calEv }, '📲 Sende zusätzlichen Kalender-Wecker...');
+      await sendCalendarApiAction({ action: 'createEvent', event: calEv }, '📲 Sende Kalender-Wecker...');
     }
   };
 
@@ -1198,7 +1233,7 @@ export default function TouchwallApp() {
     };
     setEvents(prev => [...(Array.isArray(prev) ? prev : []), copiedNewEv]);
     showToast('Termin kopiert & eingefügt!', '„' + copiedNewEv.title + '“ → ' + (targetM ? targetM.name : newMember) + ' (' + newDate + ')', '📋');
-    await sendCalendarApiAction({ action: 'createEvent', event: copiedNewEv }, '⏳ Speichere Kopie in Google...');
+    await sendCalendarApiAction({ action: 'createEvent', event: copiedNewEv }, '⏳ Speichere Kopie in Cloud...');
   };
 
   const openNewEventModal = (dateStr = todayStr, memberId = 'all') => {
@@ -1371,7 +1406,7 @@ export default function TouchwallApp() {
   const addExtraCalendarAccount = () => {
     const name = prompt('Name für neuen Kalender / Person:');
     if (!name?.trim()) return;
-    const calId = prompt('Google Kalender-ID:') || '';
+    const calId = prompt('Google Kalender-ID (leer lassen für Cloud-Kalender):') || '';
     setMembers(prev => [
       ...(Array.isArray(prev) ? prev : DEFAULT_MEMBERS),
       {
@@ -1384,7 +1419,7 @@ export default function TouchwallApp() {
         emoji: '📅',
         calendarId: calId.trim(),
         todoistProjectId: '',
-        ok: Boolean(calId.trim())
+        ok: true
       }
     ]);
   };
@@ -1582,13 +1617,13 @@ export default function TouchwallApp() {
   if (isCheckingAuth) {
     return (
       <div className="w-screen h-screen bg-[#15181c] text-slate-100 flex items-center justify-center">
-        <div className="text-sm font-extrabold opacity-70 animate-pulse">🔒 Prüfe lokalen Cookie-Login...</div>
+        <div className="text-sm font-extrabold opacity-70 animate-pulse">🔒 Prüfe Anmeldung...</div>
       </div>
     );
   }
 
   // =========================================================
-  // EINSTEIGERFREUNDLICHES LOGIN- & SCHNELLSTART-PORTAL
+  // EINFACHES BENUTZER-LOGIN & REGISTRIERUNGS-PORTAL
   // =========================================================
   if (!isAuthenticated) {
     return (
@@ -1606,19 +1641,19 @@ export default function TouchwallApp() {
       >
         <style>{globalStyles}</style>
 
-        <div className="w-full max-w-2xl rounded-3xl border-2 border-slate-700/80 bg-[#1c2128] p-6 sm:p-8 shadow-2xl space-y-6 my-auto">
+        <div className="w-full max-w-xl rounded-3xl border-2 border-slate-700/80 bg-[#1c2128] p-6 sm:p-8 shadow-2xl space-y-6 my-auto">
           <div className="flex items-center justify-between gap-4 border-b border-slate-700/80 pb-5">
             <div className="flex items-center gap-3.5">
               <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-sky-500 to-indigo-600 flex items-center justify-center shadow-lg shrink-0">
-                <Sparkles className="w-7 h-7 text-white" />
+                <Lock className="w-7 h-7 text-white" />
               </div>
               <div>
                 <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[11px] font-extrabold border border-emerald-400/30">
-                  🛡️ Open-Source Familien-Planer • 100 % Privat im Browser-Cookie
+                  ☁️ Familien-Touchwall Cloud • Kostenlos & Privat
                 </span>
-                <h1 className="text-2xl font-black mt-1">Willkommen bei deiner Touchwall</h1>
+                <h1 className="text-2xl font-black mt-1">Anmelden oder Registrieren</h1>
                 <p className="text-xs text-slate-400 font-semibold">
-                  Starte sofort ohne Technik-Wissen oder verbinde deine bestehende Familien-Cloud. Alle Eingaben bleiben privat auf deinem Gerät gespeichert.
+                  Jede Familie erhält ihren eigenen, passwortgeschützten Bereich. Keine Einrichtung von Google-Skripten nötig!
                 </p>
               </div>
             </div>
@@ -1627,26 +1662,19 @@ export default function TouchwallApp() {
           <div className="grid grid-cols-2 gap-2.5 p-1.5 rounded-2xl bg-[#13171c] border border-slate-700/70">
             <button
               type="button"
-              onClick={() => {
-                if (authTab === 'new') {
-                  handleCreateOwnTouchwallSubmit();
-                } else {
-                  setAuthTab('new');
-                  setLoginError('');
-                }
-              }}
-              className={'py-3 px-4 rounded-xl text-xs sm:text-sm font-extrabold flex items-center justify-center gap-2 cursor-pointer ' + (authTab === 'new' ? 'tw-active-nav' : 'tw-nav-inactive text-slate-400')}
+              onClick={() => { setAuthTab('login'); setLoginError(''); }}
+              className={'py-3 px-4 rounded-xl text-xs sm:text-sm font-extrabold flex items-center justify-center gap-2 cursor-pointer ' + (authTab === 'login' ? 'tw-active-nav' : 'tw-nav-inactive text-slate-400')}
             >
-              <Sparkles className="w-4 h-4" />
-              <span>✨ Schnellstart (Direkt neu starten)</span>
+              <KeyRound className="w-4 h-4" />
+              <span>🔑 Anmelden</span>
             </button>
             <button
               type="button"
-              onClick={() => { setAuthTab('cloud'); setLoginError(''); }}
-              className={'py-3 px-4 rounded-xl text-xs sm:text-sm font-extrabold flex items-center justify-center gap-2 cursor-pointer ' + (authTab === 'cloud' ? 'tw-active-nav' : 'tw-nav-inactive text-slate-400')}
+              onClick={() => { setAuthTab('register'); setLoginError(''); }}
+              className={'py-3 px-4 rounded-xl text-xs sm:text-sm font-extrabold flex items-center justify-center gap-2 cursor-pointer ' + (authTab === 'register' ? 'tw-active-nav' : 'tw-nav-inactive text-slate-400')}
             >
-              <KeyRound className="w-4 h-4" />
-              <span>🔑 Bestehende Cloud / Backup laden</span>
+              <UserPlus className="w-4 h-4" />
+              <span>✨ Neu registrieren</span>
             </button>
           </div>
 
@@ -1656,25 +1684,106 @@ export default function TouchwallApp() {
             </div>
           )}
 
-          {authTab === 'new' ? (
-            <form onSubmit={handleCreateOwnTouchwallSubmit} className="space-y-4">
+          {authTab === 'login' ? (
+            <form onSubmit={handleAccountLoginSubmit} className="space-y-4">
               <div className="p-4 sm:p-5 rounded-2xl bg-[#151920] border border-slate-700/70 space-y-4">
                 <div>
                   <label className="block text-xs font-extrabold uppercase text-sky-400 mb-1">
-                    1. Wie soll euer Kalender heißen?
+                    👤 Familien-Benutzername
                   </label>
                   <input
                     type="text"
-                    value={loginFamilyName}
-                    onChange={(e) => setLoginFamilyName(e.target.value)}
-                    placeholder="z.B. Familie Müller, Unser Zuhause oder WG-Planer"
+                    required
+                    value={formUsername}
+                    onChange={(e) => setFormUsername(e.target.value)}
+                    placeholder="z.B. familie-richter oder mueller"
                     className="w-full px-4 py-3 rounded-xl bg-[#0e1116] border border-slate-700 text-sm font-bold text-white placeholder-slate-500"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-extrabold uppercase text-amber-400 mb-1.5">
-                    2. Wer gehört dazu? (Vornamen eintragen – später jederzeit änderbar)
+                  <label className="block text-xs font-extrabold uppercase text-amber-400 mb-1">
+                    🔒 Passwort / Familien-PIN
+                  </label>
+                  <input
+                    type="password"
+                    required
+                    value={formPassword}
+                    onChange={(e) => setFormPassword(e.target.value)}
+                    placeholder="Dein Passwort..."
+                    className="w-full px-4 py-3 rounded-xl bg-[#0e1116] border border-slate-700 text-sm font-bold text-white placeholder-slate-500"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={isLoggingIn}
+                className="tw-glow-btn w-full py-3.5 rounded-2xl font-black text-sm flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <ShieldCheck className="w-5 h-5" />
+                <span>{isLoggingIn ? 'Melde an & lade eure Touchwall...' : '🔓 Jetzt anmelden'}</span>
+              </button>
+
+              <div className="pt-2 border-t border-slate-800 flex items-center justify-between gap-2 text-xs">
+                <span className="text-slate-400 font-semibold">Noch kein Konto? Oben auf „Neu registrieren“ klicken.</span>
+                <button
+                  type="button"
+                  onClick={handleInstantLocalStart}
+                  className="text-sky-400 hover:underline font-extrabold cursor-pointer"
+                >
+                  🚀 Nur lokal ohne Konto testen
+                </button>
+              </div>
+            </form>
+          ) : (
+            <form onSubmit={handleRegisterSubmit} className="space-y-4">
+              <div className="p-4 sm:p-5 rounded-2xl bg-[#151920] border border-slate-700/70 space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-extrabold uppercase text-sky-400 mb-1">
+                      1. Gewünschter Login-Name
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={formUsername}
+                      onChange={(e) => setFormUsername(e.target.value)}
+                      placeholder="z.B. familie-mueller"
+                      className="w-full px-4 py-3 rounded-xl bg-[#0e1116] border border-slate-700 text-sm font-bold text-white placeholder-slate-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-extrabold uppercase text-amber-400 mb-1">
+                      2. Passwort / PIN festlegen
+                    </label>
+                    <input
+                      type="password"
+                      required
+                      value={formPassword}
+                      onChange={(e) => setFormPassword(e.target.value)}
+                      placeholder="Mindestens 4 Zeichen"
+                      className="w-full px-4 py-3 rounded-xl bg-[#0e1116] border border-slate-700 text-sm font-bold text-white placeholder-slate-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-extrabold uppercase text-emerald-400 mb-1">
+                    3. Anzeigename eurer Touchwall
+                  </label>
+                  <input
+                    type="text"
+                    value={loginFamilyName}
+                    onChange={(e) => setLoginFamilyName(e.target.value)}
+                    placeholder="z.B. Familie Müller"
+                    className="w-full px-4 py-2.5 rounded-xl bg-[#0e1116] border border-slate-700 text-sm font-bold text-white placeholder-slate-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-extrabold uppercase text-purple-300 mb-1.5">
+                    4. Eure Familienmitglieder (Später jederzeit anpassbar)
                   </label>
                   <div className="grid grid-cols-2 gap-2.5">
                     {setupMemberNames.map((mName, idx) => (
@@ -1688,116 +1797,23 @@ export default function TouchwallApp() {
                             next[idx] = e.target.value;
                             setSetupMemberNames(next);
                           }}
-                          placeholder={'Name ' + (idx + 1)}
+                          placeholder={'Person ' + (idx + 1)}
                           className="w-full bg-transparent text-xs font-bold text-white placeholder-slate-500 focus:outline-none"
                         />
                       </div>
                     ))}
                   </div>
                 </div>
-
-                <div className="pt-1 border-t border-slate-800">
-                  <button
-                    type="button"
-                    onClick={() => setShowAdvancedSetup(!showAdvancedSetup)}
-                    className="text-xs font-extrabold text-slate-400 hover:text-sky-300 flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <ChevronDown className={'w-4 h-4 transition-transform ' + (showAdvancedSetup ? 'rotate-180' : '')} />
-                    <span>⚙️ Optional für Profis: Eigene Google-Cloud oder Todoist direkt verbinden</span>
-                  </button>
-
-                  {showAdvancedSetup && (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mt-3 p-3 rounded-xl bg-black/25 border border-slate-800">
-                      <input
-                        type="url"
-                        value={loginGasUrl}
-                        onChange={(e) => setLoginGasUrl(e.target.value)}
-                        placeholder="Google Apps-Script URL (optional)"
-                        className="px-3.5 py-2.5 rounded-xl bg-[#0e1116] border border-slate-700 text-xs font-mono text-white placeholder-slate-500"
-                      />
-                      <input
-                        type="password"
-                        value={loginTodoistToken}
-                        onChange={(e) => setLoginTodoistToken(e.target.value)}
-                        placeholder="Todoist API-Token (optional)"
-                        className="px-3.5 py-2.5 rounded-xl bg-[#0e1116] border border-slate-700 text-xs font-mono text-white placeholder-slate-500"
-                      />
-                    </div>
-                  )}
-                </div>
               </div>
 
               <button
                 type="submit"
-                onClick={handleCreateOwnTouchwallSubmit}
+                disabled={isLoggingIn}
                 className="tw-glow-btn w-full py-3.5 rounded-2xl font-black text-sm flex items-center justify-center gap-2 cursor-pointer"
               >
                 <Sparkles className="w-5 h-5" />
-                <span>🚀 Touchwall jetzt starten (Ohne Anmeldung sofort loslegen)</span>
+                <span>{isLoggingIn ? 'Erstelle euer Familien-Konto...' : '✨ Kostenloses Konto erstellen & sofort starten'}</span>
               </button>
-            </form>
-          ) : (
-            <form onSubmit={handleCloudLoginSubmit} className="space-y-4">
-              <div className="p-4 sm:p-5 rounded-2xl bg-[#151920] border border-slate-700/70 space-y-3.5">
-                <div>
-                  <label className="block text-xs font-extrabold uppercase text-sky-400 mb-1">
-                    🏠 Name deiner Touchwall (Optional)
-                  </label>
-                  <input
-                    type="text"
-                    value={loginFamilyName}
-                    onChange={(e) => setLoginFamilyName(e.target.value)}
-                    placeholder="z.B. Familien-Touchwall"
-                    className="w-full px-4 py-3 rounded-xl bg-[#0e1116] border border-slate-700 text-sm font-bold text-white placeholder-slate-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-extrabold uppercase text-amber-400 mb-1">
-                    🔗 Deine persönliche Google Apps-Script URL (Cloud-Tresor)
-                  </label>
-                  <input
-                    type="url"
-                    value={loginGasUrl}
-                    onChange={(e) => setLoginGasUrl(e.target.value)}
-                    placeholder="https://script.google.com/macros/s/.../exec"
-                    className="w-full px-4 py-3 rounded-xl bg-[#0e1116] border border-slate-700 text-xs font-mono text-white placeholder-slate-500"
-                  />
-                  <p className="text-[11px] text-slate-400 mt-1">
-                    Lädt automatisch deine Familienmitglieder, Kalender-Termine, Notizen und dein Todoist-Setup aus deiner privaten Google-Cloud.
-                  </p>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-extrabold uppercase text-emerald-400 mb-1">
-                    🔑 Todoist API-Token (Optional – falls nicht schon in der Cloud gespeichert)
-                  </label>
-                  <input
-                    type="password"
-                    value={loginTodoistToken}
-                    onChange={(e) => setLoginTodoistToken(e.target.value)}
-                    placeholder="Todoist API-Token..."
-                    className="w-full px-4 py-3 rounded-xl bg-[#0e1116] border border-slate-700 text-xs font-mono text-white placeholder-slate-500"
-                  />
-                </div>
-              </div>
-
-              <div className="flex flex-col sm:flex-row gap-2.5">
-                <button
-                  type="submit"
-                  disabled={isLoggingIn}
-                  className="tw-glow-btn flex-1 py-3.5 rounded-2xl font-black text-sm flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  <ShieldCheck className="w-5 h-5" />
-                  <span>{isLoggingIn ? 'Verbinde & lade deine Daten...' : '🔓 Mit Cloud anmelden & Cookie speichern'}</span>
-                </button>
-
-                <label className="tw-nav-inactive px-5 py-3.5 rounded-2xl font-extrabold text-xs flex items-center justify-center gap-2 cursor-pointer text-slate-300">
-                  <Upload className="w-4 h-4 text-sky-400" />
-                  <span>📂 Backup (.json) laden</span>
-                  <input type="file" accept=".json" className="hidden" onChange={handleLoginWithBackupFile} />
-                </label>
-              </div>
             </form>
           )}
         </div>
@@ -1805,8 +1821,12 @@ export default function TouchwallApp() {
     );
   }
 
+  // QR-Code-Einladungslink enthält Konto + Schlüssel für den 1-Scan-Login auf dem Smartphone
   const qrShareUrl = typeof window !== 'undefined'
-    ? window.location.origin + window.location.pathname + (appsScriptUrl ? '?cloud=' + encodeURIComponent(appsScriptUrl) + '&family=' + encodeURIComponent(familyName) : '')
+    ? window.location.origin + window.location.pathname +
+      (accountId && accountId !== 'local'
+        ? '?account=' + encodeURIComponent(accountId) + '&key=' + encodeURIComponent(authKey) + '&family=' + encodeURIComponent(familyName)
+        : '')
     : 'https://vercel.com';
 
   return (
@@ -1886,7 +1906,7 @@ export default function TouchwallApp() {
             </button>
             <button
               onClick={handleLogoutAndLock}
-              title="Touchwall sperren & Cookie löschen (Abmelden)"
+              title="Abmelden"
               className="tw-nav-inactive w-10 h-10 rounded-xl flex items-center justify-center text-rose-400 cursor-pointer"
             >
               <LogOut className="w-4 h-4" />
@@ -1902,6 +1922,11 @@ export default function TouchwallApp() {
                 <span className="text-xl sm:text-2xl font-black">{clockStr}</span>
                 <span className="opacity-30 text-xl">|</span>
                 <span className="text-lg sm:text-xl font-extrabold">{familyName}</span>
+                {accountId && accountId !== 'local' && (
+                  <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[11px] font-extrabold border border-emerald-400/30">
+                    👤 {accountId}
+                  </span>
+                )}
 
                 <button
                   onClick={() => {
@@ -1947,10 +1972,10 @@ export default function TouchwallApp() {
 
                 <button
                   onClick={handleLogoutAndLock}
-                  title="Abmelden & lokale Daten/Cookie aus diesem Browser entfernen"
+                  title="Abmelden"
                   className="tw-nav-inactive inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-extrabold text-rose-400 cursor-pointer"
                 >
-                  <Lock className="w-3.5 h-3.5" /> Sperren
+                  <Lock className="w-3.5 h-3.5" /> Abmelden
                 </button>
               </div>
 
@@ -2397,7 +2422,7 @@ export default function TouchwallApp() {
               <button onClick={() => setQrModalOpen(false)} className="tw-nav-inactive w-9 h-9 rounded-full flex items-center justify-center cursor-pointer"><X className="w-5 h-5" /></button>
             </div>
             <p className={'text-xs font-semibold ' + themeStyles.textMuted}>
-              Scanne diesen QR-Code oder teile den Einladungs-Link – die Touchwall loggt sich auf dem Smartphone sofort automatisch ein!
+              Scanne diesen QR-Code oder teile den Einladungs-Link – die Touchwall meldet sich auf dem Smartphone sofort automatisch in eurem Familien-Konto an!
             </p>
             <div className="bg-white p-4 rounded-2xl inline-block mx-auto shadow-md">
               <img src={'https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=' + encodeURIComponent(qrShareUrl)} alt="QR" className="w-48 h-48" />
