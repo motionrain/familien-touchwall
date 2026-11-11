@@ -8,7 +8,7 @@ import {
   Calendar, GraduationCap, CheckSquare, Utensils, FileText,
   Palette, Cloud, Plus, ChevronLeft, ChevronRight, Maximize2,
   Smartphone, RefreshCw, X, Volume2, BellRing, Copy, ClipboardPaste,
-  Clock, Lock, LogOut, KeyRound, Sparkles, ShieldCheck, Share2, UserPlus
+  Clock, Lock, LogOut, KeyRound, Sparkles, ShieldCheck, Share2, UserPlus, Package
 } from 'lucide-react';
 
 import * as Cfg from './touchwallConfig';
@@ -39,7 +39,7 @@ const {
   pushTodoistTaskToPhoneNow
 } = Cfg;
 
-// Feste öffentliche Cloud-Server-URL (Niemand muss mehr eine Apps-Script-URL kennen !)
+// Feste öffentliche Cloud-Server-URL (Niemand muss mehr eine Apps-Script-URL kennen!)
 const PUBLIC_CLOUD_BACKEND_URL = 'https://script.google.com/macros/s/AKfycbzBs3ewHvp78OCIgWQkOQ80vXyKcM6wR5hQSn-WfYPU4puS7Gu0lPCX0KMwkxzeDxoE4g/exec';
 
 function writeAuthSession(accountId, authKey, familyName) {
@@ -95,9 +95,11 @@ export default function TouchwallApp() {
   const [authKey, setAuthKey] = useState('');
   const [familyName, setFamilyName] = useState('Familien-Touchwall');
 
-  // Formularfelder für Login & Registrierung
+  // Speisekammer & Mülleimer State
   const [pantryItems, setPantryItems] = useState([]);
   const [pantryTrash, setPantryTrash] = useState([]);
+
+  // Formularfelder für Login & Registrierung
   const [formUsername, setFormUsername] = useState('');
   const [formPassword, setFormPassword] = useState('');
   const [loginFamilyName, setLoginFamilyName] = useState('');
@@ -215,6 +217,14 @@ export default function TouchwallApp() {
   const safeTasks = useMemo(() => {
     return Array.isArray(familyTasks) ? familyTasks : [];
   }, [familyTasks]);
+
+  const safePantryItems = useMemo(() => {
+    return Array.isArray(pantryItems) ? pantryItems : [];
+  }, [pantryItems]);
+
+  const safePantryTrash = useMemo(() => {
+    return Array.isArray(pantryTrash) ? pantryTrash : [];
+  }, [pantryTrash]);
 
   const safeSchoolData = useMemo(() => {
     const s = schoolData && typeof schoolData === 'object' ? schoolData : DEFAULT_SCHOOL;
@@ -638,6 +648,8 @@ export default function TouchwallApp() {
       if (Array.isArray(s.familyNotes) && s.familyNotes.length > 0) setFamilyNotes(s.familyNotes);
       if (s.schoolData?.dean) setSchoolData(s.schoolData);
       if (Array.isArray(s.familyTasks)) setFamilyTasks(s.familyTasks);
+      if (Array.isArray(s.pantryItems)) setPantryItems(s.pantryItems);
+      if (Array.isArray(s.pantryTrash)) setPantryTrash(s.pantryTrash);
 
       const lockedTheme = typeof window !== 'undefined' ? localStorage.getItem('richter_tw_theme_lock') : null;
       if (!lockedTheme && s.currentTheme && Date.now() - lastThemeChangeRef.current > 20000) {
@@ -693,9 +705,6 @@ export default function TouchwallApp() {
   const pullCloudRef = useRef(null);
   pullCloudRef.current = pullFromCloud;
 
-  // =========================================================
-  // AUTO-CHECK BEIM START: COOKIE, QR-EINLADUNGSLINK ODER LOKALES PROFIL
-  // =========================================================
   useEffect(() => {
     try {
       const params = new URLSearchParams(window.location.search);
@@ -706,7 +715,6 @@ export default function TouchwallApp() {
       const lockedTheme = localStorage.getItem('richter_tw_theme_lock');
       if (lockedTheme) setCurrentTheme(lockedTheme);
 
-      // 1. Magic-QR-Einladungslink vom Smartphone gescannt
       if (qrAcc && qrKey) {
         const cleanTitle = qrFamily || 'Familien-Touchwall';
         setAccountId(qrAcc);
@@ -720,7 +728,6 @@ export default function TouchwallApp() {
         return;
       }
 
-      // 2. Bestehende Sitzung aus Cookie / LocalStorage wiederherstellen
       const session = readAuthSession();
       const rawState = localStorage.getItem('richter_touchwall_v6');
       let parsedState = null;
@@ -738,6 +745,8 @@ export default function TouchwallApp() {
           if (Array.isArray(parsedState.familyNotes) && parsedState.familyNotes.length > 0) setFamilyNotes(parsedState.familyNotes);
           if (parsedState.schoolData?.dean) setSchoolData(parsedState.schoolData);
           if (Array.isArray(parsedState.familyTasks)) setFamilyTasks(parsedState.familyTasks);
+          if (Array.isArray(parsedState.pantryItems)) setPantryItems(parsedState.pantryItems);
+          if (Array.isArray(parsedState.pantryTrash)) setPantryTrash(parsedState.pantryTrash);
           if (!lockedTheme && parsedState.currentTheme) setCurrentTheme(parsedState.currentTheme);
           if (parsedState.customLogoUrl) setCustomLogoUrl(parsedState.customLogoUrl);
           if (parsedState.todoistConfig && typeof parsedState.todoistConfig === 'object') {
@@ -779,6 +788,8 @@ export default function TouchwallApp() {
       familyNotes: safeNotes,
       schoolData: safeSchoolData,
       familyTasks: safeTasks,
+      pantryItems: safePantryItems,
+      pantryTrash: safePantryTrash,
       currentTheme,
       customLogoUrl,
       todoistConfig: safeTodoistConfig
@@ -798,11 +809,8 @@ export default function TouchwallApp() {
         });
       } catch (e) {}
     }, 600);
-  }, [isAuthenticated, accountId, authKey, familyName, safeMembers, safeMeals, safeNotes, safeSchoolData, safeTasks, currentTheme, customLogoUrl, safeTodoistConfig, appsScriptUrl]);
+  }, [isAuthenticated, accountId, authKey, familyName, safeMembers, safeMeals, safeNotes, safeSchoolData, safeTasks, safePantryItems, safePantryTrash, currentTheme, customLogoUrl, safeTodoistConfig, appsScriptUrl]);
 
-  // =========================================================
-  // 1. REGISTRIERUNG EINES NEUEN FAMILIEN-KONTOS
-  // =========================================================
   const handleRegisterSubmit = async (e) => {
     if (e && typeof e.preventDefault === 'function') e.preventDefault();
     setLoginError('');
@@ -856,6 +864,8 @@ export default function TouchwallApp() {
       familyNotes: DEFAULT_NOTES,
       schoolData: DEFAULT_SCHOOL,
       familyTasks: [],
+      pantryItems: [],
+      pantryTrash: [],
       currentTheme: 'metal',
       customLogoUrl: '',
       todoistConfig: { apiToken: '', shoppingProjectId: '', tasksProjectId: '', projects: [], collaborators: [] }
@@ -882,6 +892,8 @@ export default function TouchwallApp() {
       setMembers(customMembers);
       setEvents([]);
       setFamilyTasks([]);
+      setPantryItems([]);
+      setPantryTrash([]);
       writeAuthSession(cleanUser, cleanPass, chosenTitle);
       isInitialLoadDone.current = true;
       setIsAuthenticated(true);
@@ -893,9 +905,6 @@ export default function TouchwallApp() {
     }
   };
 
-  // =========================================================
-  // 2. ANMELDUNG MIT BENUTZERNAME & PASSWORT
-  // =========================================================
   const handleAccountLoginSubmit = async (e) => {
     if (e && typeof e.preventDefault === 'function') e.preventDefault();
     setLoginError('');
@@ -938,9 +947,6 @@ export default function TouchwallApp() {
     }
   };
 
-  // =========================================================
-  // 3. SOFORTIGER LOKALER SCHNELLSTART (OHNE REGISTRIERUNG)
-  // =========================================================
   const handleInstantLocalStart = () => {
     const chosenTitle = loginFamilyName.trim() || 'Unsere Familien-Touchwall';
     setAccountId('local');
@@ -964,6 +970,8 @@ export default function TouchwallApp() {
     setMembers(DEFAULT_MEMBERS);
     setEvents([]);
     setFamilyTasks([]);
+    setPantryItems([]);
+    setPantryTrash([]);
     setFamilyNotes(DEFAULT_NOTES);
     setMealPlan(DEFAULT_MEALS);
     setSchoolData(DEFAULT_SCHOOL);
@@ -1326,6 +1334,8 @@ export default function TouchwallApp() {
       familyNotes: safeNotes,
       schoolData: safeSchoolData,
       familyTasks: safeTasks,
+      pantryItems: safePantryItems,
+      pantryTrash: safePantryTrash,
       currentTheme,
       customLogoUrl,
       todoistConfig: safeTodoistConfig
@@ -1439,6 +1449,8 @@ export default function TouchwallApp() {
         if (Array.isArray(d.familyNotes)) setFamilyNotes(d.familyNotes);
         if (d.schoolData) setSchoolData(d.schoolData);
         if (Array.isArray(d.familyTasks)) setFamilyTasks(d.familyTasks);
+        if (Array.isArray(d.pantryItems)) setPantryItems(d.pantryItems);
+        if (Array.isArray(d.pantryTrash)) setPantryTrash(d.pantryTrash);
         showToast('Import erfolgreich', 'Backup wiederhergestellt.', '🎉');
       } catch (err) {}
     };
@@ -1454,6 +1466,8 @@ export default function TouchwallApp() {
       familyNotes: safeNotes,
       schoolData: safeSchoolData,
       familyTasks: safeTasks,
+      pantryItems: safePantryItems,
+      pantryTrash: safePantryTrash,
       todoistConfig: safeTodoistConfig
     }, null, 2));
     const a = document.createElement('a');
@@ -1625,9 +1639,6 @@ export default function TouchwallApp() {
     );
   }
 
-  // =========================================================
-  // EINFACHES BENUTZER-LOGIN & REGISTRIERUNGS-PORTAL
-  // =========================================================
   if (!isAuthenticated) {
     return (
       <div
@@ -1824,8 +1835,7 @@ export default function TouchwallApp() {
     );
   }
 
-  // QR-Code-Einladungslink enthält Konto + Schlüssel für den 1-Scan-Login auf dem Smartphone
-const qrShareUrl = typeof window !== 'undefined'
+  const qrShareUrl = typeof window !== 'undefined'
     ? window.location.origin + '/pocket' +
       (accountId && accountId !== 'local'
         ? '?account=' + encodeURIComponent(accountId) + '&key=' + encodeURIComponent(authKey) + '&family=' + encodeURIComponent(familyName)
@@ -1875,14 +1885,14 @@ const qrShareUrl = typeof window !== 'undefined'
 
             <nav className="flex flex-col items-center gap-2 w-full px-2">
               {[
-                { id: 'kalender', label: 'Kalender', icon: Calendar },
-                { id: 'schule',   label: 'Schule',   icon: GraduationCap },
-                { id: 'aufgaben', label: 'Todoist',  icon: CheckSquare },
+                { id: 'kalender', label: 'Kalender',   icon: Calendar },
+                { id: 'schule',   label: 'Schule',     icon: GraduationCap },
+                { id: 'aufgaben', label: 'Todoist',    icon: CheckSquare },
                 { id: 'essen',    label: 'Essensplan', icon: Utensils },
-                { id: 'vorrat', label: 'Vorrat', icon: Package },
-                { id: 'listen',   label: 'Notizen',  icon: FileText },
-                { id: 'design',   label: 'Design',   icon: Palette },
-                { id: 'google',   label: 'Konten',   icon: Cloud }
+                { id: 'vorrat',   label: 'Vorrat',     icon: Package },
+                { id: 'listen',   label: 'Notizen',    icon: FileText },
+                { id: 'design',   label: 'Design',     icon: Palette },
+                { id: 'google',   label: 'Konten',     icon: Cloud }
               ].map(item => {
                 const Icon = item.icon;
                 const active = activeSection === item.id;
@@ -2058,20 +2068,22 @@ const qrShareUrl = typeof window !== 'undefined'
             {activeSection === 'aufgaben' && (
               <TasksTodoistSection {...todoistProps} />
             )}
+
             {activeSection === 'vorrat' && (
-            <PantrySection
-              pantryItems={pantryItems}
-              setPantryItems={setPantryItems}
-              pantryTrash={pantryTrash}
-              setPantryTrash={setPantryTrash}
-              mealPlan={safeMeals}
-              setMealPlan={setMealPlan}
-              addShoppingItem={addShoppingItem}
-              todayStr={todayStr}
-              themeStyles={themeStyles}
-              showToast={showToast}
-            />
+              <PantrySection
+                pantryItems={safePantryItems}
+                setPantryItems={setPantryItems}
+                pantryTrash={safePantryTrash}
+                setPantryTrash={setPantryTrash}
+                mealPlan={safeMeals}
+                setMealPlan={setMealPlan}
+                addShoppingItem={addShoppingItem}
+                todayStr={todayStr}
+                themeStyles={themeStyles}
+                showToast={showToast}
+              />
             )}
+
             {['schule', 'essen', 'listen', 'design', 'google'].includes(activeSection) && (
               <OtherSections {...otherSectionsProps} />
             )}
