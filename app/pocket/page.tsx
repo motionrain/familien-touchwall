@@ -11,44 +11,7 @@ import {
 } from 'lucide-react';
 
 import * as Cfg from '../touchwallConfig';
-function getFoodEmoji(nameStr) {
-  const n = String(nameStr || '').toLowerCase();
-  if (/bratwurst|wurst|würstchen|wiener|lyoner|aufschnitt|schinken|salami|speck/.test(n)) return '🌭';
-  if (/clementine|mandarine|orange|apfelsine/.test(n)) return '🍊';
-  if (/apfel|äpfel|elstar|boskoop|pink lady/.test(n)) return '🍎';
-  if (/banane/.test(n)) return '🍌';
-  if (/erdbeer|himbeer|heidelbeer|blaubeer|beeren|kirsch/.test(n)) return '🍓';
-  if (/zitrone|limette/.test(n)) return '🍋';
-  if (/salat|eisberg|kopfsalat|rucola|feldsalat|spinat/.test(n)) return '🥬';
-  if (/gurke/.test(n)) return '🥒';
-  if (/tomate|passierte/.test(n)) return '🍅';
-  if (/paprika/.test(n)) return '🫑';
-  if (/karotte|möhre/.test(n)) return '🥕';
-  if (/kartoffel|pommes|gnocchi|schupfnudel/.test(n)) return '🥔';
-  if (/zwiebel|knoblauch/.test(n)) return '🧅';
-  if (/brokkoli|blumenkohl/.test(n)) return '🥦';
-  if (/mais/.test(n)) return '🌽';
-  if (/pilz|champignon/.test(n)) return '🍄';
-  if (/avocado/.test(n)) return '🥑';
-  if (/käse|frischkäse|philadelphia|scheibenkäse|gouda|mozzarella|parmesan|emmentaler|camembert|feta/.test(n)) return '🧀';
-  if (/milch|vollmilch|hafermilch|kakao/.test(n)) return '🥛';
-  if (/butter|margarine/.test(n)) return '🧈';
-  if (/joghurt|quark|pudding|schmand|sahne|creme/.test(n)) return '🥣';
-  if (/ei|eier/.test(n)) return '🥚';
-  if (/hähnchen|huhn|pute|geflügel|nuggets/.test(n)) return '🍗';
-  if (/hackfleisch|rinderhack|rind|steak|fleisch|schnitzel|gulasch/.test(n)) return '🥩';
-  if (/fisch|lachs|thunfisch|fischstäbchen|forelle/.test(n)) return '🐟';
-  if (/nudel|spaghetti|pasta|penne|tortellini|ravioli|spätzle/.test(n)) return '🍝';
-  if (/reis|basmati|jasmin|milchreis/.test(n)) return '🍚';
-  if (/brot|brötchen|toast|baguette|croissant/.test(n)) return '🥖';
-  if (/pizza|flammkuchen/.test(n)) return '🍕';
-  if (/wrap|taco|tortilla/.test(n)) return '🌮';
-  if (/senf|thomy|ketchup|mayo|soße|sauce|pesto|öl|essig/.test(n)) return '🥫';
-  if (/mehl|zucker|salz|haferflocken|müsli|cornflakes/.test(n)) return '🌾';
-  if (/schokolade|nutella|keks|gummibär|chips|eis/.test(n)) return '🍫';
-  if (/wasser|saft|cola|limo|bier|wein|kaffee|tee/.test(n)) return '🧃';
-  return '🥫';
-}
+import { getFoodEmoji } from '../PantrySection';
 
 const {
   formatDateStr,
@@ -432,7 +395,12 @@ export default function TouchwallPocketApp() {
     setIsCheckingAuth(false);
   }, []);
 
-  // Kamera-Steuerung
+  // Zusatz-States für Endlos-Scanner & Live-MHD-Texterkennung
+  const [isReadingMhd, setIsReadingMhd] = useState(false);
+  const [autoSaveWhenComplete, setAutoSaveWhenComplete] = useState(false);
+  const lastScannedCodeRef = useRef('');
+  const lastScanTimeRef = useRef(0);
+
   const stopCameraStream = () => {
     if (scanLoopRef.current) clearInterval(scanLoopRef.current);
     if (streamRef.current) {
@@ -445,6 +413,96 @@ export default function TouchwallPocketApp() {
   useEffect(() => {
     return () => stopCameraStream();
   }, []);
+
+  // Hilfsfunktion: Erkennt deutsche & internationale Datumsformate auf Verpackungen
+  const extractExpiryDateFromText = (rawText) => {
+    const clean = String(rawText || '').replace(/[|lI]/g, '1').replace(/O/g, '0');
+
+    // 1. Format: TT.MM.JJJJ oder TT.MM.JJ (auch mit / - oder Leerzeichen)
+    const dmyRegex = /\b(0?[1-9]|[12][0-9]|3[01])\s*[.,/\-\s]\s*(0?[1-9]|1[0-2])\s*[.,/\-\s]\s*(20[2-3][0-9]|[2-3][0-9])\b/g;
+    let match;
+    while ((match = dmyRegex.exec(clean)) !== null) {
+      const day = String(match[1]).padStart(2, '0');
+      const month = String(match[2]).padStart(2, '0');
+      let year = String(match[3]);
+      if (year.length === 2) year = '20' + year;
+      const numYear = Number(year);
+      if (numYear >= 2025 && numYear <= 2036) {
+        return year + '-' + month + '-' + day;
+      }
+    }
+
+    // 2. Format: MM.JJJJ oder MM/JJJJ (z.B. "Mindestens haltbar bis Ende: 08.2027")
+    const myRegex = /\b(0?[1-9]|1[0-2])\s*[.,/\-]\s*(20[2-3][0-9])\b/g;
+    while ((match = myRegex.exec(clean)) !== null) {
+      const month = String(match[1]).padStart(2, '0');
+      const year = String(match[2]);
+      return year + '-' + month + '-28';
+    }
+
+    return null;
+  };
+
+  // Liest das aufgedruckte MHD direkt aus dem laufenden Kamerabild
+  const captureMhdFromLiveCamera = async () => {
+    if (!videoRef.current || videoRef.current.readyState < 2) {
+      showToast('Kamera nicht bereit', 'Bitte zuerst oben die Kamera einschalten.', '⚠️');
+      return;
+    }
+
+    setIsReadingMhd(true);
+    showToast('Lese Datum...', 'Halte das MHD ruhig in die Mitte des Kamerabilds...', '📅');
+
+    try {
+      if (typeof window !== 'undefined' && !window.Tesseract) {
+        await new Promise((resolve, reject) => {
+          const s = document.createElement('script');
+          s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+          s.onload = resolve;
+          s.onerror = reject;
+          document.head.appendChild(s);
+        });
+      }
+
+      const vid = videoRef.current;
+      const vw = vid.videoWidth || 640;
+      const vh = vid.videoHeight || 480;
+
+      // Mittleren Zielbereich ausschneiden (dort wo man das Datum hinhält)
+      const cropX = Math.floor(vw * 0.1);
+      const cropY = Math.floor(vh * 0.25);
+      const cropW = Math.floor(vw * 0.8);
+      const cropH = Math.floor(vh * 0.5);
+
+      const canvas = document.createElement('canvas');
+      canvas.width = cropW;
+      canvas.height = cropH;
+      const ctx = canvas.getContext('2d');
+      ctx.filter = 'contrast(1.45) grayscale(1)';
+      ctx.drawImage(vid, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+
+      const result = await window.Tesseract.recognize(canvas, 'eng');
+      const detectedText = result?.data?.text || '';
+      const parsedDate = extractExpiryDateFromText(detectedText);
+
+      if (parsedDate) {
+        setScanExpiry(parsedDate);
+        const niceDate = parsedDate.slice(8, 10) + '.' + parsedDate.slice(5, 7) + '.' + parsedDate.slice(0, 4);
+        showToast('MHD erkannt!', 'Ablaufdatum ' + niceDate + ' wurde übernommen!', '✅');
+
+        // Falls Auto-Speichern aktiv ist und Produktname schon da ist -> sofort einbuchen!
+        if (autoSaveWhenComplete && scanName.trim()) {
+          saveProductDirectly(scanName.trim(), scannedBarcode, scanQty, scanLocation, parsedDate, scanImageUrl);
+        }
+      } else {
+        showToast('Datum nicht klar erkennbar', 'Bitte etwas näher herangehen oder Schnell-Tasten (+1 Woche) nutzen.', '🔍');
+      }
+    } catch (err) {
+      showToast('MHD-Scan Hinweis', 'Bitte Datum kurz näher vor die Kamera halten.', '⚠️');
+    } finally {
+      setIsReadingMhd(false);
+    }
+  };
 
   const lookupBarcodeOnOpenFoodFacts = async (code) => {
     const cleanCode = String(code || '').trim();
@@ -465,11 +523,11 @@ export default function TouchwallPocketApp() {
         if (fullTitle) {
           setScanName(fullTitle);
           setScanQty(qty);
-          showToast('Produkt erkannt!', fullTitle + ' – bitte jetzt noch Ablaufdatum wählen.', getFoodEmoji(fullTitle));
+          showToast('Produkt erkannt!', fullTitle + ' – Kamera bleibt an für MHD-Scan!', getFoodEmoji(fullTitle));
           return;
         }
       }
-      showToast('Barcode gescannt', 'Code ' + cleanCode + ' – bitte Produktnamen & MHD ergänzen.', '📷');
+      showToast('Barcode gescannt', 'Code ' + cleanCode + ' – bitte Namen & MHD ergänzen.', '📷');
     } catch (e) {
       showToast('Barcode erfasst', 'Code: ' + cleanCode, '📷');
     } finally {
@@ -477,11 +535,23 @@ export default function TouchwallPocketApp() {
     }
   };
 
+  // ENDLOS-KAMERA: Schließt sich NICHT mehr nach dem Scannen!
   const startLiveBarcodeCamera = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment' }
+        video: {
+          facingMode: 'environment',
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        }
       });
+
+      // Kontinuierlichen Autofokus aktivieren (wichtig für kleines MHD-Datum)
+      const track = stream.getVideoTracks()[0];
+      if (track && track.applyConstraints) {
+        track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(() => {});
+      }
+
       streamRef.current = stream;
       setCameraActive(true);
       setTimeout(() => {
@@ -500,9 +570,12 @@ export default function TouchwallPocketApp() {
           try {
             const barcodes = await detector.detect(videoRef.current);
             if (barcodes && barcodes.length > 0) {
-              const rawVal = barcodes[0].rawValue;
-              if (rawVal) {
-                stopCameraStream();
+              const rawVal = String(barcodes[0].rawValue || '').trim();
+              const now = Date.now();
+              // Verhindert Dauer-Schleife beim selben Barcode, lässt Kamera aber offen!
+              if (rawVal && (rawVal !== lastScannedCodeRef.current || now - lastScanTimeRef.current > 6000)) {
+                lastScannedCodeRef.current = rawVal;
+                lastScanTimeRef.current = now;
                 lookupBarcodeOnOpenFoodFacts(rawVal);
               }
             }
@@ -512,6 +585,86 @@ export default function TouchwallPocketApp() {
     } catch (err) {
       showToast('Kamera-Zugriff', 'Bitte erlaube den Kamera-Zugriff im Browser.', '⚠️');
     }
+  };
+
+  const handleReceiptPhotoUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsScanningReceipt(true);
+    showToast('Analysiere Kassenbon...', 'Texterkennung liest deine Einkäufe aus...', '🧾');
+
+    try {
+      if (typeof window !== 'undefined' && !window.Tesseract) {
+        await new Promise((resolve, reject) => {
+          const s = document.createElement('script');
+          s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+          s.onload = resolve;
+          s.onerror = reject;
+          document.head.appendChild(s);
+        });
+      }
+
+      const result = await window.Tesseract.recognize(file, 'deu');
+      const lines = String(result?.data?.text || '')
+        .split(/\r?\n/)
+        .map(l => l.replace(/[0-9]+[,.][0-9]{2}\s*[AB]?$/g, '').trim())
+        .filter(l =>
+          l.length >= 3 &&
+          !/summe|gesamt|kartenzahlung|steuer|mwst|datum|uhrzeit|vielen dank|filiale|bon|eur|bar|rückgeld/i.test(l)
+        );
+
+      const defaultExp = formatDateStr(addDays(new Date(), 7));
+      const extracted = lines.slice(0, 15).map((txt, idx) => ({
+        id: 'rec_' + Date.now() + '_' + idx,
+        name: txt,
+        quantity: '1x',
+        location: 'fridge',
+        expiryDate: defaultExp,
+        selected: true
+      }));
+
+      setReceiptItems(extracted);
+      showToast('Kassenbon gelesen!', extracted.length + ' Positionen erkannt – bitte MHD prüfen.', '✅');
+    } catch (err) {
+      showToast('Kassenbon-Hinweis', 'Bitte Foto bei gutem Licht aufnehmen oder direkt eingeben.', '⚠️');
+    } finally {
+      setIsScanningReceipt(false);
+    }
+  };
+
+  const saveProductDirectly = (nameVal, barcodeVal, qtyVal, locVal, expVal, imgVal) => {
+    lastLocalEditRef.current = Date.now();
+    const newItem = {
+      id: 'p_' + Date.now(),
+      name: nameVal,
+      barcode: barcodeVal || '',
+      quantity: qtyVal || '1x',
+      location: locVal || 'fridge',
+      expiryDate: expVal,
+      imageUrl: imgVal || '',
+      addedAt: todayStr
+    };
+
+    const nextStock = [newItem, ...safeStock];
+    setPantryItems(nextStock);
+    saveStateToCloud({ pantryItems: nextStock });
+
+    // Felder leeren für den nächsten Scan (Kamera läuft einfach weiter!)
+    setScanName('');
+    setScannedBarcode('');
+    setScanExpiry('');
+    setScanImageUrl('');
+    lastScannedCodeRef.current = '';
+    showToast('Gespeichert! Nächstes Produkt...', newItem.name + ' (MHD: ' + expVal + ')', getFoodEmoji(newItem.name));
+  };
+
+  const handleSaveScannedProduct = (e) => {
+    if (e && typeof e.preventDefault === 'function') e.preventDefault();
+    if (!scanName.trim() || !scanExpiry) {
+      showToast('Pflichtfelder', 'Bitte Name und Ablaufdatum (MHD) eingeben.', '⚠️');
+      return;
+    }
+    saveProductDirectly(scanName.trim(), scannedBarcode, scanQty.trim(), scanLocation, scanExpiry, scanImageUrl);
   };
 
   const handleReceiptPhotoUpload = async (e) => {
