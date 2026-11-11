@@ -1822,8 +1822,8 @@ export default function TouchwallApp() {
   }
 
   // QR-Code-Einladungslink enthält Konto + Schlüssel für den 1-Scan-Login auf dem Smartphone
-  const qrShareUrl = typeof window !== 'undefined'
-    ? window.location.origin + window.location.pathname +
+const qrShareUrl = typeof window !== 'undefined'
+    ? window.location.origin + '/pocket' +
       (accountId && accountId !== 'local'
         ? '?account=' + encodeURIComponent(accountId) + '&key=' + encodeURIComponent(authKey) + '&family=' + encodeURIComponent(familyName)
         : '')
