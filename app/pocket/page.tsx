@@ -5,16 +5,19 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
-  Calendar, CheckSquare, ShoppingCart, GraduationCap, Camera,
+  Calendar, CheckSquare, ShoppingCart, Camera,
   Plus, RefreshCw, Smartphone, LogOut, Send, Trash2, Utensils,
-  X, ScanLine, FileText, Package, CheckCircle2
+  X, ScanLine, FileText, ChevronLeft, ChevronRight, Pencil, Check
 } from 'lucide-react';
 
 import * as Cfg from '../touchwallConfig';
+import { getFoodEmoji } from '../PantrySection';
 
 const {
   formatDateStr,
   addDays,
+  getMonday,
+  getISOWeek,
   WEEKDAYS_SHORT,
   MONTHS_NAMES,
   getBWHolidayName,
@@ -77,20 +80,23 @@ export default function TouchwallPocketApp() {
   const [loginError, setLoginError] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
-  // 5 Handy-Reiter inkl. neuem Kamera-Scanner
-  const [activeTab, setActiveTab] = useState('scanner'); // 'agenda' | 'tasks' | 'scanner' | 'shopping' | 'school'
+  // 4 Haupt-Kategorien (Ohne Schule!)
+  const [activeTab, setActiveTab] = useState('agenda'); // 'agenda' | 'tasks' | 'scanner' | 'shopping'
+  const [calendarSubView, setCalendarSubView] = useState('week'); // 'week' | 'month' | 'list'
+  const [calCursorDate, setCalCursorDate] = useState(() => new Date());
+  const [selectedMonthDayStr, setSelectedMonthDayStr] = useState(() => formatDateStr(new Date()));
+
   const [selectedPerson, setSelectedPerson] = useState('all');
   const [currentTheme, setCurrentTheme] = useState('metal');
   const [todayStr] = useState(() => formatDateStr(new Date()));
 
-  // Gemeinsame Familiendaten inkl. Speisekammer (pantryItems & pantryTrash)
+  // Gemeinsame Familiendaten
   const [members, setMembers] = useState(DEFAULT_MEMBERS);
   const [events, setEvents] = useState([]);
   const [familyTasks, setFamilyTasks] = useState([]);
   const [mealPlan, setMealPlan] = useState(DEFAULT_MEALS);
   const [familyNotes, setFamilyNotes] = useState(DEFAULT_NOTES);
   const [schoolData, setSchoolData] = useState(DEFAULT_SCHOOL);
-  const [activeSchoolChild, setActiveSchoolChild] = useState('dean');
   const [pantryItems, setPantryItems] = useState([]);
   const [pantryTrash, setPantryTrash] = useState([]);
   const [todoistConfig, setTodoistConfig] = useState({
@@ -102,18 +108,20 @@ export default function TouchwallPocketApp() {
   });
 
   // Scanner-State (Kamera-Barcode, Kassenbon-OCR & Pflicht-MHD)
-  const [scannerMode, setScannerMode] = useState('barcode'); // 'barcode' | 'receipt' | 'manual'
+  const [scannerMode, setScannerMode] = useState('barcode');
   const [cameraActive, setCameraActive] = useState(false);
   const [scannedBarcode, setScannedBarcode] = useState('');
   const [scanName, setScanName] = useState('');
   const [scanQty, setScanQty] = useState('1x');
-  const [scanLocation, setScanLocation] = useState('pantry');
+  const [scanLocation, setScanLocation] = useState('fridge');
   const [scanExpiry, setScanExpiry] = useState('');
+  const [scanImageUrl, setScanImageUrl] = useState('');
   const [isLookingUpProduct, setIsLookingUpProduct] = useState(false);
 
-  // Kassenbon-Foto-Erkennung
   const [isScanningReceipt, setIsScanningReceipt] = useState(false);
   const [receiptItems, setReceiptItems] = useState([]);
+  const [editingStockId, setEditingStockId] = useState(null);
+  const [editStockQty, setEditStockQty] = useState('');
 
   const videoRef = useRef(null);
   const streamRef = useRef(null);
@@ -158,7 +166,7 @@ export default function TouchwallPocketApp() {
   const safeStock = useMemo(() => Array.isArray(pantryItems) ? pantryItems : [], [pantryItems]);
   const safeTrash = useMemo(() => Array.isArray(pantryTrash) ? pantryTrash : [], [pantryTrash]);
 
-  const renderAvatar = (member, size = 'w-9 h-9', textSize = 'text-xs') => {
+  const renderAvatar = (member, size = 'w-8 h-8', textSize = 'text-xs') => {
     const st = getMemberStyles(member);
     if (member?.avatarType === 'photo' && member?.photoUrl) {
       return (
@@ -184,9 +192,39 @@ export default function TouchwallPocketApp() {
     );
   };
 
-  // =========================================================
-  // CLOUD-KOMMUNIKATION INKL. SPEISEKAMMER
-  // =========================================================
+  // Originales Touchwall-Button- & Card-Styling
+  const pocketStyles = [
+    '.tw-glow-card, .tw-glow-subtle {',
+    '  transition: background-color 0.2s ease, border-color 0.2s ease;',
+    '}',
+    '.tw-glow-btn {',
+    '  background: linear-gradient(135deg, color-mix(in srgb, var(--tw-btn-from) 28%, var(--tw-btn-rest-base)) 0%, color-mix(in srgb, var(--tw-btn-to) 28%, var(--tw-btn-rest-base)) 100%) !important;',
+    '  color: var(--tw-btn-rest-text) !important;',
+    '  border: 1px solid color-mix(in srgb, var(--tw-btn-border) 38%, transparent) !important;',
+    '  transition: transform 0.16s ease, box-shadow 0.16s ease, background 0.16s ease !important;',
+    '}',
+    '.tw-nav-inactive {',
+    '  background: linear-gradient(135deg, color-mix(in srgb, var(--tw-btn-from) 12%, var(--tw-btn-rest-base)) 0%, color-mix(in srgb, var(--tw-btn-to) 12%, var(--tw-btn-rest-base)) 100%);',
+    '  border: 1px solid rgba(255, 255, 255, 0.14);',
+    '  transition: transform 0.16s ease, background 0.16s ease;',
+    '}',
+    '.tw-active-nav {',
+    '  background: linear-gradient(135deg, var(--tw-btn-from) 0%, var(--tw-btn-to) 100%) !important;',
+    '  color: #ffffff !important;',
+    '  border: 1.5px solid var(--tw-btn-border) !important;',
+    '  box-shadow: 0 6px 16px -3px var(--tw-btn-glow) !important;',
+    '}',
+    '.tw-glow-btn:hover, .tw-glow-btn:active, .tw-nav-inactive:active {',
+    '  background: linear-gradient(135deg, var(--tw-btn-from) 0%, var(--tw-btn-to) 100%) !important;',
+    '  color: #ffffff !important;',
+    '  border-color: var(--tw-btn-border) !important;',
+    '  box-shadow: 0 6px 18px -2px var(--tw-btn-glow) !important;',
+    '}',
+    'button:active {',
+    '  transform: scale(0.95);',
+    '}'
+  ].join('\n');
+
   const callCloudBackend = async (postBody) => {
     const payload = {
       ...postBody,
@@ -278,7 +316,20 @@ export default function TouchwallPocketApp() {
         });
         if (bundle?.ok) applyRemoteBundle(bundle);
       }
-      if (showFeedback) showToast('Synchronisiert', 'Bestand, Termine & Listen sind aktuell.', '✅');
+      if (todoistConfig?.apiToken?.trim()) {
+        const pulled = await pullFromTodoistTwoWay(
+          todoistConfig.apiToken,
+          todoistConfig,
+          safeTasks,
+          safeNotes,
+          safeMembers
+        );
+        if (pulled) {
+          if (Array.isArray(pulled.tasks)) setFamilyTasks(pulled.tasks);
+          if (Array.isArray(pulled.familyNotes)) setFamilyNotes(pulled.familyNotes);
+        }
+      }
+      if (showFeedback) showToast('Synchronisiert', 'Kalender, Aufgaben & Vorrat sind aktuell.', '✅');
     } catch (e) {} finally {
       if (showFeedback) setIsSyncing(false);
     }
@@ -290,6 +341,8 @@ export default function TouchwallPocketApp() {
       const qrAcc = params.get('account');
       const qrKey = params.get('key');
       const qrFamily = params.get('family');
+      const savedPerson = localStorage.getItem('richter_tw_pocket_person');
+      if (savedPerson) setSelectedPerson(savedPerson);
 
       if (qrAcc && qrKey) {
         const cleanTitle = qrFamily || 'Familien-Touchwall';
@@ -322,6 +375,14 @@ export default function TouchwallPocketApp() {
         } catch (e) {}
       }
 
+      const savedEv = localStorage.getItem('richter_touchwall_events_cache');
+      if (savedEv) {
+        try {
+          const parsedEv = JSON.parse(savedEv);
+          if (Array.isArray(parsedEv)) setEvents(parsedEv);
+        } catch (e) {}
+      }
+
       if (session.active && session.accountId) {
         setAccountId(session.accountId);
         setAuthKey(session.authKey);
@@ -334,9 +395,7 @@ export default function TouchwallPocketApp() {
     setIsCheckingAuth(false);
   }, []);
 
-  // =========================================================
-  // KAMERA-BARCODE-SCANNER + OPENFOODFACTS PRODUKT-ABFRAGE
-  // =========================================================
+  // Kamera-Steuerung
   const stopCameraStream = () => {
     if (scanLoopRef.current) clearInterval(scanLoopRef.current);
     if (streamRef.current) {
@@ -363,11 +422,13 @@ export default function TouchwallPocketApp() {
         const foundName = p.product_name_de || p.product_name || p.generic_name_de || '';
         const brand = p.brands ? p.brands.split(',')[0].trim() : '';
         const qty = p.quantity || '1x';
+        const img = p.image_front_small_url || p.image_thumb_url || '';
         const fullTitle = [brand, foundName].filter(Boolean).join(' ').trim();
+        if (img) setScanImageUrl(img);
         if (fullTitle) {
           setScanName(fullTitle);
           setScanQty(qty);
-          showToast('Produkt erkannt!', fullTitle + ' – bitte jetzt noch Ablaufdatum wählen.', '🎉');
+          showToast('Produkt erkannt!', fullTitle + ' – bitte jetzt noch Ablaufdatum wählen.', getFoodEmoji(fullTitle));
           return;
         }
       }
@@ -416,9 +477,6 @@ export default function TouchwallPocketApp() {
     }
   };
 
-  // =========================================================
-  // KASSENBON-FOTO-SCANNER (BROWSER-OCR OHNE ZUSATZ-INSTALLATION)
-  // =========================================================
   const handleReceiptPhotoUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -450,7 +508,7 @@ export default function TouchwallPocketApp() {
         id: 'rec_' + Date.now() + '_' + idx,
         name: txt,
         quantity: '1x',
-        location: 'pantry',
+        location: 'fridge',
         expiryDate: defaultExp,
         selected: true
       }));
@@ -458,7 +516,7 @@ export default function TouchwallPocketApp() {
       setReceiptItems(extracted);
       showToast('Kassenbon gelesen!', extracted.length + ' Positionen erkannt – bitte MHD prüfen.', '✅');
     } catch (err) {
-      showToast('Kassenbon-Hinweis', 'Bitte Foto bei gutem Licht aufnehmen oder Produkt direkt eingeben.', '⚠️');
+      showToast('Kassenbon-Hinweis', 'Bitte Foto bei gutem Licht aufnehmen oder direkt eingeben.', '⚠️');
     } finally {
       setIsScanningReceipt(false);
     }
@@ -466,12 +524,8 @@ export default function TouchwallPocketApp() {
 
   const handleSaveScannedProduct = (e) => {
     e.preventDefault();
-    if (!scanName.trim()) {
-      showToast('Name fehlt', 'Bitte Produktnamen eingeben.', '⚠️');
-      return;
-    }
-    if (!scanExpiry) {
-      showToast('Ablaufdatum ist Pflicht!', 'Ohne Ablaufdatum (MHD) kann kein Produkt gespeichert werden.', '⚠️');
+    if (!scanName.trim() || !scanExpiry) {
+      showToast('Pflichtfelder', 'Bitte Name und Ablaufdatum (MHD) eingeben.', '⚠️');
       return;
     }
 
@@ -483,6 +537,7 @@ export default function TouchwallPocketApp() {
       quantity: scanQty.trim() || '1x',
       location: scanLocation,
       expiryDate: scanExpiry,
+      imageUrl: scanImageUrl || '',
       addedAt: todayStr
     };
 
@@ -493,22 +548,21 @@ export default function TouchwallPocketApp() {
     setScanName('');
     setScannedBarcode('');
     setScanExpiry('');
-    showToast('In Speisekammer!', newItem.name + ' (MHD: ' + newItem.expiryDate + ') gespeichert!', '🥫');
+    setScanImageUrl('');
+    showToast('In Speisekammer!', newItem.name + ' gespeichert!', getFoodEmoji(newItem.name));
   };
 
   const handleSaveAllReceiptItems = () => {
     const selected = receiptItems.filter(it => it.selected && it.name.trim() && it.expiryDate);
-    if (selected.length === 0) {
-      showToast('MHD prüfen', 'Bitte wähle mindestens einen Artikel mit gültigem Ablaufdatum.', '⚠️');
-      return;
-    }
+    if (selected.length === 0) return;
     lastLocalEditRef.current = Date.now();
     const newEntries = selected.map(it => ({
       id: 'p_' + Date.now() + '_' + Math.random(),
       name: it.name.trim(),
       quantity: it.quantity || '1x',
-      location: it.location || 'pantry',
+      location: it.location || 'fridge',
       expiryDate: it.expiryDate,
+      imageUrl: '',
       addedAt: todayStr
     }));
 
@@ -516,25 +570,180 @@ export default function TouchwallPocketApp() {
     setPantryItems(nextStock);
     saveStateToCloud({ pantryItems: nextStock });
     setReceiptItems([]);
-    showToast('Kassenbon übernommen!', newEntries.length + ' Produkte in der Speisekammer gespeichert.', '🎉');
+    showToast('Kassenbon übernommen!', newEntries.length + ' Produkte gespeichert.', '🎉');
   };
 
   const handleConsumeFromPocket = (item) => {
     lastLocalEditRef.current = Date.now();
     const nextStock = safeStock.filter(x => x.id !== item.id);
     const nextTrash = [
-      {
-        ...item,
-        trashedAt: todayStr,
-        reason: 'consumed',
-        reasonLabel: '🍽️ Verzehrt am ' + todayStr
-      },
+      { ...item, trashedAt: todayStr, reason: 'consumed', reasonLabel: '🍽️ Verzehrt am ' + todayStr },
       ...safeTrash
     ];
     setPantryItems(nextStock);
     setPantryTrash(nextTrash);
     saveStateToCloud({ pantryItems: nextStock, pantryTrash: nextTrash });
-    showToast('Verzehrt!', item.name + ' wurde aus dem Bestand gebucht.', '🍽️');
+    showToast('Verzehrt!', item.name + ' wurde ausgebucht.', '🍽️');
+  };
+
+  const handleCreateMobileEvent = async (e) => {
+    e.preventDefault();
+    if (!newEvTitle.trim()) return;
+    lastLocalEditRef.current = Date.now();
+    const targetMem = newEvMember || (selectedPerson === 'all' ? 'all' : selectedPerson);
+    const newEv = {
+      id: String(Date.now()),
+      title: newEvTitle.trim(),
+      date: newEvDate || todayStr,
+      time: newEvTime.trim() || 'Ganztägig',
+      member: targetMem,
+      notifyTime: '30m',
+      notifyChannel: 'wall_push',
+      notifyUsers: [targetMem],
+      fromGoogle: true
+    };
+    setEvents(prev => [...(Array.isArray(prev) ? prev : []), newEv]);
+    setNewEvTitle('');
+    setNewEventModalOpen(false);
+    showToast('Termin gespeichert', newEv.title, '📅');
+
+    if (accountId && accountId !== 'local') {
+      try {
+        const res = await callCloudBackend({ action: 'createEvent', event: newEv });
+        if (res?.result?.events) setEvents(res.result.events);
+      } catch (err) {}
+    }
+  };
+
+  const handleDeleteMobileEvent = async (ev) => {
+    lastLocalEditRef.current = Date.now();
+    setEvents(prev => (Array.isArray(prev) ? prev : []).filter(item => String(item.id) !== String(ev.id)));
+    showToast('Termin gelöscht', ev.title, '🗑️');
+    if (accountId && accountId !== 'local') {
+      try {
+        await callCloudBackend({
+          action: 'deleteEvent',
+          eventId: String(ev.id),
+          member: ev.member,
+          title: ev.title,
+          date: ev.date
+        });
+      } catch (err) {}
+    }
+  };
+
+  const handleAddQuickTask = async (e) => {
+    e.preventDefault();
+    const clean = quickTaskText.trim();
+    if (!clean) return;
+    lastLocalEditRef.current = Date.now();
+    const targetMemberId = selectedPerson !== 'all' ? selectedPerson : quickTaskMember;
+    const memberObj = safeMembers.find(m => m.id === targetMemberId) || safeMembers[1];
+    const projId = memberObj?.todoistProjectId || todoistConfig?.tasksProjectId || '';
+
+    let todoistId = null;
+    if (todoistConfig?.apiToken && projId) {
+      try {
+        const created = await createTodoistTaskItem(
+          todoistConfig.apiToken,
+          projId,
+          clean,
+          memberObj,
+          todayStr,
+          '18:00',
+          3,
+          '',
+          '15m',
+          todoistConfig.collaborators,
+          true
+        );
+        if (created?.id) todoistId = String(created.id);
+      } catch (err) {}
+    }
+
+    const newTask = {
+      id: Date.now(),
+      todoistId,
+      projectId: projId,
+      member: targetMemberId,
+      title: clean,
+      priority: 3,
+      due: 'Heute bis 18:00 Uhr',
+      dueDate: todayStr,
+      dueTime: '18:00',
+      notifyTime: '15m',
+      done: false
+    };
+    const nextTasks = [newTask, ...safeTasks];
+    setFamilyTasks(nextTasks);
+    setQuickTaskText('');
+    saveStateToCloud({ familyTasks: nextTasks });
+    showToast('Aufgabe & Push gesendet!', clean + ' → ' + memberObj.name, '✅');
+  };
+
+  const handleToggleMobileTask = async (task) => {
+    lastLocalEditRef.current = Date.now();
+    const nextDone = !task.done;
+    const nextTasks = safeTasks.map(t => t.id === task.id ? { ...t, done: nextDone } : t);
+    setFamilyTasks(nextTasks);
+    saveStateToCloud({ familyTasks: nextTasks });
+    if (task.todoistId && todoistConfig?.apiToken) {
+      try { await closeOrReopenTodoistTask(todoistConfig.apiToken, task.todoistId, nextDone); } catch (e) {}
+    }
+  };
+
+  const handleAddQuickShopItem = async (e) => {
+    e.preventDefault();
+    const clean = quickShopText.trim();
+    if (!clean) return;
+    lastLocalEditRef.current = Date.now();
+    const firstNote = safeNotes[0] || { id: 1, title: '🛒 Einkaufsliste', items: [] };
+    const projId = firstNote.todoistProjectId || todoistConfig?.shoppingProjectId || '';
+
+    let todoistId = null;
+    if (todoistConfig?.apiToken && projId) {
+      try {
+        const created = await createTodoistTaskItem(
+          todoistConfig.apiToken,
+          projId,
+          clean,
+          null,
+          '',
+          '',
+          1,
+          '',
+          'none',
+          todoistConfig.collaborators,
+          false
+        );
+        if (created?.id) todoistId = String(created.id);
+      } catch (err) {}
+    }
+
+    const nextNotes = safeNotes.map((n, idx) => idx === 0 ? {
+      ...n,
+      items: [{ text: clean, done: false, todoistId }, ...(Array.isArray(n.items) ? n.items : [])]
+    } : n);
+    setFamilyNotes(nextNotes);
+    setQuickShopText('');
+    saveStateToCloud({ familyNotes: nextNotes });
+  };
+
+  const handleToggleShopItem = async (itemIdx) => {
+    lastLocalEditRef.current = Date.now();
+    const firstNote = safeNotes[0];
+    const item = firstNote?.items?.[itemIdx];
+    if (!item) return;
+    const nextDone = !item.done;
+    const nextNotes = safeNotes.map((n, idx) => idx === 0 ? {
+      ...n,
+      items: (Array.isArray(n.items) ? n.items : []).map((it, i) => i === itemIdx ? { ...it, done: nextDone } : it)
+    } : n);
+    setFamilyNotes(nextNotes);
+    saveStateToCloud({ familyNotes: nextNotes });
+    if (item.todoistId && todoistConfig?.apiToken) {
+      try { await closeOrReopenTodoistTask(todoistConfig.apiToken, item.todoistId, nextDone); } catch (e) {}
+    }
   };
 
   const handlePocketLogin = async (e) => {
@@ -570,9 +779,42 @@ export default function TouchwallPocketApp() {
     }
   };
 
+  // Kalender-Navigation für Woche & Monat
+  const navigateCalendarCursor = (dir) => {
+    if (calendarSubView === 'month') {
+      const next = new Date(calCursorDate.getFullYear(), calCursorDate.getMonth() + dir, 1);
+      setCalCursorDate(next);
+      setSelectedMonthDayStr(formatDateStr(next));
+    } else {
+      setCalCursorDate(addDays(calCursorDate, dir * 7));
+    }
+  };
+
+  const weekMonday = useMemo(() => getMonday(calCursorDate), [calCursorDate]);
+  const weekDaysList = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekMonday, i)), [weekMonday]);
+
+  // Monats-Raster (Mo-So) berechnen
+  const monthGridCells = useMemo(() => {
+    const year = calCursorDate.getFullYear();
+    const month = calCursorDate.getMonth();
+    const firstDayOfMonth = new Date(year, month, 1);
+    const lastDayOfMonth = new Date(year, month + 1, 0);
+    const startOffset = (firstDayOfMonth.getDay() + 6) % 7; // Montag = 0
+    const totalDays = lastDayOfMonth.getDate();
+
+    const cells = [];
+    for (let i = 0; i < startOffset; i++) {
+      cells.push(null);
+    }
+    for (let d = 1; d <= totalDays; d++) {
+      cells.push(new Date(year, month, d));
+    }
+    return cells;
+  }, [calCursorDate]);
+
   if (isCheckingAuth) {
     return (
-      <div className="min-h-screen bg-[#111418] text-white flex items-center justify-center p-6">
+      <div className="h-screen w-screen bg-[#111418] text-white flex items-center justify-center p-6">
         <div className="text-sm font-extrabold opacity-75 animate-pulse">📱 Lade Touchwall Pocket...</div>
       </div>
     );
@@ -580,7 +822,7 @@ export default function TouchwallPocketApp() {
 
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen bg-[#111418] text-slate-100 flex flex-col justify-center p-5 select-none">
+      <div className="h-screen w-screen bg-[#111418] text-slate-100 flex flex-col justify-center p-5 select-none">
         <div className="w-full max-w-md mx-auto rounded-3xl border border-slate-700/80 bg-[#1b2028] p-6 shadow-2xl space-y-5">
           <div className="flex items-center gap-3.5">
             <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-sky-500 to-indigo-600 flex items-center justify-center shadow-md shrink-0">
@@ -630,138 +872,591 @@ export default function TouchwallPocketApp() {
     );
   }
 
-  const next14Days = Array.from({ length: 14 }, (_, i) => addDays(new Date(), i));
+  const filteredEvents = safeEvents.filter(ev =>
+    selectedPerson === 'all' || ev.member === selectedPerson || ev.member === 'all'
+  );
   const filteredTasks = safeTasks.filter(t => selectedPerson === 'all' || t.member === selectedPerson);
   const openTasks = filteredTasks.filter(t => !t.done);
+  const doneTasks = filteredTasks.filter(t => t.done);
   const shopItems = Array.isArray(safeNotes[0]?.items) ? safeNotes[0].items : [];
   const openShop = shopItems.map((it, idx) => ({ ...it, origIdx: idx })).filter(it => !it.done);
+  const doneShop = shopItems.map((it, idx) => ({ ...it, origIdx: idx })).filter(it => it.done);
 
   return (
-    <div className={'min-h-screen pb-24 flex flex-col select-none ' + themeStyles.outer}>
-      <header className={'sticky top-0 z-30 px-4 pt-3 pb-2.5 border-b shadow-md ' + themeStyles.header}>
-        <div className="flex items-center justify-between gap-2">
+    <div
+      style={{
+        '--tw-btn-from': themeStyles.btnFrom || '#0ea5e9',
+        '--tw-btn-to': themeStyles.btnTo || '#4f46e5',
+        '--tw-btn-border': themeStyles.btnBorder || '#38bdf8',
+        '--tw-btn-glow': themeStyles.btnGlow || 'rgba(56, 189, 248, 0.5)',
+        '--tw-btn-rest-base': themeStyles.dark ? '#1e222d' : '#e2e8f0',
+        '--tw-btn-rest-text': themeStyles.dark ? '#e2e8f0' : '#1e293b'
+      }}
+      className={'h-[100dvh] w-screen overflow-hidden flex flex-col select-none ' + themeStyles.outer}
+    >
+      <style>{pocketStyles}</style>
+
+      {/* =========================================================
+          FESTER OBERER HEADER (SHRINK-0 -> NICHTS RUTSCHT DARUNTER!)
+         ========================================================= */}
+      <header className={'shrink-0 z-30 px-3.5 pt-2.5 pb-2 border-b shadow-md ' + themeStyles.header}>
+        <div className="flex items-center justify-between gap-2 mb-2">
           <div className="flex items-center gap-2 min-w-0">
-            <span className="px-2 py-0.5 rounded-lg bg-sky-500 text-white text-xs font-black">POCKET</span>
-            <h1 className="font-extrabold text-base truncate">{familyName}</h1>
+            <span className="px-2 py-0.5 rounded-lg bg-sky-500 text-white text-[10px] font-black">POCKET</span>
+            <h1 className="font-extrabold text-sm sm:text-base truncate">{familyName}</h1>
           </div>
+
           <div className="flex items-center gap-1.5">
-            <button onClick={() => syncAllNow(true)} className="p-2 rounded-xl bg-white/10">
-              <RefreshCw className={'w-4 h-4 ' + (isSyncing ? 'animate-spin text-sky-400' : '')} />
+            <button onClick={() => syncAllNow(true)} className="tw-glow-btn p-2 rounded-xl">
+              <RefreshCw className={'w-3.5 h-3.5 ' + (isSyncing ? 'animate-spin' : '')} />
             </button>
-            <a href="/" className="px-2.5 py-1.5 rounded-xl bg-white/10 text-[11px] font-extrabold">🖥️ Wand</a>
+            <a href="/" className="tw-glow-btn px-2.5 py-1.5 rounded-xl text-[11px] font-extrabold no-underline">
+              🖥️ Wand
+            </a>
+            <button
+              onClick={() => {
+                localStorage.removeItem('richter_tw_auth_active');
+                setIsAuthenticated(false);
+              }}
+              className="tw-nav-inactive p-2 rounded-xl text-rose-400"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+            </button>
           </div>
+        </div>
+
+        {/* PERSONEN-FILTERLEISTE */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
+          <button
+            onClick={() => {
+              setSelectedPerson('all');
+              try { localStorage.setItem('richter_tw_pocket_person', 'all'); } catch (e) {}
+            }}
+            className={'px-3 py-1 rounded-xl text-xs font-extrabold shrink-0 ' + (selectedPerson === 'all' ? 'tw-active-nav' : 'tw-nav-inactive')}
+          >
+            👨‍👩‍👧‍👦 Alle
+          </button>
+
+          {safeMembers.filter(m => m.id !== 'all').map(m => {
+            const isSel = selectedPerson === m.id;
+            return (
+              <button
+                key={m.id}
+                onClick={() => {
+                  setSelectedPerson(m.id);
+                  setQuickTaskMember(m.id);
+                  try { localStorage.setItem('richter_tw_pocket_person', m.id); } catch (e) {}
+                }}
+                className={'pr-2.5 pl-1 py-0.5 rounded-xl flex items-center gap-1.5 text-xs font-extrabold shrink-0 ' + (isSel ? 'tw-active-nav' : 'tw-nav-inactive')}
+              >
+                {renderAvatar(m, 'w-5 h-5', 'text-[10px]')}
+                <span>{m.name.split(' ')[0]}</span>
+              </button>
+            );
+          })}
         </div>
       </header>
 
-      <main className="flex-1 p-4 max-w-lg w-full mx-auto space-y-4">
-        {/* =====================================================
-            NEUER HAUPT-TAB: HANDY-KAMERA-SCANNER (BARCODE & KASSENBON)
-           ===================================================== */}
-        {activeTab === 'scanner' && (
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-2 p-1.5 rounded-2xl bg-black/30 border border-white/10">
-              <button
-                type="button"
-                onClick={() => setScannerMode('barcode')}
-                className={'py-2.5 px-3 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 ' + (scannerMode === 'barcode' ? 'bg-sky-500 text-white shadow-md' : 'opacity-75')}
-              >
-                <ScanLine className="w-4 h-4" />
-                <span>Barcode / Produkt</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => { stopCameraStream(); setScannerMode('receipt'); }}
-                className={'py-2.5 px-3 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 ' + (scannerMode === 'receipt' ? 'bg-amber-500 text-slate-950 shadow-md' : 'opacity-75')}
-              >
-                <FileText className="w-4 h-4" />
-                <span>🧾 Kassenbon-Foto</span>
-              </button>
-            </div>
+      {/* =========================================================
+          SEPARATER SCROLL-VIEWPORT (KEINE ÜBERLAPPUNG MIT DEM HEADER!)
+         ========================================================= */}
+      <main className={'flex-1 overflow-y-auto px-3.5 pt-3.5 pb-6 ' + themeStyles.viewport}>
+        <div className="max-w-lg w-full mx-auto space-y-3.5">
 
-            {scannerMode === 'barcode' ? (
-              <div className={'p-4 rounded-3xl border space-y-4 shadow-md ' + themeStyles.card}>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h2 className="font-black text-base">📷 Produkt & MHD Scanner</h2>
-                    <p className="text-[11px] opacity-75">Barcode scannen + Pflicht-Ablaufdatum wählen</p>
+          {/* =====================================================
+              TAB 1: KALENDER (WOCHE / MONAT / TERMIN-ÜBERSICHT)
+             ===================================================== */}
+          {activeTab === 'agenda' && (
+            <div className="space-y-3">
+              {/* UMSCHALTER: WOCHE | MONAT | ÜBERSICHT + NEUER TERMIN */}
+              <div className={'p-2.5 rounded-2xl border space-y-2.5 ' + themeStyles.card}>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="grid grid-cols-3 gap-1 flex-1 p-1 rounded-xl bg-black/25">
+                    {[
+                      { id: 'week',  label: '📆 Woche' },
+                      { id: 'month', label: '🗓️ Monat' },
+                      { id: 'list',  label: '📋 Übersicht' }
+                    ].map(v => (
+                      <button
+                        key={v.id}
+                        type="button"
+                        onClick={() => setCalendarSubView(v.id)}
+                        className={'py-1.5 rounded-lg text-xs font-extrabold ' + (calendarSubView === v.id ? 'tw-active-nav' : 'opacity-75')}
+                      >
+                        {v.label}
+                      </button>
+                    ))}
                   </div>
-                  {!cameraActive ? (
-                    <button
-                      type="button"
-                      onClick={startLiveBarcodeCamera}
-                      className="px-4 py-2.5 rounded-2xl bg-gradient-to-r from-sky-500 to-indigo-600 text-white text-xs font-black flex items-center gap-1.5 shadow-md active:scale-95"
-                    >
-                      <Camera className="w-4 h-4" /> Kamera starten
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={stopCameraStream}
-                      className="px-3.5 py-2 rounded-2xl bg-rose-600 text-white text-xs font-black"
-                    >
-                      ✕ Kamera aus
-                    </button>
-                  )}
-                </div>
 
-                {cameraActive && (
-                  <div className="relative rounded-2xl overflow-hidden border-2 border-sky-400 bg-black aspect-video">
-                    <video ref={videoRef} className="w-full h-full object-cover" playsInline muted />
-                    <div className="absolute inset-x-8 top-1/2 h-0.5 bg-rose-500 shadow-[0_0_12px_#f43f5e] animate-pulse" />
-                    <div className="absolute bottom-2 inset-x-0 text-center text-[11px] font-black text-white bg-black/60 py-1">
-                      Halte den Barcode vor die Kamera...
-                    </div>
-                  </div>
-                )}
-
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={scannedBarcode}
-                    onChange={(e) => setScannedBarcode(e.target.value)}
-                    placeholder="EAN-Barcode (oder oben Kamera starten)"
-                    className={'flex-1 px-3.5 py-2.5 rounded-xl border text-xs font-mono ' + themeStyles.input}
-                  />
                   <button
                     type="button"
-                    onClick={() => lookupBarcodeOnOpenFoodFacts(scannedBarcode)}
-                    className="px-3.5 py-2.5 rounded-xl bg-white/10 text-xs font-extrabold"
+                    onClick={() => {
+                      setNewEvDate(selectedMonthDayStr || todayStr);
+                      setNewEvMember(selectedPerson === 'all' ? 'all' : selectedPerson);
+                      setNewEventModalOpen(true);
+                    }}
+                    className="tw-glow-btn px-3 py-2 rounded-xl text-xs font-black flex items-center gap-1 shrink-0"
                   >
-                    {isLookingUpProduct ? '...' : '🔍 Suchen'}
+                    <Plus className="w-4 h-4 stroke-[3]" /> Termin
                   </button>
                 </div>
 
-                <form onSubmit={handleSaveScannedProduct} className="space-y-3 pt-2 border-t border-white/10">
-                  <div>
-                    <label className="block text-[10px] font-black uppercase text-sky-400 mb-1">
-                      1. Produktname / Beschreibung
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={scanName}
-                      onChange={(e) => setScanName(e.target.value)}
-                      placeholder="z.B. Vollmilch, Joghurt, Hackfleisch..."
-                      className={'w-full px-4 py-3 rounded-2xl border text-sm font-extrabold ' + themeStyles.input}
-                    />
+                {/* ZEITRAUM-NAVIGATION */}
+                <div className="flex items-center justify-between gap-2 pt-0.5">
+                  <div className="flex items-center gap-1.5">
+                    <button onClick={() => navigateCalendarCursor(-1)} className="tw-glow-btn w-7 h-7 rounded-xl flex items-center justify-center">
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => {
+                        const now = new Date();
+                        setCalCursorDate(now);
+                        setSelectedMonthDayStr(formatDateStr(now));
+                      }}
+                      className="tw-glow-btn px-2.5 py-1 rounded-xl text-xs font-extrabold"
+                    >
+                      Heute
+                    </button>
+                    <button onClick={() => navigateCalendarCursor(1)} className="tw-glow-btn w-7 h-7 rounded-xl flex items-center justify-center">
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2.5">
+                  <span className="text-xs font-black">
+                    {calendarSubView === 'month'
+                      ? (MONTHS_NAMES[calCursorDate.getMonth()] + ' ' + calCursorDate.getFullYear())
+                      : ('KW ' + getISOWeek(weekMonday) + ' • ' + weekDaysList[0].getDate() + '.' + (weekDaysList[0].getMonth() + 1) + '. – ' + weekDaysList[6].getDate() + '.' + (weekDaysList[6].getMonth() + 1) + '.')}
+                  </span>
+                </div>
+              </div>
+
+              {/* ANSICHT A: WOCHENANSICHT (ALLE 7 TAGE DER WOCHE OPTIMAL LESBAR) */}
+              {calendarSubView === 'week' && (
+                <div className="space-y-2">
+                  {weekDaysList.map(dayObj => {
+                    const dStr = formatDateStr(dayObj);
+                    const isToday = dStr === todayStr;
+                    const hol = getBWHolidayName(dStr);
+                    const vac = getBWVacationName(dStr);
+                    const dayEvs = filteredEvents.filter(e => e.date === dStr);
+
+                    return (
+                      <div
+                        key={dStr}
+                        className={'p-3 rounded-2xl border space-y-2 ' + themeStyles.card + (isToday ? ' ring-2 ring-orange-400' : '')}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className={'w-7 h-7 rounded-xl text-xs font-black flex items-center justify-center ' + (isToday ? 'bg-orange-500 text-white' : 'bg-black/30')}>
+                              {WEEKDAYS_SHORT[dayObj.getDay()]}
+                            </span>
+                            <div>
+                              <div className="font-extrabold text-xs sm:text-sm">
+                                {dayObj.getDate()}. {MONTHS_NAMES[dayObj.getMonth()]}
+                              </div>
+                              {(hol || vac) && (
+                                <div className="text-[10px] font-extrabold text-emerald-400">
+                                  {hol ? ('🎌 ' + hol) : ('🏖️ ' + vac)}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          <button
+                            onClick={() => {
+                              setNewEvDate(dStr);
+                              setNewEvMember(selectedPerson === 'all' ? 'all' : selectedPerson);
+                              setNewEventModalOpen(true);
+                            }}
+                            className="tw-glow-btn w-7 h-7 rounded-xl font-black text-sm flex items-center justify-center"
+                          >
+                            +
+                          </button>
+                        </div>
+
+                        {dayEvs.length === 0 ? (
+                          <div className="text-[11px] opacity-45 pl-9">Keine Termine</div>
+                        ) : (
+                          <div className="space-y-1.5 pl-1">
+                            {dayEvs.map(ev => {
+                              const mem = safeMembers.find(m => m.id === ev.member) || safeMembers[0];
+                              const st = getMemberStyles(mem);
+                              return (
+                                <div
+                                  key={ev.id}
+                                  style={st.cardStyle}
+                                  className="px-3 py-2 rounded-xl flex items-center justify-between gap-2 shadow-xs"
+                                >
+                                  <div className="min-w-0">
+                                    <div className="font-extrabold text-xs leading-snug break-words">{ev.title}</div>
+                                    <div className="text-[10px] font-bold opacity-90">
+                                      ⏰ {ev.time || 'Ganztägig'} • {mem.name.split(' ')[0]}
+                                    </div>
+                                  </div>
+                                  <button
+                                    onClick={() => handleDeleteMobileEvent(ev)}
+                                    className="p-1.5 rounded-lg bg-black/25 text-white/80 shrink-0"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* ANSICHT B: MONATSANSICHT (KOMPAKTES 7-SPALTEN RASTER + TAGES-DETAILS) */}
+              {calendarSubView === 'month' && (
+                <div className="space-y-3">
+                  <div className={'p-3 rounded-3xl border ' + themeStyles.card}>
+                    <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-black uppercase opacity-70 mb-1.5">
+                      {['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].map(w => (
+                        <div key={w}>{w}</div>
+                      ))}
+                    </div>
+
+                    <div className="grid grid-cols-7 gap-1">
+                      {monthGridCells.map((cellDate, idx) => {
+                        if (!cellDate) {
+                          return <div key={'empty_' + idx} className="h-12 rounded-xl bg-black/10" />;
+                        }
+                        const dStr = formatDateStr(cellDate);
+                        const isToday = dStr === todayStr;
+                        const isSelected = dStr === selectedMonthDayStr;
+                        const hol = getBWHolidayName(dStr);
+                        const vac = getBWVacationName(dStr);
+                        const dayEvs = filteredEvents.filter(e => e.date === dStr);
+
+                        return (
+                          <button
+                            key={dStr}
+                            type="button"
+                            onClick={() => setSelectedMonthDayStr(dStr)}
+                            className={'h-13 p-1 rounded-xl border flex flex-col items-center justify-between transition-all ' +
+                              (isSelected ? 'ring-2 ring-sky-400 bg-sky-500/20 border-sky-400' : isToday ? 'border-orange-400 bg-orange-500/15' : themeStyles.subtle)}
+                          >
+                            <span className={'text-xs font-black ' + (isToday ? 'text-orange-400' : hol ? 'text-rose-400' : vac ? 'text-emerald-400' : '')}>
+                              {cellDate.getDate()}
+                            </span>
+
+                            <div className="w-full flex flex-col gap-0.5 overflow-hidden">
+                              {dayEvs.slice(0, 2).map(ev => {
+                                const mem = safeMembers.find(m => m.id === ev.member) || safeMembers[0];
+                                const hex = COLOR_PALETTES[mem.color]?.hex || '#0ea5e9';
+                                return (
+                                  <span
+                                    key={ev.id}
+                                    style={{ backgroundColor: hex }}
+                                    className="w-full px-1 rounded text-[8px] font-black text-white truncate leading-tight"
+                                  >
+                                    {ev.title}
+                                  </span>
+                                );
+                              })}
+                              {dayEvs.length > 2 && (
+                                <span className="text-[8px] font-black text-sky-300">+{dayEvs.length - 2}</span>
+                              )}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* TAGES-DETAILS UNTER DEM MONATSRASTER */}
+                  <div className={'p-3.5 rounded-3xl border space-y-2 ' + themeStyles.card}>
+                    <div className="flex items-center justify-between">
+                      <span className="font-extrabold text-xs text-sky-400">
+                        📅 Termine am {selectedMonthDayStr.slice(8, 10)}.{selectedMonthDayStr.slice(5, 7)}.{selectedMonthDayStr.slice(0, 4)}
+                      </span>
+                      <button
+                        onClick={() => {
+                          setNewEvDate(selectedMonthDayStr);
+                          setNewEvMember(selectedPerson === 'all' ? 'all' : selectedPerson);
+                          setNewEventModalOpen(true);
+                        }}
+                        className="tw-glow-btn px-3 py-1 rounded-xl text-xs font-black"
+                      >
+                        + Termin hier
+                      </button>
+                    </div>
+
+                    {filteredEvents.filter(e => e.date === selectedMonthDayStr).length === 0 ? (
+                      <div className="text-xs opacity-50 py-2">Keine Termine an diesem Tag.</div>
+                    ) : (
+                      filteredEvents
+                        .filter(e => e.date === selectedMonthDayStr)
+                        .map(ev => {
+                          const mem = safeMembers.find(m => m.id === ev.member) || safeMembers[0];
+                          const st = getMemberStyles(mem);
+                          return (
+                            <div
+                              key={ev.id}
+                              style={st.cardStyle}
+                              className="p-3 rounded-2xl flex items-center justify-between gap-2"
+                            >
+                              <div>
+                                <div className="font-extrabold text-sm">{ev.title}</div>
+                                <div className="text-xs opacity-90">⏰ {ev.time} • {mem.name}</div>
+                              </div>
+                              <button onClick={() => handleDeleteMobileEvent(ev)} className="p-1.5 rounded-xl bg-black/25">
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          );
+                        })
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* ANSICHT C: KOMPAKTE TERMIN-ÜBERSICHT (CHRONOLOGISCHE LISTE) */}
+              {calendarSubView === 'list' && (
+                <div className={'p-3.5 rounded-3xl border space-y-2.5 ' + themeStyles.card}>
+                  <h3 className="font-extrabold text-sm">📋 Alle kommenden Termine</h3>
+                  {filteredEvents
+                    .filter(e => e.date >= todayStr)
+                    .sort((a, b) => String(a.date).localeCompare(String(b.date)))
+                    .slice(0, 25)
+                    .map(ev => {
+                      const mem = safeMembers.find(m => m.id === ev.member) || safeMembers[0];
+                      const st = getMemberStyles(mem);
+                      return (
+                        <div
+                          key={ev.id}
+                          style={st.cardStyle}
+                          className="p-3 rounded-2xl flex items-center justify-between gap-3"
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            {renderAvatar(mem, 'w-8 h-8', 'text-xs')}
+                            <div className="min-w-0">
+                              <div className="font-extrabold text-xs sm:text-sm truncate">{ev.title}</div>
+                              <div className="text-[11px] font-bold opacity-90">
+                                📅 {ev.date.slice(8, 10)}.{ev.date.slice(5, 7)}. • ⏰ {ev.time} • {mem.name.split(' ')[0]}
+                              </div>
+                            </div>
+                          </div>
+                          <button onClick={() => handleDeleteMobileEvent(ev)} className="p-1.5 rounded-xl bg-black/25 shrink-0">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* =====================================================
+              TAB 2: AUFGABEN & TODOIST (SAUBER IM SCROLL-BEREICH)
+             ===================================================== */}
+          {activeTab === 'tasks' && (
+            <div className="space-y-3.5">
+              <form onSubmit={handleAddQuickTask} className={'p-3.5 rounded-3xl border space-y-2.5 shadow-sm ' + themeStyles.card}>
+                <div className="text-xs font-black uppercase text-sky-400">
+                  ⚡ Neue Aufgabe (mit Sofort-Push aufs Handy)
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={quickTaskText}
+                    onChange={(e) => setQuickTaskText(e.target.value)}
+                    placeholder="Aufgabe eingeben..."
+                    className={'flex-1 px-3.5 py-2.5 rounded-2xl border text-sm font-bold ' + themeStyles.input}
+                  />
+                  <button
+                    type="submit"
+                    className="tw-glow-btn px-4 rounded-2xl font-black text-xs flex items-center gap-1 shrink-0"
+                  >
+                    <Send className="w-4 h-4" /> Push
+                  </button>
+                </div>
+
+                {selectedPerson === 'all' && (
+                  <div className="flex items-center gap-1.5 overflow-x-auto pt-1">
+                    <span className="text-[10px] font-bold opacity-70 shrink-0">Für:</span>
+                    {safeMembers.filter(m => m.id !== 'all').map(m => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => setQuickTaskMember(m.id)}
+                        className={'px-2.5 py-1 rounded-xl text-[11px] font-extrabold shrink-0 ' + (quickTaskMember === m.id ? 'tw-active-nav' : 'tw-nav-inactive')}
+                      >
+                        {m.name.split(' ')[0]}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </form>
+
+              <div className={'rounded-3xl border p-4 space-y-2.5 ' + themeStyles.card}>
+                <div className="font-extrabold text-sm">✅ Offene Aufgaben ({openTasks.length})</div>
+
+                {openTasks.length === 0 ? (
+                  <div className="py-6 text-center text-xs font-bold opacity-50">
+                    🎉 Alles erledigt! Keine offenen Aufgaben.
+                  </div>
+                ) : (
+                  openTasks.map(task => {
+                    const mem = safeMembers.find(m => m.id === task.member) || safeMembers[1];
+                    return (
+                      <div
+                        key={task.id}
+                        onClick={() => handleToggleMobileTask(task)}
+                        className={'p-3 rounded-2xl border flex items-center justify-between gap-3 cursor-pointer ' + themeStyles.subtle}
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <input type="checkbox" checked={false} readOnly className="w-5 h-5 accent-indigo-600 rounded shrink-0" />
+                          <div className="min-w-0">
+                            <div className="font-bold text-sm break-words">{task.title}</div>
+                            <div className="text-[11px] font-semibold opacity-75">
+                              👤 {mem.name.split(' ')[0]} • ⏳ {task.due || 'Offen'}
+                            </div>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (task.todoistId && todoistConfig?.apiToken) {
+                              pushTodoistTaskToPhoneNow(todoistConfig.apiToken, task.todoistId, task.title, mem.todoistUserId, todoistConfig.collaborators);
+                              showToast('Handy-Ping gesendet!', task.title, '📲');
+                            }
+                          }}
+                          className="tw-glow-btn px-2.5 py-1.5 rounded-xl text-[10px] font-black shrink-0"
+                        >
+                          📲 Ping
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
+
+                {doneTasks.length > 0 && (
+                  <div className="pt-3 mt-3 border-t border-white/10 space-y-1.5">
+                    <div className="text-xs font-extrabold opacity-60">☑️ Erledigt ({doneTasks.length})</div>
+                    {doneTasks.slice(0, 5).map(task => (
+                      <div
+                        key={task.id}
+                        onClick={() => handleToggleMobileTask(task)}
+                        className={'p-2 rounded-xl border flex items-center gap-2.5 opacity-55 ' + themeStyles.subtle}
+                      >
+                        <input type="checkbox" checked={true} readOnly className="w-4 h-4 accent-emerald-500 rounded" />
+                        <span className="text-xs font-bold line-through truncate">{task.title}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* =====================================================
+              TAB 3: KAMERA-SCANNER (BARCODE & KASSENBON)
+             ===================================================== */}
+          {activeTab === 'scanner' && (
+            <div className="space-y-3.5">
+              <div className="grid grid-cols-2 gap-2 p-1.5 rounded-2xl bg-black/30 border border-white/10">
+                <button
+                  type="button"
+                  onClick={() => setScannerMode('barcode')}
+                  className={'py-2 px-3 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 ' + (scannerMode === 'barcode' ? 'tw-active-nav' : 'tw-nav-inactive')}
+                >
+                  <ScanLine className="w-4 h-4" />
+                  <span>Barcode / Produkt</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { stopCameraStream(); setScannerMode('receipt'); }}
+                  className={'py-2 px-3 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 ' + (scannerMode === 'receipt' ? 'tw-active-nav' : 'tw-nav-inactive')}
+                >
+                  <FileText className="w-4 h-4" />
+                  <span>🧾 Kassenbon-Foto</span>
+                </button>
+              </div>
+
+              {scannerMode === 'barcode' ? (
+                <div className={'p-4 rounded-3xl border space-y-3.5 shadow-md ' + themeStyles.card}>
+                  <div className="flex items-center justify-between">
                     <div>
-                      <label className="block text-[10px] font-black uppercase opacity-75 mb-1">Menge</label>
+                      <h2 className="font-black text-base">📷 Produkt & MHD Scanner</h2>
+                      <p className="text-[11px] opacity-75">Barcode scannen + Pflicht-Ablaufdatum wählen</p>
+                    </div>
+                    {!cameraActive ? (
+                      <button
+                        type="button"
+                        onClick={startLiveBarcodeCamera}
+                        className="tw-glow-btn px-3.5 py-2 rounded-2xl text-xs font-black flex items-center gap-1.5"
+                      >
+                        <Camera className="w-4 h-4" /> Kamera an
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={stopCameraStream}
+                        className="px-3.5 py-2 rounded-2xl bg-rose-600 text-white text-xs font-black"
+                      >
+                        ✕ Kamera aus
+                      </button>
+                    )}
+                  </div>
+
+                  {cameraActive && (
+                    <div className="relative rounded-2xl overflow-hidden border-2 border-sky-400 bg-black aspect-video">
+                      <video ref={videoRef} className="w-full h-full object-cover" playsInline muted />
+                      <div className="absolute inset-x-8 top-1/2 h-0.5 bg-rose-500 shadow-[0_0_12px_#f43f5e] animate-pulse" />
+                    </div>
+                  )}
+
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={scannedBarcode}
+                      onChange={(e) => setScannedBarcode(e.target.value)}
+                      placeholder="EAN-Barcode (oder oben Kamera starten)"
+                      className={'flex-1 px-3 py-2 rounded-xl border text-xs font-mono ' + themeStyles.input}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => lookupBarcodeOnOpenFoodFacts(scannedBarcode)}
+                      className="tw-glow-btn px-3 py-2 rounded-xl text-xs font-extrabold"
+                    >
+                      {isLookingUpProduct ? '...' : '🔍 Suchen'}
+                    </button>
+                  </div>
+
+                  <form onSubmit={handleSaveScannedProduct} className="space-y-3 pt-2 border-t border-white/10">
+                    <div className="flex items-center gap-2">
+                      <span className="w-10 h-10 rounded-xl bg-black/25 flex items-center justify-center text-xl shrink-0">
+                        {getFoodEmoji(scanName)}
+                      </span>
+                      <input
+                        type="text"
+                        required
+                        value={scanName}
+                        onChange={(e) => setScanName(e.target.value)}
+                        placeholder="Produktname (z.B. Vollmilch, Bratwurst)..."
+                        className={'w-full px-3.5 py-2.5 rounded-2xl border text-sm font-extrabold ' + themeStyles.input}
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
                       <input
                         type="text"
                         value={scanQty}
                         onChange={(e) => setScanQty(e.target.value)}
-                        className={'w-full px-3.5 py-2.5 rounded-xl border text-xs font-bold ' + themeStyles.input}
+                        placeholder="Menge (z.B. 500g)"
+                        className={'w-full px-3 py-2 rounded-xl border text-xs font-bold ' + themeStyles.input}
                       />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-black uppercase opacity-75 mb-1">Lagerort</label>
                       <select
                         value={scanLocation}
                         onChange={(e) => setScanLocation(e.target.value)}
-                        className={'w-full px-3 py-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+                        className={'w-full px-3 py-2 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
                       >
                         <option value="fridge" className="bg-slate-800 text-white">🧊 Kühlschrank</option>
                         <option value="freezer" className="bg-slate-800 text-white">❄️ Gefrierschrank</option>
@@ -769,225 +1464,302 @@ export default function TouchwallPocketApp() {
                         <option value="kitchen" className="bg-slate-800 text-white">🍎 Küche</option>
                       </select>
                     </div>
-                  </div>
 
-                  <div className="p-3.5 rounded-2xl bg-amber-500/15 border-2 border-amber-400/50 space-y-2.5">
-                    <label className="block text-xs font-black uppercase text-amber-300">
-                      2. Pflichtfeld: Ablaufdatum (MHD) wählen
-                    </label>
-                    <div className="flex flex-wrap gap-1.5">
-                      {[
-                        { l: '+3 Tage', d: 3 },
-                        { l: '+1 Woche', d: 7 },
-                        { l: '+2 Wochen', d: 14 },
-                        { l: '+1 Monat', d: 30 },
-                        { l: '+6 Monate', d: 180 }
-                      ].map(b => (
-                        <button
-                          key={b.d}
-                          type="button"
-                          onClick={() => setScanExpiry(formatDateStr(addDays(new Date(), b.d)))}
-                          className="px-2.5 py-1.5 rounded-xl bg-amber-500 text-slate-950 text-[11px] font-black active:scale-95"
-                        >
-                          {b.l}
-                        </button>
-                      ))}
-                    </div>
-                    <input
-                      type="date"
-                      required
-                      min={todayStr}
-                      value={scanExpiry}
-                      onChange={(e) => setScanExpiry(e.target.value)}
-                      className={'w-full px-4 py-3 rounded-xl border text-sm font-black ' + themeStyles.input}
-                    />
-                  </div>
-
-                  <button
-                    type="submit"
-                    disabled={!scanName.trim() || !scanExpiry}
-                    className={'w-full py-3.5 rounded-2xl font-black text-sm shadow-lg ' + (!scanName.trim() || !scanExpiry ? 'bg-slate-700 text-slate-400 opacity-50' : 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white active:scale-95')}
-                  >
-                    {scanExpiry ? '🥫 In Speisekammer speichern' : '⚠️ Bitte erst Ablaufdatum (MHD) eingeben'}
-                  </button>
-                </form>
-              </div>
-            ) : (
-              <div className={'p-4 rounded-3xl border space-y-4 shadow-md ' + themeStyles.card}>
-                <div>
-                  <h2 className="font-black text-base">🧾 Kassenbon abfotografieren</h2>
-                  <p className="text-xs opacity-75">
-                    Fotografiere deinen Einkaufszettel – die App erkennt die Lebensmittel automatisch!
-                  </p>
-                </div>
-
-                <label className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-600 text-slate-950 font-black text-sm flex items-center justify-center gap-2 cursor-pointer shadow-lg active:scale-95">
-                  <Camera className="w-5 h-5" />
-                  <span>{isScanningReceipt ? '⏳ Lese Kassenbon aus...' : '📸 Kassenbon jetzt fotografieren'}</span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    className="hidden"
-                    onChange={handleReceiptPhotoUpload}
-                  />
-                </label>
-
-                {receiptItems.length > 0 && (
-                  <div className="space-y-2.5 pt-2">
-                    <div className="text-xs font-black uppercase text-emerald-400">
-                      Erkannte Produkte (Bitte Ablaufdatum prüfen):
-                    </div>
-                    {receiptItems.map((rit, idx) => (
-                      <div key={rit.id} className={'p-3 rounded-2xl border space-y-2 ' + themeStyles.subtle}>
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            checked={rit.selected}
-                            onChange={() => {
-                              const next = [...receiptItems];
-                              next[idx].selected = !next[idx].selected;
-                              setReceiptItems(next);
-                            }}
-                            className="w-5 h-5 accent-emerald-500 rounded"
-                          />
-                          <input
-                            type="text"
-                            value={rit.name}
-                            onChange={(e) => {
-                              const next = [...receiptItems];
-                              next[idx].name = e.target.value;
-                              setReceiptItems(next);
-                            }}
-                            className="flex-1 bg-transparent text-xs font-extrabold focus:outline-none"
-                          />
-                        </div>
-                        <div className="flex items-center justify-between gap-2 pl-7">
-                          <span className="text-[10px] font-bold text-amber-400">Pflicht-MHD:</span>
-                          <input
-                            type="date"
-                            required
-                            value={rit.expiryDate}
-                            onChange={(e) => {
-                              const next = [...receiptItems];
-                              next[idx].expiryDate = e.target.value;
-                              setReceiptItems(next);
-                            }}
-                            className={'px-2.5 py-1 rounded-lg border text-xs font-bold ' + themeStyles.input}
-                          />
-                        </div>
+                    <div className="p-3 rounded-2xl bg-amber-500/15 border border-amber-400/50 space-y-2">
+                      <label className="block text-[11px] font-black uppercase text-amber-300">
+                        Pflichtfeld: Ablaufdatum (MHD)
+                      </label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {[
+                          { l: '+3 Tage', d: 3 },
+                          { l: '+1 Woche', d: 7 },
+                          { l: '+2 Wochen', d: 14 },
+                          { l: '+1 Monat', d: 30 }
+                        ].map(b => (
+                          <button
+                            key={b.d}
+                            type="button"
+                            onClick={() => setScanExpiry(formatDateStr(addDays(new Date(), b.d)))}
+                            className="tw-glow-btn px-2.5 py-1 rounded-xl text-[11px] font-black"
+                          >
+                            {b.l}
+                          </button>
+                        ))}
                       </div>
-                    ))}
+                      <input
+                        type="date"
+                        required
+                        min={todayStr}
+                        value={scanExpiry}
+                        onChange={(e) => setScanExpiry(e.target.value)}
+                        className={'w-full px-3.5 py-2.5 rounded-xl border text-xs font-black ' + themeStyles.input}
+                      />
+                    </div>
 
                     <button
-                      type="button"
-                      onClick={handleSaveAllReceiptItems}
-                      className="w-full py-3.5 rounded-2xl bg-emerald-600 text-white font-black text-xs shadow-lg active:scale-95"
+                      type="submit"
+                      disabled={!scanName.trim() || !scanExpiry}
+                      className={'w-full py-3 rounded-2xl font-black text-xs ' + (!scanName.trim() || !scanExpiry ? 'bg-slate-700 text-slate-400 opacity-50' : 'tw-glow-btn')}
                     >
-                      ✓ Alle markierten Produkte in Speisekammer speichern
+                      {scanExpiry ? '🥫 In Speisekammer speichern' : '⚠️ Erst Ablaufdatum (MHD) wählen'}
                     </button>
+                  </form>
+                </div>
+              ) : (
+                <div className={'p-4 rounded-3xl border space-y-3.5 shadow-md ' + themeStyles.card}>
+                  <h2 className="font-black text-base">🧾 Kassenbon abfotografieren</h2>
+                  <label className="tw-glow-btn w-full py-3.5 rounded-2xl font-black text-xs flex items-center justify-center gap-2 cursor-pointer">
+                    <Camera className="w-5 h-5" />
+                    <span>{isScanningReceipt ? '⏳ Lese Kassenbon aus...' : '📸 Kassenbon jetzt fotografieren'}</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      className="hidden"
+                      onChange={handleReceiptPhotoUpload}
+                    />
+                  </label>
+
+                  {receiptItems.length > 0 && (
+                    <div className="space-y-2 pt-2">
+                      {receiptItems.map((rit, idx) => (
+                        <div key={rit.id} className={'p-2.5 rounded-2xl border space-y-1.5 ' + themeStyles.subtle}>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={rit.selected}
+                              onChange={() => {
+                                const next = [...receiptItems];
+                                next[idx].selected = !next[idx].selected;
+                                setReceiptItems(next);
+                              }}
+                              className="w-4 h-4 accent-emerald-500 rounded"
+                            />
+                            <input
+                              type="text"
+                              value={rit.name}
+                              onChange={(e) => {
+                                const next = [...receiptItems];
+                                next[idx].name = e.target.value;
+                                setReceiptItems(next);
+                              }}
+                              className="flex-1 bg-transparent text-xs font-extrabold focus:outline-none"
+                            />
+                          </div>
+                          <div className="flex items-center justify-between gap-2 pl-6">
+                            <span className="text-[10px] font-bold text-amber-400">Pflicht-MHD:</span>
+                            <input
+                              type="date"
+                              required
+                              value={rit.expiryDate}
+                              onChange={(e) => {
+                                const next = [...receiptItems];
+                                next[idx].expiryDate = e.target.value;
+                                setReceiptItems(next);
+                              }}
+                              className={'px-2 py-1 rounded-lg border text-xs font-bold ' + themeStyles.input}
+                            />
+                          </div>
+                        </div>
+                      ))}
+
+                      <button
+                        type="button"
+                        onClick={handleSaveAllReceiptItems}
+                        className="tw-glow-btn w-full py-3 rounded-2xl font-black text-xs"
+                      >
+                        ✓ Markierte Produkte speichern
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* KOMPAKTE BESTANDS-LISTE MIT MENGEN-UPDATE DIREKT IM SCANNER */}
+              <div className={'p-3.5 rounded-3xl border space-y-2 ' + themeStyles.card}>
+                <div className="font-extrabold text-xs uppercase text-sky-400">
+                  🥫 Aktueller Vorrat ({safeStock.length})
+                </div>
+                <div className="grid grid-cols-1 gap-2">
+                  {safeStock.slice(0, 12).map(item => (
+                    <div key={item.id} className={'p-2.5 rounded-2xl border flex items-center justify-between gap-2 ' + themeStyles.subtle}>
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <span className="text-xl shrink-0">{getFoodEmoji(item.name)}</span>
+                        <div className="min-w-0 flex-1">
+                          <div className="font-extrabold text-xs truncate">{item.name}</div>
+                          <div className="text-[10px] text-amber-400 font-bold">
+                            {item.quantity} • MHD: {item.expiryDate.slice(8, 10)}.{item.expiryDate.slice(5, 7)}.
+                          </div>
+                        </div>
+                      </div>
+
+                      {editingStockId === item.id ? (
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="text"
+                            value={editStockQty}
+                            onChange={(e) => setEditStockQty(e.target.value)}
+                            className={'w-16 px-2 py-1 rounded-lg border text-xs font-bold ' + themeStyles.input}
+                          />
+                          <button
+                            onClick={() => {
+                              const nextStock = safeStock.map(x => x.id === item.id ? { ...x, quantity: editStockQty || '1x' } : x);
+                              setPantryItems(nextStock);
+                              saveStateToCloud({ pantryItems: nextStock });
+                              setEditingStockId(null);
+                            }}
+                            className="tw-glow-btn p-1.5 rounded-lg"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            onClick={() => {
+                              setEditingStockId(item.id);
+                              setEditStockQty(item.quantity);
+                            }}
+                            className="tw-nav-inactive p-1.5 rounded-xl text-sky-300"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleConsumeFromPocket(item)}
+                            className="tw-glow-btn px-2.5 py-1.5 rounded-xl text-[10px] font-black"
+                          >
+                            🍽️ Weg
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* =====================================================
+              TAB 4: EINKAUFSLISTE & HEUTIGES ESSEN
+             ===================================================== */}
+          {activeTab === 'shopping' && (
+            <div className="space-y-3.5">
+              <form onSubmit={handleAddQuickShopItem} className="flex gap-2">
+                <input
+                  type="text"
+                  value={quickShopText}
+                  onChange={(e) => setQuickShopText(e.target.value)}
+                  placeholder="Artikel zur Einkaufsliste..."
+                  className={'flex-1 px-4 py-3 rounded-2xl border text-sm font-bold ' + themeStyles.input}
+                />
+                <button type="submit" className="tw-glow-btn px-5 rounded-2xl font-black text-sm">
+                  +
+                </button>
+              </form>
+
+              <div className={'rounded-3xl border p-4 space-y-2 ' + themeStyles.card}>
+                <div className="font-extrabold text-sm">🛒 Einkaufsliste ({openShop.length} offen)</div>
+                {openShop.length === 0 ? (
+                  <div className="py-6 text-center text-xs opacity-50 font-bold">🛒 Einkaufsliste ist leer!</div>
+                ) : (
+                  openShop.map(item => (
+                    <div
+                      key={item.origIdx}
+                      onClick={() => handleToggleShopItem(item.origIdx)}
+                      className={'p-3 rounded-2xl border flex items-center gap-3 cursor-pointer ' + themeStyles.subtle}
+                    >
+                      <input type="checkbox" checked={false} readOnly className="w-5 h-5 accent-amber-500 rounded shrink-0" />
+                      <span className="font-bold text-sm break-words">{item.text}</span>
+                    </div>
+                  ))
+                )}
+
+                {doneShop.length > 0 && (
+                  <div className="pt-3 mt-3 border-t border-white/10 space-y-1.5">
+                    <div className="text-xs font-extrabold opacity-60">Im Einkaufswagen ({doneShop.length})</div>
+                    {doneShop.map(item => (
+                      <div
+                        key={item.origIdx}
+                        onClick={() => handleToggleShopItem(item.origIdx)}
+                        className={'p-2 rounded-xl border flex items-center gap-2.5 opacity-50 ' + themeStyles.subtle}
+                      >
+                        <input type="checkbox" checked={true} readOnly className="w-4 h-4 accent-emerald-500 rounded" />
+                        <span className="text-xs font-bold line-through">{item.text}</span>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
-            )}
-
-            {/* AKTUELLER VORRAT DIREKT UNTER DEM SCANNER */}
-            <div className={'p-4 rounded-3xl border space-y-2.5 ' + themeStyles.card}>
-              <div className="font-extrabold text-sm flex items-center justify-between">
-                <span>🥫 Aktueller Bestand ({safeStock.length})</span>
-              </div>
-              {safeStock.slice(0, 8).map(item => (
-                <div key={item.id} className={'p-3 rounded-2xl border flex items-center justify-between gap-2 ' + themeStyles.subtle}>
-                  <div className="min-w-0">
-                    <div className="font-extrabold text-xs truncate">{item.name} ({item.quantity})</div>
-                    <div className="text-[10px] text-amber-400 font-bold">MHD: {item.expiryDate}</div>
-                  </div>
-                  <button
-                    onClick={() => handleConsumeFromPocket(item)}
-                    className="px-3 py-1.5 rounded-xl bg-emerald-500/20 text-emerald-300 text-[11px] font-black shrink-0"
-                  >
-                    🍽️ Verzehrt
-                  </button>
-                </div>
-              ))}
             </div>
-          </div>
-        )}
-
-        {/* TAB: AGENDA */}
-        {activeTab === 'agenda' && (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-black">📅 Nächste Termine</h2>
-              <button
-                onClick={() => setNewEventModalOpen(true)}
-                className="px-4 py-2 rounded-2xl bg-sky-500 text-white text-xs font-black"
-              >
-                + Termin
-              </button>
-            </div>
-            {next14Days.slice(0, 7).map(dayObj => {
-              const dStr = formatDateStr(dayObj);
-              const dayEvs = safeEvents.filter(e => e.date === dStr);
-              return (
-                <div key={dStr} className={'p-3.5 rounded-2xl border space-y-1.5 ' + themeStyles.card}>
-                  <div className="text-xs font-black text-sky-400">
-                    {WEEKDAYS_SHORT[dayObj.getDay()]}, {dayObj.getDate()}.{dayObj.getMonth() + 1}.
-                  </div>
-                  {dayEvs.length === 0 ? (
-                    <div className="text-[11px] opacity-45">Keine Termine</div>
-                  ) : (
-                    dayEvs.map(ev => (
-                      <div key={ev.id} className="text-xs font-bold">• {ev.title} ({ev.time})</div>
-                    ))
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {/* TAB: AUFGABEN */}
-        {activeTab === 'tasks' && (
-          <div className={'p-4 rounded-3xl border space-y-2.5 ' + themeStyles.card}>
-            <h2 className="font-black text-base">✅ Offene Aufgaben ({openTasks.length})</h2>
-            {openTasks.map(t => (
-              <div key={t.id} className={'p-3 rounded-2xl border text-xs font-bold ' + themeStyles.subtle}>
-                {t.title} ({t.due})
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* TAB: EINKAUF */}
-        {activeTab === 'shopping' && (
-          <div className={'p-4 rounded-3xl border space-y-2.5 ' + themeStyles.card}>
-            <h2 className="font-black text-base">🛒 Einkaufsliste ({openShop.length})</h2>
-            {openShop.map(it => (
-              <div key={it.origIdx} className={'p-3 rounded-2xl border text-xs font-bold ' + themeStyles.subtle}>
-                • {it.text}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* TAB: SCHULE */}
-        {activeTab === 'school' && (
-          <div className={'p-4 rounded-3xl border space-y-2.5 ' + themeStyles.card}>
-            <h2 className="font-black text-base">🎒 Schule</h2>
-            <p className="text-xs opacity-75">Stundenplan & Infos sind synchron mit der Touchwall.</p>
-          </div>
-        )}
+          )}
+        </div>
       </main>
 
-      {/* UNTERE DAUMEN-LEISTE MIT KAMERA-SCANNER IN DER MITTE */}
-      <nav className={'fixed bottom-0 left-0 right-0 z-40 border-t px-2 py-2 flex items-center justify-around shadow-2xl ' + themeStyles.header}>
+      {/* MODAL: NEUER TERMIN AUF DEM HANDY */}
+      {newEventModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-end sm:items-center justify-center p-4">
+          <form onSubmit={handleCreateMobileEvent} className={'w-full max-w-md rounded-3xl border-2 p-5 space-y-3.5 ' + themeStyles.modal}>
+            <div className="flex items-center justify-between">
+              <h3 className="font-black text-base">📅 Neuer Termin</h3>
+              <button type="button" onClick={() => setNewEventModalOpen(false)} className="tw-nav-inactive p-2 rounded-full">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <input
+              type="text"
+              required
+              value={newEvTitle}
+              onChange={(e) => setNewEvTitle(e.target.value)}
+              placeholder="Was steht an? (z.B. Training, Zahnarzt)"
+              className={'w-full px-4 py-3 rounded-2xl border text-sm font-bold ' + themeStyles.input}
+            />
+
+            <div className="grid grid-cols-2 gap-2.5">
+              <input
+                type="date"
+                value={newEvDate}
+                onChange={(e) => setNewEvDate(e.target.value)}
+                className={'px-3 py-2.5 rounded-2xl border text-xs font-bold ' + themeStyles.input}
+              />
+              <input
+                type="text"
+                value={newEvTime}
+                onChange={(e) => setNewEvTime(e.target.value)}
+                placeholder="15:00 - 16:00"
+                className={'px-3 py-2.5 rounded-2xl border text-xs font-bold ' + themeStyles.input}
+              />
+            </div>
+
+            <div className="flex items-center gap-1.5 overflow-x-auto py-1">
+              {safeMembers.map(m => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => setNewEvMember(m.id)}
+                  className={'px-3 py-1.5 rounded-xl text-xs font-extrabold shrink-0 ' + (newEvMember === m.id ? 'tw-active-nav' : 'tw-nav-inactive')}
+                >
+                  {m.id === 'all' ? 'Familie' : m.name.split(' ')[0]}
+                </button>
+              ))}
+            </div>
+
+            <button type="submit" className="tw-glow-btn w-full py-3 rounded-2xl font-black text-sm">
+              💾 Termin speichern
+            </button>
+          </form>
+        </div>
+      )}
+
+      {/* =========================================================
+          FESTE UNTERE NAVIGATION (4 REITER OHNE SCHULE)
+         ========================================================= */}
+      <nav className={'shrink-0 z-40 border-t px-2.5 py-2 flex items-center justify-around gap-1.5 shadow-2xl ' + themeStyles.header}>
         {[
-          { id: 'agenda',   label: 'Termine',  icon: Calendar },
-          { id: 'tasks',    label: 'Aufgaben', icon: CheckSquare },
-          { id: 'scanner',  label: 'Scanner',  icon: Camera },
-          { id: 'shopping', label: 'Einkauf',  icon: ShoppingCart },
-          { id: 'school',   label: 'Schule',   icon: GraduationCap }
+          { id: 'agenda',   label: 'Kalender', icon: Calendar,     badge: filteredEvents.filter(e => e.date === todayStr).length },
+          { id: 'tasks',    label: 'Aufgaben', icon: CheckSquare,  badge: openTasks.length },
+          { id: 'scanner',  label: 'Scanner',  icon: Camera,       badge: safeStock.length },
+          { id: 'shopping', label: 'Einkauf',  icon: ShoppingCart, badge: openShop.length }
         ].map(tab => {
           const Icon = tab.icon;
           const active = activeTab === tab.id;
@@ -998,10 +1770,15 @@ export default function TouchwallPocketApp() {
                 if (tab.id !== 'scanner') stopCameraStream();
                 setActiveTab(tab.id);
               }}
-              className={'flex-1 py-2 rounded-2xl flex flex-col items-center gap-1 text-[10px] font-extrabold transition-all ' + (active ? 'bg-sky-500 text-white shadow-md scale-105' : 'opacity-70')}
+              className={'relative flex-1 py-2 rounded-2xl flex flex-col items-center gap-1 text-[11px] font-extrabold ' + (active ? 'tw-active-nav' : 'tw-nav-inactive opacity-80')}
             >
               <Icon className="w-5 h-5" />
               <span>{tab.label}</span>
+              {tab.badge > 0 && (
+                <span className="absolute top-1 right-2.5 px-1.5 py-0.2 rounded-full bg-amber-500 text-slate-950 text-[9px] font-black">
+                  {tab.badge}
+                </span>
+              )}
             </button>
           );
         })}
