@@ -11,7 +11,44 @@ import {
 } from 'lucide-react';
 
 import * as Cfg from '../touchwallConfig';
-import { getFoodEmoji } from '../PantrySection';
+function getFoodEmoji(nameStr) {
+  const n = String(nameStr || '').toLowerCase();
+  if (/bratwurst|wurst|würstchen|wiener|lyoner|aufschnitt|schinken|salami|speck/.test(n)) return '🌭';
+  if (/clementine|mandarine|orange|apfelsine/.test(n)) return '🍊';
+  if (/apfel|äpfel|elstar|boskoop|pink lady/.test(n)) return '🍎';
+  if (/banane/.test(n)) return '🍌';
+  if (/erdbeer|himbeer|heidelbeer|blaubeer|beeren|kirsch/.test(n)) return '🍓';
+  if (/zitrone|limette/.test(n)) return '🍋';
+  if (/salat|eisberg|kopfsalat|rucola|feldsalat|spinat/.test(n)) return '🥬';
+  if (/gurke/.test(n)) return '🥒';
+  if (/tomate|passierte/.test(n)) return '🍅';
+  if (/paprika/.test(n)) return '🫑';
+  if (/karotte|möhre/.test(n)) return '🥕';
+  if (/kartoffel|pommes|gnocchi|schupfnudel/.test(n)) return '🥔';
+  if (/zwiebel|knoblauch/.test(n)) return '🧅';
+  if (/brokkoli|blumenkohl/.test(n)) return '🥦';
+  if (/mais/.test(n)) return '🌽';
+  if (/pilz|champignon/.test(n)) return '🍄';
+  if (/avocado/.test(n)) return '🥑';
+  if (/käse|frischkäse|philadelphia|scheibenkäse|gouda|mozzarella|parmesan|emmentaler|camembert|feta/.test(n)) return '🧀';
+  if (/milch|vollmilch|hafermilch|kakao/.test(n)) return '🥛';
+  if (/butter|margarine/.test(n)) return '🧈';
+  if (/joghurt|quark|pudding|schmand|sahne|creme/.test(n)) return '🥣';
+  if (/ei|eier/.test(n)) return '🥚';
+  if (/hähnchen|huhn|pute|geflügel|nuggets/.test(n)) return '🍗';
+  if (/hackfleisch|rinderhack|rind|steak|fleisch|schnitzel|gulasch/.test(n)) return '🥩';
+  if (/fisch|lachs|thunfisch|fischstäbchen|forelle/.test(n)) return '🐟';
+  if (/nudel|spaghetti|pasta|penne|tortellini|ravioli|spätzle/.test(n)) return '🍝';
+  if (/reis|basmati|jasmin|milchreis/.test(n)) return '🍚';
+  if (/brot|brötchen|toast|baguette|croissant/.test(n)) return '🥖';
+  if (/pizza|flammkuchen/.test(n)) return '🍕';
+  if (/wrap|taco|tortilla/.test(n)) return '🌮';
+  if (/senf|thomy|ketchup|mayo|soße|sauce|pesto|öl|essig/.test(n)) return '🥫';
+  if (/mehl|zucker|salz|haferflocken|müsli|cornflakes/.test(n)) return '🌾';
+  if (/schokolade|nutella|keks|gummibär|chips|eis/.test(n)) return '🍫';
+  if (/wasser|saft|cola|limo|bier|wein|kaffee|tee/.test(n)) return '🧃';
+  return '🥫';
+}
 
 const {
   formatDateStr,
