@@ -1879,6 +1879,7 @@ const qrShareUrl = typeof window !== 'undefined'
                 { id: 'schule',   label: 'Schule',   icon: GraduationCap },
                 { id: 'aufgaben', label: 'Todoist',  icon: CheckSquare },
                 { id: 'essen',    label: 'Essensplan', icon: Utensils },
+                { id: 'vorrat', label: 'Vorrat', icon: Package },
                 { id: 'listen',   label: 'Notizen',  icon: FileText },
                 { id: 'design',   label: 'Design',   icon: Palette },
                 { id: 'google',   label: 'Konten',   icon: Cloud }
@@ -2057,7 +2058,20 @@ const qrShareUrl = typeof window !== 'undefined'
             {activeSection === 'aufgaben' && (
               <TasksTodoistSection {...todoistProps} />
             )}
-
+            {activeSection === 'vorrat' && (
+            <PantrySection
+              pantryItems={pantryItems}
+              setPantryItems={setPantryItems}
+              pantryTrash={pantryTrash}
+              setPantryTrash={setPantryTrash}
+              mealPlan={safeMeals}
+              setMealPlan={setMealPlan}
+              addShoppingItem={addShoppingItem}
+              todayStr={todayStr}
+              themeStyles={themeStyles}
+              showToast={showToast}
+            />
+            )}
             {['schule', 'essen', 'listen', 'design', 'google'].includes(activeSection) && (
               <OtherSections {...otherSectionsProps} />
             )}
