@@ -38,7 +38,7 @@ const {
   pushTodoistTaskToPhoneNow
 } = Cfg;
 
-// Feste öffentliche Cloud-Server-URL (Niemand muss mehr eine Apps-Script-URL kennen!)
+// Feste öffentliche Cloud-Server-URL (Niemand muss mehr eine Apps-Script-URL kennen !)
 const PUBLIC_CLOUD_BACKEND_URL = 'https://script.google.com/macros/s/AKfycbzBs3ewHvp78OCIgWQkOQ80vXyKcM6wR5hQSn-WfYPU4puS7Gu0lPCX0KMwkxzeDxoE4g/exec';
 
 function writeAuthSession(accountId, authKey, familyName) {
