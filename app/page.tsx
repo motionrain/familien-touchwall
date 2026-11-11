@@ -8,7 +8,7 @@ import {
   Calendar, GraduationCap, CheckSquare, Utensils, FileText,
   Palette, Cloud, Plus, ChevronLeft, ChevronRight, Maximize2,
   Smartphone, RefreshCw, X, Volume2, BellRing, Copy, ClipboardPaste,
-  Clock, Lock, LogOut, KeyRound, Sparkles, ShieldCheck
+  Clock, Lock, LogOut, KeyRound, Sparkles, ShieldCheck, Share2, ChevronDown, Upload
 } from 'lucide-react';
 
 import * as Cfg from './touchwallConfig';
@@ -45,13 +45,14 @@ const {
 export default function TouchwallApp() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
-  const [authTab, setAuthTab] = useState('cloud');
+  const [authTab, setAuthTab] = useState('new');
+  const [showAdvancedSetup, setShowAdvancedSetup] = useState(false);
   const [familyName, setFamilyName] = useState('Familien-Touchwall');
 
   const [loginGasUrl, setLoginGasUrl] = useState('');
   const [loginTodoistToken, setLoginTodoistToken] = useState('');
   const [loginFamilyName, setLoginFamilyName] = useState('');
-  const [setupMemberNames, setSetupMemberNames] = useState(['Person 1', 'Person 2', 'Kind 1', 'Kind 2']);
+  const [setupMemberNames, setSetupMemberNames] = useState(['Mama / Person 1', 'Papa / Person 2', 'Kind 1', 'Kind 2']);
   const [loginError, setLoginError] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
@@ -684,6 +685,9 @@ export default function TouchwallApp() {
           setTimeout(() => pullCloudRef.current?.(savedGasUrl, false), 300);
         }
       } else {
+        if (savedGasUrl || parsedState?.todoistConfig?.apiToken) {
+          setAuthTab('cloud');
+        }
         if (savedGasUrl) setLoginGasUrl(savedGasUrl);
         if (parsedState?.todoistConfig?.apiToken) setLoginTodoistToken(parsedState.todoistConfig.apiToken);
         if (parsedState?.familyName) setLoginFamilyName(parsedState.familyName);
@@ -783,8 +787,8 @@ export default function TouchwallApp() {
   };
 
   const handleCreateOwnTouchwallSubmit = (e) => {
-    e.preventDefault();
-    const chosenTitle = loginFamilyName.trim() || 'Meine Familien-Touchwall';
+    if (e) e.preventDefault();
+    const chosenTitle = loginFamilyName.trim() || 'Unsere Familien-Touchwall';
     const colors = ['navy_bold', 'pink', 'crimson_bold', 'teal_bold'];
     const emojis = ['👨', '👩', '👦', '👧'];
     const roles = ['Elternteil', 'Elternteil', 'Kind', 'Kind'];
@@ -830,7 +834,34 @@ export default function TouchwallApp() {
     setTouchwallAuthCookie(chosenTitle);
     isInitialLoadDone.current = true;
     setIsAuthenticated(true);
-    showToast('Touchwall eingerichtet!', chosenTitle + ' ist jetzt lokal im Browser-Cookie aktiv.', '🎉');
+    showToast('Touchwall gestartet!', chosenTitle + ' ist jetzt aktiv und im Cookie gespeichert.', '🎉');
+  };
+
+  const handleLoginWithBackupFile = (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    const r = new FileReader();
+    r.onload = (ev) => {
+      try {
+        const d = JSON.parse(ev.target.result);
+        const restoredFamily = d.familyName || 'Familien-Touchwall';
+        setFamilyName(restoredFamily);
+        if (Array.isArray(d.members) && d.members.length >= 2) setMembers(d.members);
+        if (Array.isArray(d.events)) setEvents(d.events);
+        if (Array.isArray(d.mealPlan)) setMealPlan(d.mealPlan);
+        if (Array.isArray(d.familyNotes)) setFamilyNotes(d.familyNotes);
+        if (d.schoolData) setSchoolData(d.schoolData);
+        if (Array.isArray(d.familyTasks)) setFamilyTasks(d.familyTasks);
+        if (d.todoistConfig) setTodoistConfig(prev => ({ ...prev, ...d.todoistConfig }));
+        setTouchwallAuthCookie(restoredFamily);
+        isInitialLoadDone.current = true;
+        setIsAuthenticated(true);
+        showToast('Backup geladen!', restoredFamily + ' wurde erfolgreich wiederhergestellt.', '📂');
+      } catch (err) {
+        setLoginError('Ungültige Backup-Datei (.json).');
+      }
+    };
+    r.readAsText(f);
   };
 
   const handleLogoutAndLock = () => {
@@ -1244,9 +1275,6 @@ export default function TouchwallApp() {
     return activeMemberFilter === 'all' ? safeMembers : safeMembers.filter(m => m.id === activeMemberFilter || m.id === 'all');
   }, [safeMembers, activeMemberFilter]);
 
-  // =========================================================
-  // SAUBER AUSGELAGERTE HANDLER & PROPS (VERHINDERT JEGLICHE JSX-SYNTAXFEHLER)
-  // =========================================================
   const handleOpenEditTaskModal = (e, task) => {
     if (e) e.stopPropagation();
     setTaskModal({
@@ -1507,6 +1535,9 @@ export default function TouchwallApp() {
     );
   }
 
+  // =========================================================
+  // EINSTEIGERFREUNDLICHES LOGIN- & SCHNELLSTART-PORTAL
+  // =========================================================
   if (!isAuthenticated) {
     return (
       <div
@@ -1526,16 +1557,16 @@ export default function TouchwallApp() {
         <div className="w-full max-w-2xl rounded-3xl border-2 border-slate-700/80 bg-[#1c2128] p-6 sm:p-8 shadow-2xl space-y-6 my-auto">
           <div className="flex items-center justify-between gap-4 border-b border-slate-700/80 pb-5">
             <div className="flex items-center gap-3.5">
-              <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-sky-500 to-indigo-600 flex items-center justify-center shadow-lg">
-                <Lock className="w-7 h-7 text-white" />
+              <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-sky-500 to-indigo-600 flex items-center justify-center shadow-lg shrink-0">
+                <Sparkles className="w-7 h-7 text-white" />
               </div>
               <div>
                 <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[11px] font-extrabold border border-emerald-400/30">
-                  🛡️ Zero-Data Privacy • Cookie-Login
+                  🛡️ Open-Source Familien-Planer • 100 % Privat im Browser-Cookie
                 </span>
-                <h1 className="text-2xl font-black mt-1">Touchwall Login & Einrichtung</h1>
+                <h1 className="text-2xl font-black mt-1">Willkommen bei deiner Touchwall</h1>
                 <p className="text-xs text-slate-400 font-semibold">
-                  Auf dieser Seite sind vorab keine persönlichen Daten hinterlegt. Deine Zugangsdaten werden erst nach dem Eintragen lokal im Browser-Cookie gespeichert.
+                  Starte sofort ohne Technik-Wissen oder verbinde deine bestehende Familien-Cloud. Alle Eingaben bleiben privat auf deinem Gerät gespeichert.
                 </p>
               </div>
             </div>
@@ -1544,19 +1575,19 @@ export default function TouchwallApp() {
           <div className="grid grid-cols-2 gap-2.5 p-1.5 rounded-2xl bg-[#13171c] border border-slate-700/70">
             <button
               type="button"
-              onClick={() => { setAuthTab('cloud'); setLoginError(''); }}
-              className={'py-3 px-4 rounded-xl text-xs sm:text-sm font-extrabold flex items-center justify-center gap-2 cursor-pointer ' + (authTab === 'cloud' ? 'tw-active-nav' : 'tw-nav-inactive text-slate-400')}
-            >
-              <KeyRound className="w-4 h-4" />
-              <span>1. Mit Cloud-Touchwall anmelden</span>
-            </button>
-            <button
-              type="button"
               onClick={() => { setAuthTab('new'); setLoginError(''); }}
               className={'py-3 px-4 rounded-xl text-xs sm:text-sm font-extrabold flex items-center justify-center gap-2 cursor-pointer ' + (authTab === 'new' ? 'tw-active-nav' : 'tw-nav-inactive text-slate-400')}
             >
               <Sparkles className="w-4 h-4" />
-              <span>2. Eigene Touchwall erstellen</span>
+              <span>✨ Schnellstart (In 30 Sek. neu starten)</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => { setAuthTab('cloud'); setLoginError(''); }}
+              className={'py-3 px-4 rounded-xl text-xs sm:text-sm font-extrabold flex items-center justify-center gap-2 cursor-pointer ' + (authTab === 'cloud' ? 'tw-active-nav' : 'tw-nav-inactive text-slate-400')}
+            >
+              <KeyRound className="w-4 h-4" />
+              <span>🔑 Bestehende Cloud / Backup laden</span>
             </button>
           </div>
 
@@ -1566,25 +1597,104 @@ export default function TouchwallApp() {
             </div>
           )}
 
-          {authTab === 'cloud' ? (
-            <form onSubmit={handleCloudLoginSubmit} className="space-y-4">
-              <div className="p-4 rounded-2xl bg-[#151920] border border-slate-700/70 space-y-3.5">
+          {authTab === 'new' ? (
+            <form onSubmit={handleCreateOwnTouchwallSubmit} className="space-y-4">
+              <div className="p-4 sm:p-5 rounded-2xl bg-[#151920] border border-slate-700/70 space-y-4">
                 <div>
                   <label className="block text-xs font-extrabold uppercase text-sky-400 mb-1">
-                    🏠 Name deiner Touchwall (Anzeigename oben im Header)
+                    1. Wie soll euer Kalender heißen?
                   </label>
                   <input
                     type="text"
                     value={loginFamilyName}
                     onChange={(e) => setLoginFamilyName(e.target.value)}
-                    placeholder="z.B. Familie ..."
+                    placeholder="z.B. Familie Müller, Unser Zuhause oder WG-Planer"
+                    className="w-full px-4 py-3 rounded-xl bg-[#0e1116] border border-slate-700 text-sm font-bold text-white placeholder-slate-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-extrabold uppercase text-amber-400 mb-1.5">
+                    2. Wer gehört dazu? (Vornamen eintragen – später jederzeit änderbar)
+                  </label>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    {setupMemberNames.map((mName, idx) => (
+                      <div key={idx} className="flex items-center gap-2 px-3 py-2 rounded-xl bg-[#0e1116] border border-slate-700">
+                        <span className="text-base">{['👨', '👩', '👦', '👧'][idx % 4]}</span>
+                        <input
+                          type="text"
+                          value={mName}
+                          onChange={(e) => {
+                            const next = [...setupMemberNames];
+                            next[idx] = e.target.value;
+                            setSetupMemberNames(next);
+                          }}
+                          placeholder={'Name ' + (idx + 1)}
+                          className="w-full bg-transparent text-xs font-bold text-white placeholder-slate-500 focus:outline-none"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="pt-1 border-t border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setShowAdvancedSetup(!showAdvancedSetup)}
+                    className="text-xs font-extrabold text-slate-400 hover:text-sky-300 flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <ChevronDown className={'w-4 h-4 transition-transform ' + (showAdvancedSetup ? 'rotate-180' : '')} />
+                    <span>⚙️ Optional für Profis: Eigene Google-Cloud oder Todoist direkt verbinden</span>
+                  </button>
+
+                  {showAdvancedSetup && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mt-3 p-3 rounded-xl bg-black/25 border border-slate-800">
+                      <input
+                        type="url"
+                        value={loginGasUrl}
+                        onChange={(e) => setLoginGasUrl(e.target.value)}
+                        placeholder="Google Apps-Script URL (optional)"
+                        className="px-3.5 py-2.5 rounded-xl bg-[#0e1116] border border-slate-700 text-xs font-mono text-white placeholder-slate-500"
+                      />
+                      <input
+                        type="password"
+                        value={loginTodoistToken}
+                        onChange={(e) => setLoginTodoistToken(e.target.value)}
+                        placeholder="Todoist API-Token (optional)"
+                        className="px-3.5 py-2.5 rounded-xl bg-[#0e1116] border border-slate-700 text-xs font-mono text-white placeholder-slate-500"
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                className="tw-glow-btn w-full py-3.5 rounded-2xl font-black text-sm flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Sparkles className="w-5 h-5" />
+                <span>🚀 Touchwall jetzt starten (Ohne Anmeldung sofort loslegen)</span>
+              </button>
+            </form>
+          ) : (
+            <form onSubmit={handleCloudLoginSubmit} className="space-y-4">
+              <div className="p-4 sm:p-5 rounded-2xl bg-[#151920] border border-slate-700/70 space-y-3.5">
+                <div>
+                  <label className="block text-xs font-extrabold uppercase text-sky-400 mb-1">
+                    🏠 Name deiner Touchwall (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={loginFamilyName}
+                    onChange={(e) => setLoginFamilyName(e.target.value)}
+                    placeholder="z.B. Familien-Touchwall"
                     className="w-full px-4 py-3 rounded-xl bg-[#0e1116] border border-slate-700 text-sm font-bold text-white placeholder-slate-500"
                   />
                 </div>
 
                 <div>
                   <label className="block text-xs font-extrabold uppercase text-amber-400 mb-1">
-                    🔗 Deine persönliche Google Apps-Script URL (Cloud-Login)
+                    🔗 Deine persönliche Google Apps-Script URL (Cloud-Tresor)
                   </label>
                   <input
                     type="url"
@@ -1594,13 +1704,13 @@ export default function TouchwallApp() {
                     className="w-full px-4 py-3 rounded-xl bg-[#0e1116] border border-slate-700 text-xs font-mono text-white placeholder-slate-500"
                   />
                   <p className="text-[11px] text-slate-400 mt-1">
-                    Lädt nach dem Login automatisch deine Familienmitglieder, Kalender-Termine, Notizen und Einstellungen aus deiner privaten Google-Cloud.
+                    Lädt automatisch deine Familienmitglieder, Kalender-Termine, Notizen und dein Todoist-Setup aus deiner privaten Google-Cloud.
                   </p>
                 </div>
 
                 <div>
                   <label className="block text-xs font-extrabold uppercase text-emerald-400 mb-1">
-                    🔑 Todoist API-Token (Optional – falls nicht bereits in der Cloud hinterlegt)
+                    🔑 Todoist API-Token (Optional – falls nicht schon in der Cloud gespeichert)
                   </label>
                   <input
                     type="password"
@@ -1612,79 +1722,22 @@ export default function TouchwallApp() {
                 </div>
               </div>
 
-              <button
-                type="submit"
-                disabled={isLoggingIn}
-                className="tw-glow-btn w-full py-3.5 rounded-2xl font-black text-sm flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <ShieldCheck className="w-5 h-5" />
-                <span>{isLoggingIn ? 'Verbinde & lade deine Daten...' : '🔓 Anmelden & im Cookie speichern'}</span>
-              </button>
-            </form>
-          ) : (
-            <form onSubmit={handleCreateOwnTouchwallSubmit} className="space-y-4">
-              <div className="p-4 rounded-2xl bg-[#151920] border border-slate-700/70 space-y-3.5">
-                <div>
-                  <label className="block text-xs font-extrabold uppercase text-sky-400 mb-1">
-                    🏠 Euer Familien- / Team-Name
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={loginFamilyName}
-                    onChange={(e) => setLoginFamilyName(e.target.value)}
-                    placeholder="z.B. Familie Müller oder WG-Planer"
-                    className="w-full px-4 py-3 rounded-xl bg-[#0e1116] border border-slate-700 text-sm font-bold text-white placeholder-slate-500"
-                  />
-                </div>
+              <div className="flex flex-col sm:flex-row gap-2.5">
+                <button
+                  type="submit"
+                  disabled={isLoggingIn}
+                  className="tw-glow-btn flex-1 py-3.5 rounded-2xl font-black text-sm flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <ShieldCheck className="w-5 h-5" />
+                  <span>{isLoggingIn ? 'Verbinde & lade deine Daten...' : '🔓 Mit Cloud anmelden & Cookie speichern'}</span>
+                </button>
 
-                <div>
-                  <label className="block text-xs font-extrabold uppercase text-amber-400 mb-1.5">
-                    👨‍👩‍👧‍👦 Eure Personen / Spalten (Jederzeit später anpassbar)
-                  </label>
-                  <div className="grid grid-cols-2 gap-2.5">
-                    {setupMemberNames.map((mName, idx) => (
-                      <input
-                        key={idx}
-                        type="text"
-                        value={mName}
-                        onChange={(e) => {
-                          const next = [...setupMemberNames];
-                          next[idx] = e.target.value;
-                          setSetupMemberNames(next);
-                        }}
-                        placeholder={'Person ' + (idx + 1)}
-                        className="px-3.5 py-2.5 rounded-xl bg-[#0e1116] border border-slate-700 text-xs font-bold text-white placeholder-slate-500"
-                      />
-                    ))}
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
-                  <input
-                    type="url"
-                    value={loginGasUrl}
-                    onChange={(e) => setLoginGasUrl(e.target.value)}
-                    placeholder="Eigene Apps-Script URL (optional)"
-                    className="px-3.5 py-2.5 rounded-xl bg-[#0e1116] border border-slate-700 text-xs font-mono text-white placeholder-slate-500"
-                  />
-                  <input
-                    type="password"
-                    value={loginTodoistToken}
-                    onChange={(e) => setLoginTodoistToken(e.target.value)}
-                    placeholder="Eigenes Todoist-Token (optional)"
-                    className="px-3.5 py-2.5 rounded-xl bg-[#0e1116] border border-slate-700 text-xs font-mono text-white placeholder-slate-500"
-                  />
-                </div>
+                <label className="tw-nav-inactive px-5 py-3.5 rounded-2xl font-extrabold text-xs flex items-center justify-center gap-2 cursor-pointer text-slate-300">
+                  <Upload className="w-4 h-4 text-sky-400" />
+                  <span>📂 Backup (.json) laden</span>
+                  <input type="file" accept=".json" className="hidden" onChange={handleLoginWithBackupFile} />
+                </label>
               </div>
-
-              <button
-                type="submit"
-                className="tw-glow-btn w-full py-3.5 rounded-2xl font-black text-sm flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <Sparkles className="w-5 h-5" />
-                <span>✨ Eigene Touchwall starten & Cookie speichern</span>
-              </button>
             </form>
           )}
         </div>
@@ -1819,7 +1872,7 @@ export default function TouchwallApp() {
                 </button>
 
                 <button onClick={() => setQrModalOpen(true)} className="tw-glow-btn inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-extrabold cursor-pointer">
-                  <Smartphone className="w-3.5 h-3.5" /> Handy-Sync
+                  <Smartphone className="w-3.5 h-3.5" /> Handy-Einladung
                 </button>
 
                 <button
@@ -2275,19 +2328,39 @@ export default function TouchwallApp() {
         </div>
       )}
 
-      {/* MODAL 4: QR CODE (MIT MAGIC-LOGIN FÜR FAMILIEN-SMARTPHONES) */}
+      {/* MODAL 4: QR CODE & 1-KLICK EINLADUNGS-LINK FÜR FAMILIEN-SMARTPHONES */}
       {qrModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
           <div className={'w-full max-w-md rounded-3xl border-2 p-6 shadow-2xl text-center space-y-4 ' + themeStyles.modal}>
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-extrabold">📱 Smartphone Direkt-Login</h3>
+              <h3 className="text-lg font-extrabold">📱 Smartphone Direkt-Einladung</h3>
               <button onClick={() => setQrModalOpen(false)} className="tw-nav-inactive w-9 h-9 rounded-full flex items-center justify-center cursor-pointer"><X className="w-5 h-5" /></button>
             </div>
             <p className={'text-xs font-semibold ' + themeStyles.textMuted}>
-              Scanne diesen QR-Code mit dem Handy – eure Cloud-Verbindung und das Login-Cookie werden auf dem Smartphone sofort automatisch eingerichtet!
+              Scanne diesen QR-Code oder teile den Einladungs-Link – die Touchwall loggt sich auf dem Smartphone sofort automatisch ein!
             </p>
-            <div className="bg-white p-4 rounded-2xl inline-block mx-auto">
+            <div className="bg-white p-4 rounded-2xl inline-block mx-auto shadow-md">
               <img src={'https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=' + encodeURIComponent(qrShareUrl)} alt="QR" className="w-48 h-48" />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard?.writeText(qrShareUrl);
+                  showToast('Link kopiert!', 'Einladungs-Link befindet sich in der Zwischenablage.', '📋');
+                }}
+                className="tw-glow-btn py-2.5 px-4 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <Copy className="w-4 h-4" /> Link kopieren
+              </button>
+              <a
+                href={'https://wa.me/?text=' + encodeURIComponent('📲 Hier ist unser direkter Familien-Touchwall Login-Link: ' + qrShareUrl)}
+                target="_blank"
+                rel="noreferrer"
+                className="tw-glow-btn py-2.5 px-4 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer no-underline"
+              >
+                <Share2 className="w-4 h-4" /> Per WhatsApp teilen
+              </a>
             </div>
           </div>
         </div>
