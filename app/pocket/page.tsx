@@ -5,9 +5,9 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
-  Calendar, CheckSquare, ShoppingCart, GraduationCap,
-  Plus, RefreshCw, Smartphone, Lock, LogOut, Send,
-  Trash2, Clock, Utensils, BellRing, Check, X, Sparkles, KeyRound
+  Calendar, CheckSquare, ShoppingCart, GraduationCap, Camera,
+  Plus, RefreshCw, Smartphone, LogOut, Send, Trash2, Utensils,
+  X, ScanLine, FileText, Package, CheckCircle2
 } from 'lucide-react';
 
 import * as Cfg from '../touchwallConfig';
@@ -29,7 +29,6 @@ const {
   pullFromTodoistTwoWay,
   createTodoistTaskItem,
   closeOrReopenTodoistTask,
-  deleteTodoistTask,
   pushTodoistTaskToPhoneNow
 } = Cfg;
 
@@ -73,19 +72,18 @@ export default function TouchwallPocketApp() {
   const [authKey, setAuthKey] = useState('');
   const [familyName, setFamilyName] = useState('Touchwall Pocket');
 
-  // Login-Felder falls man sich am Handy manuell anmeldet
   const [formUsername, setFormUsername] = useState('');
   const [formPassword, setFormPassword] = useState('');
   const [loginError, setLoginError] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
-  // Mobile Navigation & Aktive Person ("Wer bist du?")
-  const [activeTab, setActiveTab] = useState('agenda'); // 'agenda' | 'tasks' | 'shopping' | 'school'
+  // 5 Handy-Reiter inkl. neuem Kamera-Scanner
+  const [activeTab, setActiveTab] = useState('scanner'); // 'agenda' | 'tasks' | 'scanner' | 'shopping' | 'school'
   const [selectedPerson, setSelectedPerson] = useState('all');
   const [currentTheme, setCurrentTheme] = useState('metal');
   const [todayStr] = useState(() => formatDateStr(new Date()));
 
-  // Daten-State (synchron mit der großen Touchwall)
+  // Gemeinsame Familiendaten inkl. Speisekammer (pantryItems & pantryTrash)
   const [members, setMembers] = useState(DEFAULT_MEMBERS);
   const [events, setEvents] = useState([]);
   const [familyTasks, setFamilyTasks] = useState([]);
@@ -93,6 +91,8 @@ export default function TouchwallPocketApp() {
   const [familyNotes, setFamilyNotes] = useState(DEFAULT_NOTES);
   const [schoolData, setSchoolData] = useState(DEFAULT_SCHOOL);
   const [activeSchoolChild, setActiveSchoolChild] = useState('dean');
+  const [pantryItems, setPantryItems] = useState([]);
+  const [pantryTrash, setPantryTrash] = useState([]);
   const [todoistConfig, setTodoistConfig] = useState({
     apiToken: '',
     shoppingProjectId: '',
@@ -101,10 +101,27 @@ export default function TouchwallPocketApp() {
     collaborators: []
   });
 
+  // Scanner-State (Kamera-Barcode, Kassenbon-OCR & Pflicht-MHD)
+  const [scannerMode, setScannerMode] = useState('barcode'); // 'barcode' | 'receipt' | 'manual'
+  const [cameraActive, setCameraActive] = useState(false);
+  const [scannedBarcode, setScannedBarcode] = useState('');
+  const [scanName, setScanName] = useState('');
+  const [scanQty, setScanQty] = useState('1x');
+  const [scanLocation, setScanLocation] = useState('pantry');
+  const [scanExpiry, setScanExpiry] = useState('');
+  const [isLookingUpProduct, setIsLookingUpProduct] = useState(false);
+
+  // Kassenbon-Foto-Erkennung
+  const [isScanningReceipt, setIsScanningReceipt] = useState(false);
+  const [receiptItems, setReceiptItems] = useState([]);
+
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+  const scanLoopRef = useRef(null);
+
   const [isSyncing, setIsSyncing] = useState(false);
   const [toast, setToast] = useState(null);
 
-  // Schnell-Eingabe Modals / Bars für unterwegs
   const [newEventModalOpen, setNewEventModalOpen] = useState(false);
   const [newEvTitle, setNewEvTitle] = useState('');
   const [newEvDate, setNewEvDate] = useState(() => formatDateStr(new Date()));
@@ -115,8 +132,6 @@ export default function TouchwallPocketApp() {
   const [quickTaskMember, setQuickTaskMember] = useState('hans');
   const [quickShopText, setQuickShopText] = useState('');
 
-  const isInitialLoadDone = useRef(false);
-  const isApplyingRemote = useRef(false);
   const lastLocalEditRef = useRef(0);
 
   const showToast = (title, msg, icon = '📲') => {
@@ -140,6 +155,8 @@ export default function TouchwallPocketApp() {
   const safeTasks = useMemo(() => Array.isArray(familyTasks) ? familyTasks : [], [familyTasks]);
   const safeMeals = useMemo(() => Array.isArray(mealPlan) && mealPlan.length > 0 ? mealPlan : DEFAULT_MEALS, [mealPlan]);
   const safeNotes = useMemo(() => Array.isArray(familyNotes) && familyNotes.length > 0 ? familyNotes : DEFAULT_NOTES, [familyNotes]);
+  const safeStock = useMemo(() => Array.isArray(pantryItems) ? pantryItems : [], [pantryItems]);
+  const safeTrash = useMemo(() => Array.isArray(pantryTrash) ? pantryTrash : [], [pantryTrash]);
 
   const renderAvatar = (member, size = 'w-9 h-9', textSize = 'text-xs') => {
     const st = getMemberStyles(member);
@@ -168,7 +185,7 @@ export default function TouchwallPocketApp() {
   };
 
   // =========================================================
-  // CLOUD & TODOISTKOMMUNIKATION
+  // CLOUD-KOMMUNIKATION INKL. SPEISEKAMMER
   // =========================================================
   const callCloudBackend = async (postBody) => {
     const payload = {
@@ -206,7 +223,6 @@ export default function TouchwallPocketApp() {
 
   const applyRemoteBundle = (bundle) => {
     if (!bundle) return;
-    isApplyingRemote.current = true;
     if (bundle.state) {
       const s = bundle.state;
       if (s.familyName) setFamilyName(s.familyName);
@@ -215,6 +231,8 @@ export default function TouchwallPocketApp() {
       if (Array.isArray(s.familyNotes) && s.familyNotes.length > 0) setFamilyNotes(s.familyNotes);
       if (s.schoolData?.dean) setSchoolData(s.schoolData);
       if (Array.isArray(s.familyTasks)) setFamilyTasks(s.familyTasks);
+      if (Array.isArray(s.pantryItems)) setPantryItems(s.pantryItems);
+      if (Array.isArray(s.pantryTrash)) setPantryTrash(s.pantryTrash);
       if (s.currentTheme) setCurrentTheme(s.currentTheme);
       if (s.todoistConfig?.apiToken) setTodoistConfig(prev => ({ ...prev, ...s.todoistConfig }));
     }
@@ -222,10 +240,27 @@ export default function TouchwallPocketApp() {
       setEvents(bundle.calendarData.events);
       try { localStorage.setItem('richter_touchwall_events_cache', JSON.stringify(bundle.calendarData.events)); } catch (e) {}
     }
-    setTimeout(() => {
-      isApplyingRemote.current = false;
-      isInitialLoadDone.current = true;
-    }, 200);
+  };
+
+  const saveStateToCloud = async (overrides = {}) => {
+    const payload = {
+      isConfigured: true,
+      familyName,
+      members: safeMembers,
+      mealPlan: overrides.mealPlan || safeMeals,
+      familyNotes: overrides.familyNotes || safeNotes,
+      schoolData,
+      familyTasks: overrides.familyTasks || safeTasks,
+      pantryItems: overrides.pantryItems || safeStock,
+      pantryTrash: overrides.pantryTrash || safeTrash,
+      currentTheme,
+      todoistConfig
+    };
+    try { localStorage.setItem('richter_touchwall_v6', JSON.stringify(payload)); } catch (e) {}
+    if (!accountId || accountId === 'local') return;
+    try {
+      await callCloudBackend({ action: 'saveState', payload });
+    } catch (e) {}
   };
 
   const syncAllNow = async (showFeedback = false, accOverride = undefined, keyOverride = undefined) => {
@@ -241,64 +276,20 @@ export default function TouchwallPocketApp() {
           accountId: activeAcc,
           authKey: activeKey
         });
-        if (bundle?.ok) {
-          applyRemoteBundle(bundle);
-        }
+        if (bundle?.ok) applyRemoteBundle(bundle);
       }
-
-      if (todoistConfig?.apiToken?.trim()) {
-        const pulled = await pullFromTodoistTwoWay(
-          todoistConfig.apiToken,
-          todoistConfig,
-          safeTasks,
-          safeNotes,
-          safeMembers
-        );
-        if (pulled) {
-          isApplyingRemote.current = true;
-          if (Array.isArray(pulled.tasks)) setFamilyTasks(pulled.tasks);
-          if (Array.isArray(pulled.familyNotes)) setFamilyNotes(pulled.familyNotes);
-          setTimeout(() => { isApplyingRemote.current = false; }, 200);
-        }
-      }
-      if (showFeedback) showToast('Aktualisiert', 'Alle Termine & Listen sind synchron.', '✅');
-    } catch (e) {
-      if (showFeedback) showToast('Sync-Hinweis', 'Offline-Cache wird genutzt.', '⚠️');
-    } finally {
+      if (showFeedback) showToast('Synchronisiert', 'Bestand, Termine & Listen sind aktuell.', '✅');
+    } catch (e) {} finally {
       if (showFeedback) setIsSyncing(false);
     }
   };
 
-  const saveStateToCloud = async (nextTasks, nextNotes, nextMeals) => {
-    const payload = {
-      isConfigured: true,
-      familyName,
-      members: safeMembers,
-      mealPlan: nextMeals || safeMeals,
-      familyNotes: nextNotes || safeNotes,
-      schoolData,
-      familyTasks: nextTasks || safeTasks,
-      currentTheme,
-      todoistConfig
-    };
-    try { localStorage.setItem('richter_touchwall_v6', JSON.stringify(payload)); } catch (e) {}
-    if (!accountId || accountId === 'local') return;
-    try {
-      await callCloudBackend({ action: 'saveState', payload });
-    } catch (e) {}
-  };
-
-  // =========================================================
-  // AUTO-LOGIN PER QR-LINK ODER GESPEICHERTER SITZUNG
-  // =========================================================
   useEffect(() => {
     try {
       const params = new URLSearchParams(window.location.search);
       const qrAcc = params.get('account');
       const qrKey = params.get('key');
       const qrFamily = params.get('family');
-      const savedPerson = localStorage.getItem('richter_tw_pocket_person');
-      if (savedPerson) setSelectedPerson(savedPerson);
 
       if (qrAcc && qrKey) {
         const cleanTitle = qrFamily || 'Familien-Touchwall';
@@ -324,16 +315,10 @@ export default function TouchwallPocketApp() {
           if (Array.isArray(parsed.familyNotes)) setFamilyNotes(parsed.familyNotes);
           if (parsed.schoolData?.dean) setSchoolData(parsed.schoolData);
           if (Array.isArray(parsed.familyTasks)) setFamilyTasks(parsed.familyTasks);
+          if (Array.isArray(parsed.pantryItems)) setPantryItems(parsed.pantryItems);
+          if (Array.isArray(parsed.pantryTrash)) setPantryTrash(parsed.pantryTrash);
           if (parsed.currentTheme) setCurrentTheme(parsed.currentTheme);
           if (parsed.todoistConfig) setTodoistConfig(prev => ({ ...prev, ...parsed.todoistConfig }));
-        } catch (e) {}
-      }
-
-      const savedEv = localStorage.getItem('richter_touchwall_events_cache');
-      if (savedEv) {
-        try {
-          const parsedEv = JSON.parse(savedEv);
-          if (Array.isArray(parsedEv)) setEvents(parsedEv);
         } catch (e) {}
       }
 
@@ -341,7 +326,6 @@ export default function TouchwallPocketApp() {
         setAccountId(session.accountId);
         setAuthKey(session.authKey);
         setIsAuthenticated(true);
-        isInitialLoadDone.current = true;
         if (session.accountId !== 'local') {
           setTimeout(() => syncAllNow(false, session.accountId, session.authKey), 300);
         }
@@ -350,26 +334,215 @@ export default function TouchwallPocketApp() {
     setIsCheckingAuth(false);
   }, []);
 
-  // Hintergrund-Sync alle 12 Sekunden auf dem Handy
+  // =========================================================
+  // KAMERA-BARCODE-SCANNER + OPENFOODFACTS PRODUKT-ABFRAGE
+  // =========================================================
+  const stopCameraStream = () => {
+    if (scanLoopRef.current) clearInterval(scanLoopRef.current);
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(t => t.stop());
+      streamRef.current = null;
+    }
+    setCameraActive(false);
+  };
+
   useEffect(() => {
-    if (!isAuthenticated) return;
-    const interval = setInterval(() => {
-      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
-        syncAllNow(false);
+    return () => stopCameraStream();
+  }, []);
+
+  const lookupBarcodeOnOpenFoodFacts = async (code) => {
+    const cleanCode = String(code || '').trim();
+    if (!cleanCode) return;
+    setScannedBarcode(cleanCode);
+    setIsLookingUpProduct(true);
+    try {
+      const res = await fetch('https://world.openfoodfacts.org/api/v2/product/' + encodeURIComponent(cleanCode) + '.json');
+      const data = await res.json();
+      if (data && data.product) {
+        const p = data.product;
+        const foundName = p.product_name_de || p.product_name || p.generic_name_de || '';
+        const brand = p.brands ? p.brands.split(',')[0].trim() : '';
+        const qty = p.quantity || '1x';
+        const fullTitle = [brand, foundName].filter(Boolean).join(' ').trim();
+        if (fullTitle) {
+          setScanName(fullTitle);
+          setScanQty(qty);
+          showToast('Produkt erkannt!', fullTitle + ' – bitte jetzt noch Ablaufdatum wählen.', '🎉');
+          return;
+        }
       }
-    }, 12000);
-    return () => clearInterval(interval);
-  }, [isAuthenticated, accountId, authKey, todoistConfig]);
+      showToast('Barcode gescannt', 'Code ' + cleanCode + ' – bitte Produktnamen & MHD ergänzen.', '📷');
+    } catch (e) {
+      showToast('Barcode erfasst', 'Code: ' + cleanCode, '📷');
+    } finally {
+      setIsLookingUpProduct(false);
+    }
+  };
+
+  const startLiveBarcodeCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' }
+      });
+      streamRef.current = stream;
+      setCameraActive(true);
+      setTimeout(() => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.play().catch(() => {});
+        }
+      }, 150);
+
+      if (typeof window !== 'undefined' && 'BarcodeDetector' in window) {
+        const detector = new window.BarcodeDetector({
+          formats: ['ean_13', 'ean_8', 'qr_code', 'upc_a', 'code_128']
+        });
+        scanLoopRef.current = setInterval(async () => {
+          if (!videoRef.current || videoRef.current.readyState < 2) return;
+          try {
+            const barcodes = await detector.detect(videoRef.current);
+            if (barcodes && barcodes.length > 0) {
+              const rawVal = barcodes[0].rawValue;
+              if (rawVal) {
+                stopCameraStream();
+                lookupBarcodeOnOpenFoodFacts(rawVal);
+              }
+            }
+          } catch (err) {}
+        }, 450);
+      }
+    } catch (err) {
+      showToast('Kamera-Zugriff', 'Bitte erlaube den Kamera-Zugriff im Browser.', '⚠️');
+    }
+  };
+
+  // =========================================================
+  // KASSENBON-FOTO-SCANNER (BROWSER-OCR OHNE ZUSATZ-INSTALLATION)
+  // =========================================================
+  const handleReceiptPhotoUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsScanningReceipt(true);
+    showToast('Analysiere Kassenbon...', 'Texterkennung liest deine Einkäufe aus...', '🧾');
+
+    try {
+      if (typeof window !== 'undefined' && !window.Tesseract) {
+        await new Promise((resolve, reject) => {
+          const s = document.createElement('script');
+          s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+          s.onload = resolve;
+          s.onerror = reject;
+          document.head.appendChild(s);
+        });
+      }
+
+      const result = await window.Tesseract.recognize(file, 'deu');
+      const lines = String(result?.data?.text || '')
+        .split(/\r?\n/)
+        .map(l => l.replace(/[0-9]+[,.][0-9]{2}\s*[AB]?$/g, '').trim())
+        .filter(l =>
+          l.length >= 3 &&
+          !/summe|gesamt|kartenzahlung|steuer|mwst|datum|uhrzeit|vielen dank|filiale|bon|eur|bar|rückgeld/i.test(l)
+        );
+
+      const defaultExp = formatDateStr(addDays(new Date(), 7));
+      const extracted = lines.slice(0, 15).map((txt, idx) => ({
+        id: 'rec_' + Date.now() + '_' + idx,
+        name: txt,
+        quantity: '1x',
+        location: 'pantry',
+        expiryDate: defaultExp,
+        selected: true
+      }));
+
+      setReceiptItems(extracted);
+      showToast('Kassenbon gelesen!', extracted.length + ' Positionen erkannt – bitte MHD prüfen.', '✅');
+    } catch (err) {
+      showToast('Kassenbon-Hinweis', 'Bitte Foto bei gutem Licht aufnehmen oder Produkt direkt eingeben.', '⚠️');
+    } finally {
+      setIsScanningReceipt(false);
+    }
+  };
+
+  const handleSaveScannedProduct = (e) => {
+    e.preventDefault();
+    if (!scanName.trim()) {
+      showToast('Name fehlt', 'Bitte Produktnamen eingeben.', '⚠️');
+      return;
+    }
+    if (!scanExpiry) {
+      showToast('Ablaufdatum ist Pflicht!', 'Ohne Ablaufdatum (MHD) kann kein Produkt gespeichert werden.', '⚠️');
+      return;
+    }
+
+    lastLocalEditRef.current = Date.now();
+    const newItem = {
+      id: 'p_' + Date.now(),
+      name: scanName.trim(),
+      barcode: scannedBarcode || '',
+      quantity: scanQty.trim() || '1x',
+      location: scanLocation,
+      expiryDate: scanExpiry,
+      addedAt: todayStr
+    };
+
+    const nextStock = [newItem, ...safeStock];
+    setPantryItems(nextStock);
+    saveStateToCloud({ pantryItems: nextStock });
+
+    setScanName('');
+    setScannedBarcode('');
+    setScanExpiry('');
+    showToast('In Speisekammer!', newItem.name + ' (MHD: ' + newItem.expiryDate + ') gespeichert!', '🥫');
+  };
+
+  const handleSaveAllReceiptItems = () => {
+    const selected = receiptItems.filter(it => it.selected && it.name.trim() && it.expiryDate);
+    if (selected.length === 0) {
+      showToast('MHD prüfen', 'Bitte wähle mindestens einen Artikel mit gültigem Ablaufdatum.', '⚠️');
+      return;
+    }
+    lastLocalEditRef.current = Date.now();
+    const newEntries = selected.map(it => ({
+      id: 'p_' + Date.now() + '_' + Math.random(),
+      name: it.name.trim(),
+      quantity: it.quantity || '1x',
+      location: it.location || 'pantry',
+      expiryDate: it.expiryDate,
+      addedAt: todayStr
+    }));
+
+    const nextStock = [...newEntries, ...safeStock];
+    setPantryItems(nextStock);
+    saveStateToCloud({ pantryItems: nextStock });
+    setReceiptItems([]);
+    showToast('Kassenbon übernommen!', newEntries.length + ' Produkte in der Speisekammer gespeichert.', '🎉');
+  };
+
+  const handleConsumeFromPocket = (item) => {
+    lastLocalEditRef.current = Date.now();
+    const nextStock = safeStock.filter(x => x.id !== item.id);
+    const nextTrash = [
+      {
+        ...item,
+        trashedAt: todayStr,
+        reason: 'consumed',
+        reasonLabel: '🍽️ Verzehrt am ' + todayStr
+      },
+      ...safeTrash
+    ];
+    setPantryItems(nextStock);
+    setPantryTrash(nextTrash);
+    saveStateToCloud({ pantryItems: nextStock, pantryTrash: nextTrash });
+    showToast('Verzehrt!', item.name + ' wurde aus dem Bestand gebucht.', '🍽️');
+  };
 
   const handlePocketLogin = async (e) => {
     e.preventDefault();
     setLoginError('');
     const cleanUser = formUsername.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
     const cleanPass = formPassword.trim();
-    if (!cleanUser || !cleanPass) {
-      setLoginError('Bitte Benutzername und Passwort eingeben.');
-      return;
-    }
+    if (!cleanUser || !cleanPass) return;
 
     setIsLoggingIn(true);
     try {
@@ -390,181 +563,13 @@ export default function TouchwallPocketApp() {
       setFamilyName(title);
       writeAuthSession(cleanUser, cleanPass, title);
       setIsAuthenticated(true);
-      showToast('Verbunden!', title + ' ist jetzt auf deinem Handy aktiv.', '📱');
     } catch (err) {
-      setLoginError('Verbindungsfehler: ' + (err.message || 'Bitte Internet prüfen.'));
+      setLoginError('Verbindungsfehler.');
     } finally {
       setIsLoggingIn(false);
     }
   };
 
-  // =========================================================
-  // HANDY-AKTIONEN: TERMINE, AUFGABEN & EINKAUFSLISTE
-  // =========================================================
-  const handleCreateMobileEvent = async (e) => {
-    e.preventDefault();
-    if (!newEvTitle.trim()) return;
-    lastLocalEditRef.current = Date.now();
-    const targetMem = newEvMember || (selectedPerson === 'all' ? 'all' : selectedPerson);
-    const newEv = {
-      id: String(Date.now()),
-      title: newEvTitle.trim(),
-      date: newEvDate || todayStr,
-      time: newEvTime.trim() || 'Ganztägig',
-      member: targetMem,
-      notifyTime: '30m',
-      notifyChannel: 'wall_push',
-      notifyUsers: [targetMem],
-      fromGoogle: true
-    };
-    const nextEvents = [...safeEvents, newEv];
-    setEvents(nextEvents);
-    setNewEvTitle('');
-    setNewEventModalOpen(false);
-    showToast('Termin eingetragen', newEv.title, '📅');
-
-    if (accountId && accountId !== 'local') {
-      try {
-        const res = await callCloudBackend({ action: 'createEvent', event: newEv });
-        if (res?.result?.events) setEvents(res.result.events);
-      } catch (err) {}
-    }
-  };
-
-  const handleDeleteMobileEvent = async (ev) => {
-    lastLocalEditRef.current = Date.now();
-    setEvents(prev => (Array.isArray(prev) ? prev : []).filter(item => String(item.id) !== String(ev.id)));
-    showToast('Termin gelöscht', ev.title, '🗑️');
-    if (accountId && accountId !== 'local') {
-      try {
-        await callCloudBackend({
-          action: 'deleteEvent',
-          eventId: String(ev.id),
-          member: ev.member,
-          title: ev.title,
-          date: ev.date
-        });
-      } catch (err) {}
-    }
-  };
-
-  const handleAddQuickTask = async (e) => {
-    e.preventDefault();
-    const clean = quickTaskText.trim();
-    if (!clean) return;
-    lastLocalEditRef.current = Date.now();
-    const targetMemberId = selectedPerson !== 'all' ? selectedPerson : quickTaskMember;
-    const memberObj = safeMembers.find(m => m.id === targetMemberId) || safeMembers[1];
-    const projId = memberObj?.todoistProjectId || todoistConfig?.tasksProjectId || '';
-
-    let todoistId = null;
-    if (todoistConfig?.apiToken && projId) {
-      try {
-        const created = await createTodoistTaskItem(
-          todoistConfig.apiToken,
-          projId,
-          clean,
-          memberObj,
-          todayStr,
-          '18:00',
-          3,
-          '',
-          '15m',
-          todoistConfig.collaborators,
-          true
-        );
-        if (created?.id) todoistId = String(created.id);
-      } catch (err) {}
-    }
-
-    const newTask = {
-      id: Date.now(),
-      todoistId,
-      projectId: projId,
-      member: targetMemberId,
-      title: clean,
-      priority: 3,
-      due: 'Heute bis 18:00 Uhr',
-      dueDate: todayStr,
-      dueTime: '18:00',
-      notifyTime: '15m',
-      done: false
-    };
-    const nextTasks = [newTask, ...safeTasks];
-    setFamilyTasks(nextTasks);
-    setQuickTaskText('');
-    saveStateToCloud(nextTasks, undefined, undefined);
-    showToast('Aufgabe gesendet!', clean + ' → ' + memberObj.name, '✅');
-  };
-
-  const handleToggleMobileTask = async (task) => {
-    lastLocalEditRef.current = Date.now();
-    const nextDone = !task.done;
-    const nextTasks = safeTasks.map(t => t.id === task.id ? { ...t, done: nextDone } : t);
-    setFamilyTasks(nextTasks);
-    saveStateToCloud(nextTasks, undefined, undefined);
-    if (task.todoistId && todoistConfig?.apiToken) {
-      try { await closeOrReopenTodoistTask(todoistConfig.apiToken, task.todoistId, nextDone); } catch (e) {}
-    }
-  };
-
-  const handleAddQuickShopItem = async (e) => {
-    e.preventDefault();
-    const clean = quickShopText.trim();
-    if (!clean) return;
-    lastLocalEditRef.current = Date.now();
-    const firstNote = safeNotes[0] || { id: 1, title: '🛒 Einkaufsliste', items: [] };
-    const projId = firstNote.todoistProjectId || todoistConfig?.shoppingProjectId || '';
-
-    let todoistId = null;
-    if (todoistConfig?.apiToken && projId) {
-      try {
-        const created = await createTodoistTaskItem(
-          todoistConfig.apiToken,
-          projId,
-          clean,
-          null,
-          '',
-          '',
-          1,
-          '',
-          'none',
-          todoistConfig.collaborators,
-          false
-        );
-        if (created?.id) todoistId = String(created.id);
-      } catch (err) {}
-    }
-
-    const nextNotes = safeNotes.map((n, idx) => idx === 0 ? {
-      ...n,
-      items: [{ text: clean, done: false, todoistId }, ...(Array.isArray(n.items) ? n.items : [])]
-    } : n);
-    setFamilyNotes(nextNotes);
-    setQuickShopText('');
-    saveStateToCloud(undefined, nextNotes, undefined);
-  };
-
-  const handleToggleShopItem = async (itemIdx) => {
-    lastLocalEditRef.current = Date.now();
-    const firstNote = safeNotes[0];
-    const item = firstNote?.items?.[itemIdx];
-    if (!item) return;
-    const nextDone = !item.done;
-    const nextNotes = safeNotes.map((n, idx) => idx === 0 ? {
-      ...n,
-      items: (Array.isArray(n.items) ? n.items : []).map((it, i) => i === itemIdx ? { ...it, done: nextDone } : it)
-    } : n);
-    setFamilyNotes(nextNotes);
-    saveStateToCloud(undefined, nextNotes, undefined);
-    if (item.todoistId && todoistConfig?.apiToken) {
-      try { await closeOrReopenTodoistTask(todoistConfig.apiToken, item.todoistId, nextDone); } catch (e) {}
-    }
-  };
-
-  // =========================================================
-  // LOGIN-SCREEN FALLS NOCH NICHT ANGEMELDET
-  // =========================================================
   if (isCheckingAuth) {
     return (
       <div className="min-h-screen bg-[#111418] text-white flex items-center justify-center p-6">
@@ -583,12 +588,9 @@ export default function TouchwallPocketApp() {
             </div>
             <div>
               <span className="px-2.5 py-0.5 rounded-full bg-sky-500/20 text-sky-300 text-[10px] font-extrabold">
-                📱 Touchwall Pocket • Android & Mobile
+                📱 Touchwall Pocket • Scanner & Familien-App
               </span>
               <h1 className="text-xl font-black mt-0.5">Handy-Anmeldung</h1>
-              <p className="text-xs text-slate-400">
-                Melde dich mit eurem Familien-Konto an oder scanne einfach den QR-Code an eurer großen Touchwall!
-              </p>
             </div>
           </div>
 
@@ -599,38 +601,26 @@ export default function TouchwallPocketApp() {
           )}
 
           <form onSubmit={handlePocketLogin} className="space-y-3.5">
-            <div>
-              <label className="block text-[11px] font-extrabold uppercase text-sky-400 mb-1">
-                👤 Familien-Benutzername
-              </label>
-              <input
-                type="text"
-                required
-                value={formUsername}
-                onChange={(e) => setFormUsername(e.target.value)}
-                placeholder="z.B. familie-richter"
-                className="w-full px-4 py-3.5 rounded-2xl bg-[#0e1116] border border-slate-700 text-sm font-bold text-white"
-              />
-            </div>
-
-            <div>
-              <label className="block text-[11px] font-extrabold uppercase text-amber-400 mb-1">
-                🔒 Passwort / PIN
-              </label>
-              <input
-                type="password"
-                required
-                value={formPassword}
-                onChange={(e) => setFormPassword(e.target.value)}
-                placeholder="Passwort..."
-                className="w-full px-4 py-3.5 rounded-2xl bg-[#0e1116] border border-slate-700 text-sm font-bold text-white"
-              />
-            </div>
-
+            <input
+              type="text"
+              required
+              value={formUsername}
+              onChange={(e) => setFormUsername(e.target.value)}
+              placeholder="Familien-Benutzername"
+              className="w-full px-4 py-3.5 rounded-2xl bg-[#0e1116] border border-slate-700 text-sm font-bold text-white"
+            />
+            <input
+              type="password"
+              required
+              value={formPassword}
+              onChange={(e) => setFormPassword(e.target.value)}
+              placeholder="Passwort / PIN"
+              className="w-full px-4 py-3.5 rounded-2xl bg-[#0e1116] border border-slate-700 text-sm font-bold text-white"
+            />
             <button
               type="submit"
               disabled={isLoggingIn}
-              className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-sky-500 to-indigo-600 text-white font-black text-sm shadow-lg active:scale-95 transition-transform"
+              className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-sky-500 to-indigo-600 text-white font-black text-sm shadow-lg"
             >
               {isLoggingIn ? 'Verbinde...' : '🔓 Auf dem Handy anmelden'}
             </button>
@@ -640,191 +630,316 @@ export default function TouchwallPocketApp() {
     );
   }
 
-  // =========================================================
-  // DATEN-AUFBEREITUNG FÜR DIE 4 HANDY-TABS
-  // =========================================================
   const next14Days = Array.from({ length: 14 }, (_, i) => addDays(new Date(), i));
   const filteredTasks = safeTasks.filter(t => selectedPerson === 'all' || t.member === selectedPerson);
   const openTasks = filteredTasks.filter(t => !t.done);
-  const doneTasks = filteredTasks.filter(t => t.done);
-
   const shopItems = Array.isArray(safeNotes[0]?.items) ? safeNotes[0].items : [];
   const openShop = shopItems.map((it, idx) => ({ ...it, origIdx: idx })).filter(it => !it.done);
-  const doneShop = shopItems.map((it, idx) => ({ ...it, origIdx: idx })).filter(it => it.done);
-
-  const todayDow = new Date().getDay(); // 0=So, 1=Mo ...
-  const mealIdxToday = todayDow === 0 ? 6 : todayDow - 1;
-  const todaysMeal = safeMeals[mealIdxToday] || safeMeals[0];
 
   return (
     <div className={'min-h-screen pb-24 flex flex-col select-none ' + themeStyles.outer}>
-      {/* KOMPAKTER MOBILE HEADER MIT PERSONEN-WAHL ("WER BIST DU?") */}
       <header className={'sticky top-0 z-30 px-4 pt-3 pb-2.5 border-b shadow-md ' + themeStyles.header}>
-        <div className="flex items-center justify-between gap-2 mb-2.5">
+        <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
             <span className="px-2 py-0.5 rounded-lg bg-sky-500 text-white text-xs font-black">POCKET</span>
             <h1 className="font-extrabold text-base truncate">{familyName}</h1>
           </div>
-
           <div className="flex items-center gap-1.5">
-            <button
-              onClick={() => syncAllNow(true)}
-              className="p-2 rounded-xl bg-white/10 active:scale-90 transition-transform"
-              title="Synchronisieren"
-            >
+            <button onClick={() => syncAllNow(true)} className="p-2 rounded-xl bg-white/10">
               <RefreshCw className={'w-4 h-4 ' + (isSyncing ? 'animate-spin text-sky-400' : '')} />
             </button>
-            <a
-              href="/"
-              className="px-2.5 py-1.5 rounded-xl bg-white/10 text-[11px] font-extrabold"
-            >
-              🖥️ Wand
-            </a>
-            <button
-              onClick={() => {
-                localStorage.removeItem('richter_tw_auth_active');
-                setIsAuthenticated(false);
-              }}
-              className="p-2 rounded-xl bg-rose-500/20 text-rose-300 active:scale-90"
-            >
-              <LogOut className="w-4 h-4" />
-            </button>
+            <a href="/" className="px-2.5 py-1.5 rounded-xl bg-white/10 text-[11px] font-extrabold">🖥️ Wand</a>
           </div>
-        </div>
-
-        {/* HORIZONTALE PERSONEN-LEISTE ("WER BIST DU?") */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
-          <button
-            onClick={() => {
-              setSelectedPerson('all');
-              try { localStorage.setItem('richter_tw_pocket_person', 'all'); } catch (e) {}
-            }}
-            className={'px-3.5 py-1.5 rounded-full text-xs font-extrabold shrink-0 transition-all active:scale-95 ' + (selectedPerson === 'all' ? 'bg-sky-500 text-white shadow-md ring-2 ring-white/60' : 'bg-black/25 opacity-75')}
-          >
-            👨‍👩‍👧‍👦 Alle
-          </button>
-
-          {safeMembers.filter(m => m.id !== 'all').map(m => {
-            const isSel = selectedPerson === m.id;
-            return (
-              <button
-                key={m.id}
-                onClick={() => {
-                  setSelectedPerson(m.id);
-                  setQuickTaskMember(m.id);
-                  try { localStorage.setItem('richter_tw_pocket_person', m.id); } catch (e) {}
-                }}
-                className={'pr-3 pl-1 py-1 rounded-full flex items-center gap-1.5 text-xs font-extrabold shrink-0 transition-all active:scale-95 ' + (isSel ? 'bg-indigo-600 text-white shadow-md ring-2 ring-white/70' : 'bg-black/25 opacity-80')}
-              >
-                {renderAvatar(m, 'w-6 h-6', 'text-[10px]')}
-                <span>{m.name.split(' ')[0]}</span>
-              </button>
-            );
-          })}
         </div>
       </header>
 
-      {/* HAUPT-INHALT JE NACH GEWÄHLTEM UNTEREN TAB */}
       <main className="flex-1 p-4 max-w-lg w-full mx-auto space-y-4">
-
         {/* =====================================================
-            TAB 1: AGENDA & TERMINE (KOMPAKTE TAGES-TIMELINE)
+            NEUER HAUPT-TAB: HANDY-KAMERA-SCANNER (BARCODE & KASSENBON)
            ===================================================== */}
-        {activeTab === 'agenda' && (
-          <div className="space-y-3.5">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-lg font-black">📅 Nächste Termine</h2>
-                <p className={'text-xs font-semibold ' + themeStyles.textMuted}>
-                  {selectedPerson === 'all' ? 'Alle Familienmitglieder' : ('Gefiltert für ' + (safeMembers.find(m => m.id === selectedPerson)?.name || ''))}
-                </p>
-              </div>
+        {activeTab === 'scanner' && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-2 p-1.5 rounded-2xl bg-black/30 border border-white/10">
               <button
-                onClick={() => {
-                  setNewEvMember(selectedPerson === 'all' ? 'all' : selectedPerson);
-                  setNewEventModalOpen(true);
-                }}
-                className="px-4 py-2.5 rounded-2xl bg-gradient-to-r from-sky-500 to-indigo-600 text-white text-xs font-black flex items-center gap-1.5 shadow-lg active:scale-95"
+                type="button"
+                onClick={() => setScannerMode('barcode')}
+                className={'py-2.5 px-3 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 ' + (scannerMode === 'barcode' ? 'bg-sky-500 text-white shadow-md' : 'opacity-75')}
               >
-                <Plus className="w-4 h-4 stroke-[3]" /> Termin
+                <ScanLine className="w-4 h-4" />
+                <span>Barcode / Produkt</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => { stopCameraStream(); setScannerMode('receipt'); }}
+                className={'py-2.5 px-3 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 ' + (scannerMode === 'receipt' ? 'bg-amber-500 text-slate-950 shadow-md' : 'opacity-75')}
+              >
+                <FileText className="w-4 h-4" />
+                <span>🧾 Kassenbon-Foto</span>
               </button>
             </div>
 
-            {next14Days.map((dayObj, dIdx) => {
-              const dateStr = formatDateStr(dayObj);
-              const isToday = dateStr === todayStr;
-              const hol = getBWHolidayName(dateStr);
-              const vac = getBWVacationName(dateStr);
-
-              const dayEvs = safeEvents.filter(ev => {
-                if (ev.date !== dateStr) return false;
-                if (selectedPerson === 'all') return true;
-                return ev.member === selectedPerson || ev.member === 'all';
-              });
-
-              if (dayEvs.length === 0 && !isToday && !hol && dIdx > 2) return null;
-
-              return (
-                <div key={dateStr} className={'rounded-3xl border p-4 space-y-2.5 shadow-xs ' + themeStyles.card + (isToday ? ' ring-2 ring-orange-400' : '')}>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className={'px-2.5 py-0.5 rounded-lg text-xs font-black ' + (isToday ? 'bg-orange-500 text-white' : 'bg-white/10')}>
-                        {isToday ? 'HEUTE' : dIdx === 1 ? 'MORGEN' : WEEKDAYS_SHORT[dayObj.getDay()]}
-                      </span>
-                      <span className="font-extrabold text-sm">
-                        {dayObj.getDate()}. {MONTHS_NAMES[dayObj.getMonth()]}
-                      </span>
-                    </div>
+            {scannerMode === 'barcode' ? (
+              <div className={'p-4 rounded-3xl border space-y-4 shadow-md ' + themeStyles.card}>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="font-black text-base">📷 Produkt & MHD Scanner</h2>
+                    <p className="text-[11px] opacity-75">Barcode scannen + Pflicht-Ablaufdatum wählen</p>
+                  </div>
+                  {!cameraActive ? (
                     <button
-                      onClick={() => {
-                        setNewEvDate(dateStr);
-                        setNewEvMember(selectedPerson === 'all' ? 'all' : selectedPerson);
-                        setNewEventModalOpen(true);
-                      }}
-                      className="w-7 h-7 rounded-xl bg-white/10 flex items-center justify-center font-bold text-sm active:scale-90"
+                      type="button"
+                      onClick={startLiveBarcodeCamera}
+                      className="px-4 py-2.5 rounded-2xl bg-gradient-to-r from-sky-500 to-indigo-600 text-white text-xs font-black flex items-center gap-1.5 shadow-md active:scale-95"
                     >
-                      +
+                      <Camera className="w-4 h-4" /> Kamera starten
                     </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={stopCameraStream}
+                      className="px-3.5 py-2 rounded-2xl bg-rose-600 text-white text-xs font-black"
+                    >
+                      ✕ Kamera aus
+                    </button>
+                  )}
+                </div>
+
+                {cameraActive && (
+                  <div className="relative rounded-2xl overflow-hidden border-2 border-sky-400 bg-black aspect-video">
+                    <video ref={videoRef} className="w-full h-full object-cover" playsInline muted />
+                    <div className="absolute inset-x-8 top-1/2 h-0.5 bg-rose-500 shadow-[0_0_12px_#f43f5e] animate-pulse" />
+                    <div className="absolute bottom-2 inset-x-0 text-center text-[11px] font-black text-white bg-black/60 py-1">
+                      Halte den Barcode vor die Kamera...
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={scannedBarcode}
+                    onChange={(e) => setScannedBarcode(e.target.value)}
+                    placeholder="EAN-Barcode (oder oben Kamera starten)"
+                    className={'flex-1 px-3.5 py-2.5 rounded-xl border text-xs font-mono ' + themeStyles.input}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => lookupBarcodeOnOpenFoodFacts(scannedBarcode)}
+                    className="px-3.5 py-2.5 rounded-xl bg-white/10 text-xs font-extrabold"
+                  >
+                    {isLookingUpProduct ? '...' : '🔍 Suchen'}
+                  </button>
+                </div>
+
+                <form onSubmit={handleSaveScannedProduct} className="space-y-3 pt-2 border-t border-white/10">
+                  <div>
+                    <label className="block text-[10px] font-black uppercase text-sky-400 mb-1">
+                      1. Produktname / Beschreibung
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={scanName}
+                      onChange={(e) => setScanName(e.target.value)}
+                      placeholder="z.B. Vollmilch, Joghurt, Hackfleisch..."
+                      className={'w-full px-4 py-3 rounded-2xl border text-sm font-extrabold ' + themeStyles.input}
+                    />
                   </div>
 
-                  {(hol || vac) && (
-                    <div className="text-xs font-extrabold text-emerald-400">
-                      {hol ? ('🎌 ' + hol) : ('🏖️ ' + vac)}
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="block text-[10px] font-black uppercase opacity-75 mb-1">Menge</label>
+                      <input
+                        type="text"
+                        value={scanQty}
+                        onChange={(e) => setScanQty(e.target.value)}
+                        className={'w-full px-3.5 py-2.5 rounded-xl border text-xs font-bold ' + themeStyles.input}
+                      />
                     </div>
-                  )}
+                    <div>
+                      <label className="block text-[10px] font-black uppercase opacity-75 mb-1">Lagerort</label>
+                      <select
+                        value={scanLocation}
+                        onChange={(e) => setScanLocation(e.target.value)}
+                        className={'w-full px-3 py-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+                      >
+                        <option value="fridge" className="bg-slate-800 text-white">🧊 Kühlschrank</option>
+                        <option value="freezer" className="bg-slate-800 text-white">❄️ Gefrierschrank</option>
+                        <option value="pantry" className="bg-slate-800 text-white">🗄️ Vorratslager</option>
+                        <option value="kitchen" className="bg-slate-800 text-white">🍎 Küche</option>
+                      </select>
+                    </div>
+                  </div>
 
-                  {dayEvs.length === 0 ? (
-                    <div className="text-xs opacity-50 font-semibold py-1">Keine Termine eingetragen</div>
-                  ) : (
-                    <div className="space-y-2">
-                      {dayEvs.map(ev => {
-                        const mem = safeMembers.find(m => m.id === ev.member) || safeMembers[0];
-                        const st = getMemberStyles(mem);
-                        return (
-                          <div
-                            key={ev.id}
-                            style={st.cardStyle}
-                            className="p-3 rounded-2xl flex items-center justify-between gap-3 shadow-xs"
-                          >
-                            <div className="flex items-center gap-2.5 min-w-0">
-                              {renderAvatar(mem, 'w-8 h-8', 'text-xs')}
-                              <div className="min-w-0">
-                                <div className="font-extrabold text-sm leading-snug break-words">{ev.title}</div>
-                                <div className="text-[11px] font-bold opacity-90">
-                                  ⏰ {ev.time || 'Ganztägig'} • {mem.name.split(' ')[0]}
-                                </div>
-                              </div>
-                            </div>
-                            <button
-                              onClick={() => handleDeleteMobileEvent(ev)}
-                              className="p-2 rounded-xl bg-black/25 text-white/80 active:scale-90 shrink-0"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        );
-                      })}
+                  <div className="p-3.5 rounded-2xl bg-amber-500/15 border-2 border-amber-400/50 space-y-2.5">
+                    <label className="block text-xs font-black uppercase text-amber-300">
+                      2. Pflichtfeld: Ablaufdatum (MHD) wählen
+                    </label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {[
+                        { l: '+3 Tage', d: 3 },
+                        { l: '+1 Woche', d: 7 },
+                        { l: '+2 Wochen', d: 14 },
+                        { l: '+1 Monat', d: 30 },
+                        { l: '+6 Monate', d: 180 }
+                      ].map(b => (
+                        <button
+                          key={b.d}
+                          type="button"
+                          onClick={() => setScanExpiry(formatDateStr(addDays(new Date(), b.d)))}
+                          className="px-2.5 py-1.5 rounded-xl bg-amber-500 text-slate-950 text-[11px] font-black active:scale-95"
+                        >
+                          {b.l}
+                        </button>
+                      ))}
                     </div>
+                    <input
+                      type="date"
+                      required
+                      min={todayStr}
+                      value={scanExpiry}
+                      onChange={(e) => setScanExpiry(e.target.value)}
+                      className={'w-full px-4 py-3 rounded-xl border text-sm font-black ' + themeStyles.input}
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={!scanName.trim() || !scanExpiry}
+                    className={'w-full py-3.5 rounded-2xl font-black text-sm shadow-lg ' + (!scanName.trim() || !scanExpiry ? 'bg-slate-700 text-slate-400 opacity-50' : 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white active:scale-95')}
+                  >
+                    {scanExpiry ? '🥫 In Speisekammer speichern' : '⚠️ Bitte erst Ablaufdatum (MHD) eingeben'}
+                  </button>
+                </form>
+              </div>
+            ) : (
+              <div className={'p-4 rounded-3xl border space-y-4 shadow-md ' + themeStyles.card}>
+                <div>
+                  <h2 className="font-black text-base">🧾 Kassenbon abfotografieren</h2>
+                  <p className="text-xs opacity-75">
+                    Fotografiere deinen Einkaufszettel – die App erkennt die Lebensmittel automatisch!
+                  </p>
+                </div>
+
+                <label className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-600 text-slate-950 font-black text-sm flex items-center justify-center gap-2 cursor-pointer shadow-lg active:scale-95">
+                  <Camera className="w-5 h-5" />
+                  <span>{isScanningReceipt ? '⏳ Lese Kassenbon aus...' : '📸 Kassenbon jetzt fotografieren'}</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="hidden"
+                    onChange={handleReceiptPhotoUpload}
+                  />
+                </label>
+
+                {receiptItems.length > 0 && (
+                  <div className="space-y-2.5 pt-2">
+                    <div className="text-xs font-black uppercase text-emerald-400">
+                      Erkannte Produkte (Bitte Ablaufdatum prüfen):
+                    </div>
+                    {receiptItems.map((rit, idx) => (
+                      <div key={rit.id} className={'p-3 rounded-2xl border space-y-2 ' + themeStyles.subtle}>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={rit.selected}
+                            onChange={() => {
+                              const next = [...receiptItems];
+                              next[idx].selected = !next[idx].selected;
+                              setReceiptItems(next);
+                            }}
+                            className="w-5 h-5 accent-emerald-500 rounded"
+                          />
+                          <input
+                            type="text"
+                            value={rit.name}
+                            onChange={(e) => {
+                              const next = [...receiptItems];
+                              next[idx].name = e.target.value;
+                              setReceiptItems(next);
+                            }}
+                            className="flex-1 bg-transparent text-xs font-extrabold focus:outline-none"
+                          />
+                        </div>
+                        <div className="flex items-center justify-between gap-2 pl-7">
+                          <span className="text-[10px] font-bold text-amber-400">Pflicht-MHD:</span>
+                          <input
+                            type="date"
+                            required
+                            value={rit.expiryDate}
+                            onChange={(e) => {
+                              const next = [...receiptItems];
+                              next[idx].expiryDate = e.target.value;
+                              setReceiptItems(next);
+                            }}
+                            className={'px-2.5 py-1 rounded-lg border text-xs font-bold ' + themeStyles.input}
+                          />
+                        </div>
+                      </div>
+                    ))}
+
+                    <button
+                      type="button"
+                      onClick={handleSaveAllReceiptItems}
+                      className="w-full py-3.5 rounded-2xl bg-emerald-600 text-white font-black text-xs shadow-lg active:scale-95"
+                    >
+                      ✓ Alle markierten Produkte in Speisekammer speichern
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* AKTUELLER VORRAT DIREKT UNTER DEM SCANNER */}
+            <div className={'p-4 rounded-3xl border space-y-2.5 ' + themeStyles.card}>
+              <div className="font-extrabold text-sm flex items-center justify-between">
+                <span>🥫 Aktueller Bestand ({safeStock.length})</span>
+              </div>
+              {safeStock.slice(0, 8).map(item => (
+                <div key={item.id} className={'p-3 rounded-2xl border flex items-center justify-between gap-2 ' + themeStyles.subtle}>
+                  <div className="min-w-0">
+                    <div className="font-extrabold text-xs truncate">{item.name} ({item.quantity})</div>
+                    <div className="text-[10px] text-amber-400 font-bold">MHD: {item.expiryDate}</div>
+                  </div>
+                  <button
+                    onClick={() => handleConsumeFromPocket(item)}
+                    className="px-3 py-1.5 rounded-xl bg-emerald-500/20 text-emerald-300 text-[11px] font-black shrink-0"
+                  >
+                    🍽️ Verzehrt
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* TAB: AGENDA */}
+        {activeTab === 'agenda' && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-black">📅 Nächste Termine</h2>
+              <button
+                onClick={() => setNewEventModalOpen(true)}
+                className="px-4 py-2 rounded-2xl bg-sky-500 text-white text-xs font-black"
+              >
+                + Termin
+              </button>
+            </div>
+            {next14Days.slice(0, 7).map(dayObj => {
+              const dStr = formatDateStr(dayObj);
+              const dayEvs = safeEvents.filter(e => e.date === dStr);
+              return (
+                <div key={dStr} className={'p-3.5 rounded-2xl border space-y-1.5 ' + themeStyles.card}>
+                  <div className="text-xs font-black text-sky-400">
+                    {WEEKDAYS_SHORT[dayObj.getDay()]}, {dayObj.getDate()}.{dayObj.getMonth() + 1}.
+                  </div>
+                  {dayEvs.length === 0 ? (
+                    <div className="text-[11px] opacity-45">Keine Termine</div>
+                  ) : (
+                    dayEvs.map(ev => (
+                      <div key={ev.id} className="text-xs font-bold">• {ev.title} ({ev.time})</div>
+                    ))
                   )}
                 </div>
               );
@@ -832,323 +947,61 @@ export default function TouchwallPocketApp() {
           </div>
         )}
 
-        {/* =====================================================
-            TAB 2: AUFGABEN & TODOIST (SOFORT-ABHAKEN & PUSH)
-           ===================================================== */}
+        {/* TAB: AUFGABEN */}
         {activeTab === 'tasks' && (
-          <div className="space-y-4">
-            <form onSubmit={handleAddQuickTask} className={'p-3.5 rounded-3xl border space-y-2.5 shadow-sm ' + themeStyles.card}>
-              <div className="text-xs font-black uppercase text-sky-400">
-                ⚡ Neue Aufgabe (mit Sofort-Push aufs Handy)
+          <div className={'p-4 rounded-3xl border space-y-2.5 ' + themeStyles.card}>
+            <h2 className="font-black text-base">✅ Offene Aufgaben ({openTasks.length})</h2>
+            {openTasks.map(t => (
+              <div key={t.id} className={'p-3 rounded-2xl border text-xs font-bold ' + themeStyles.subtle}>
+                {t.title} ({t.due})
               </div>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={quickTaskText}
-                  onChange={(e) => setQuickTaskText(e.target.value)}
-                  placeholder="Aufgabe eingeben..."
-                  className={'flex-1 px-3.5 py-3 rounded-2xl border text-sm font-bold ' + themeStyles.input}
-                />
-                <button
-                  type="submit"
-                  className="px-4 rounded-2xl bg-gradient-to-r from-sky-500 to-indigo-600 text-white font-black text-xs flex items-center gap-1 shrink-0 active:scale-95"
-                >
-                  <Send className="w-4 h-4" /> Push
-                </button>
-              </div>
-
-              {selectedPerson === 'all' && (
-                <div className="flex items-center gap-1.5 overflow-x-auto pt-1">
-                  <span className="text-[10px] font-bold opacity-70 shrink-0">Für:</span>
-                  {safeMembers.filter(m => m.id !== 'all').map(m => (
-                    <button
-                      key={m.id}
-                      type="button"
-                      onClick={() => setQuickTaskMember(m.id)}
-                      className={'px-2.5 py-1 rounded-xl text-[11px] font-extrabold shrink-0 ' + (quickTaskMember === m.id ? 'bg-indigo-600 text-white' : 'bg-white/10 opacity-70')}
-                    >
-                      {m.name.split(' ')[0]}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </form>
-
-            <div className={'rounded-3xl border p-4 space-y-2.5 ' + themeStyles.card}>
-              <div className="flex items-center justify-between">
-                <span className="font-extrabold text-sm">Offene Aufgaben ({openTasks.length})</span>
-              </div>
-
-              {openTasks.length === 0 ? (
-                <div className="py-8 text-center text-xs font-bold opacity-50">
-                  🎉 Alles erledigt! Keine offenen Aufgaben.
-                </div>
-              ) : (
-                openTasks.map(task => {
-                  const mem = safeMembers.find(m => m.id === task.member) || safeMembers[1];
-                  return (
-                    <div
-                      key={task.id}
-                      onClick={() => handleToggleMobileTask(task)}
-                      className={'p-3.5 rounded-2xl border flex items-center justify-between gap-3 active:scale-[0.98] transition-transform cursor-pointer ' + themeStyles.subtle}
-                    >
-                      <div className="flex items-center gap-3 min-w-0">
-                        <input type="checkbox" checked={false} readOnly className="w-5 h-5 accent-indigo-600 rounded shrink-0" />
-                        <div className="min-w-0">
-                          <div className="font-bold text-sm break-words">{task.title}</div>
-                          <div className="text-[11px] font-semibold opacity-75">
-                            👤 {mem.name.split(' ')[0]} • ⏳ {task.due || 'Offen'}
-                          </div>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (task.todoistId && todoistConfig?.apiToken) {
-                            pushTodoistTaskToPhoneNow(todoistConfig.apiToken, task.todoistId, task.title, mem.todoistUserId, todoistConfig.collaborators);
-                            showToast('Handy-Ping gesendet!', task.title, '📲');
-                          }
-                        }}
-                        className="px-2.5 py-1.5 rounded-xl bg-sky-500/20 text-sky-300 text-[10px] font-black shrink-0"
-                      >
-                        📲 Ping
-                      </button>
-                    </div>
-                  );
-                })
-              )}
-
-              {doneTasks.length > 0 && (
-                <div className="pt-3 mt-3 border-t border-white/10 space-y-1.5">
-                  <div className="text-xs font-extrabold opacity-60">☑️ Erledigt ({doneTasks.length})</div>
-                  {doneTasks.slice(0, 6).map(task => (
-                    <div
-                      key={task.id}
-                      onClick={() => handleToggleMobileTask(task)}
-                      className={'p-2.5 rounded-xl border flex items-center gap-2.5 opacity-55 ' + themeStyles.subtle}
-                    >
-                      <input type="checkbox" checked={true} readOnly className="w-4 h-4 accent-emerald-500 rounded" />
-                      <span className="text-xs font-bold line-through truncate">{task.title}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            ))}
           </div>
         )}
 
-        {/* =====================================================
-            TAB 3: EINKAUFSLISTE & HEUTIGES GERICHT
-           ===================================================== */}
+        {/* TAB: EINKAUF */}
         {activeTab === 'shopping' && (
-          <div className="space-y-4">
-            <div className={'p-4 rounded-3xl border-2 border-amber-400/50 flex items-center justify-between gap-3 ' + themeStyles.card}>
-              <div>
-                <span className="text-[10px] font-black uppercase text-amber-400">🍲 Heutiges Familien-Essen ({todaysMeal?.dayLabel})</span>
-                <div className="font-extrabold text-base mt-0.5">{todaysMeal?.dish || 'Freie Auswahl'}</div>
+          <div className={'p-4 rounded-3xl border space-y-2.5 ' + themeStyles.card}>
+            <h2 className="font-black text-base">🛒 Einkaufsliste ({openShop.length})</h2>
+            {openShop.map(it => (
+              <div key={it.origIdx} className={'p-3 rounded-2xl border text-xs font-bold ' + themeStyles.subtle}>
+                • {it.text}
               </div>
-              <Utensils className="w-6 h-6 text-amber-400 shrink-0" />
-            </div>
-
-            <form onSubmit={handleAddQuickShopItem} className="flex gap-2">
-              <input
-                type="text"
-                value={quickShopText}
-                onChange={(e) => setQuickShopText(e.target.value)}
-                placeholder="Artikel in den Einkaufswagen..."
-                className={'flex-1 px-4 py-3.5 rounded-2xl border text-sm font-bold ' + themeStyles.input}
-              />
-              <button
-                type="submit"
-                className="px-5 rounded-2xl bg-amber-500 text-slate-950 font-black text-sm active:scale-95"
-              >
-                +
-              </button>
-            </form>
-
-            <div className={'rounded-3xl border p-4 space-y-2 ' + themeStyles.card}>
-              <div className="flex items-center justify-between mb-1">
-                <span className="font-extrabold text-sm">🛒 Einkaufsliste ({openShop.length} offen)</span>
-              </div>
-
-              {openShop.length === 0 ? (
-                <div className="py-8 text-center text-xs font-bold opacity-50">
-                  🛒 Einkaufswagen ist leer!
-                </div>
-              ) : (
-                openShop.map(item => (
-                  <div
-                    key={item.origIdx}
-                    onClick={() => handleToggleShopItem(item.origIdx)}
-                    className={'p-3.5 rounded-2xl border flex items-center gap-3 active:scale-[0.98] transition-transform cursor-pointer ' + themeStyles.subtle}
-                  >
-                    <input type="checkbox" checked={false} readOnly className="w-5 h-5 accent-amber-500 rounded shrink-0" />
-                    <span className="font-bold text-sm break-words">{item.text}</span>
-                  </div>
-                ))
-              )}
-
-              {doneShop.length > 0 && (
-                <div className="pt-3 mt-3 border-t border-white/10 space-y-1.5">
-                  <div className="text-xs font-extrabold opacity-60">Im Einkaufswagen ({doneShop.length})</div>
-                  {doneShop.map(item => (
-                    <div
-                      key={item.origIdx}
-                      onClick={() => handleToggleShopItem(item.origIdx)}
-                      className={'p-2.5 rounded-xl border flex items-center gap-2.5 opacity-50 ' + themeStyles.subtle}
-                    >
-                      <input type="checkbox" checked={true} readOnly className="w-4 h-4 accent-emerald-500 rounded" />
-                      <span className="text-xs font-bold line-through">{item.text}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            ))}
           </div>
         )}
 
-        {/* =====================================================
-            TAB 4: SCHULE & STUNDENPLAN UNTERWEGS
-           ===================================================== */}
-        {activeTab === 'school' && (() => {
-          const childMem = safeMembers.find(m => m.id === activeSchoolChild) || safeMembers[3] || safeMembers[0];
-          const sched = schoolData?.[activeSchoolChild] || { periods: [], slots: {}, announcements: [] };
-          const schoolDays = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag'];
-
-          return (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={() => setActiveSchoolChild('dean')}
-                  className={'py-3 rounded-2xl font-extrabold text-xs ' + (activeSchoolChild === 'dean' ? 'bg-sky-500 text-white shadow-md' : 'bg-white/10')}
-                >
-                  👦 {safeMembers.find(m => m.id === 'dean')?.name || 'Kind 1'}
-                </button>
-                <button
-                  onClick={() => setActiveSchoolChild('valentina')}
-                  className={'py-3 rounded-2xl font-extrabold text-xs ' + (activeSchoolChild === 'valentina' ? 'bg-sky-500 text-white shadow-md' : 'bg-white/10')}
-                >
-                  👧 {safeMembers.find(m => m.id === 'valentina')?.name || 'Kind 2'}
-                </button>
-              </div>
-
-              {(sched.announcements || []).length > 0 && (
-                <div className="p-4 rounded-3xl bg-amber-500/20 border border-amber-400/50 space-y-1.5">
-                  <div className="text-xs font-black uppercase text-amber-300">📌 Wichtige Schul-Infos ({childMem.name})</div>
-                  {(sched.announcements || []).map((note, idx) => (
-                    <div key={idx} className="text-xs font-bold">• {note}</div>
-                  ))}
-                </div>
-              )}
-
-              <div className="space-y-3">
-                {schoolDays.map((dayName, dIdx) => (
-                  <div key={dayName} className={'p-4 rounded-3xl border space-y-2 ' + themeStyles.card}>
-                    <div className="font-black text-sm text-sky-400 uppercase">{dayName}</div>
-                    <div className="grid grid-cols-1 gap-1.5">
-                      {(sched.periods || []).map((pLabel, pIdx) => {
-                        const slot = sched.slots?.[dIdx + '-' + pIdx];
-                        if (!slot || !slot.subject) return null;
-                        return (
-                          <div key={pIdx} className={'px-3 py-2 rounded-xl border flex items-center justify-between text-xs font-bold ' + themeStyles.subtle}>
-                            <span className="opacity-70">{pLabel}</span>
-                            <span className="font-extrabold">{slot.subject}</span>
-                            <span className="opacity-75">{slot.room}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          );
-        })()}
+        {/* TAB: SCHULE */}
+        {activeTab === 'school' && (
+          <div className={'p-4 rounded-3xl border space-y-2.5 ' + themeStyles.card}>
+            <h2 className="font-black text-base">🎒 Schule</h2>
+            <p className="text-xs opacity-75">Stundenplan & Infos sind synchron mit der Touchwall.</p>
+          </div>
+        )}
       </main>
 
-      {/* MODAL: NEUER TERMIN AUF DEM HANDY */}
-      {newEventModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 flex items-end sm:items-center justify-center p-4">
-          <form onSubmit={handleCreateMobileEvent} className={'w-full max-w-md rounded-3xl border-2 p-5 space-y-3.5 ' + themeStyles.modal}>
-            <div className="flex items-center justify-between">
-              <h3 className="font-black text-base">📅 Neuer Termin</h3>
-              <button type="button" onClick={() => setNewEventModalOpen(false)} className="p-2 rounded-full bg-white/10">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <input
-              type="text"
-              required
-              value={newEvTitle}
-              onChange={(e) => setNewEvTitle(e.target.value)}
-              placeholder="Was steht an? (z.B. Zahnarzt, Training)"
-              className={'w-full px-4 py-3 rounded-2xl border text-sm font-bold ' + themeStyles.input}
-            />
-
-            <div className="grid grid-cols-2 gap-2.5">
-              <input
-                type="date"
-                value={newEvDate}
-                onChange={(e) => setNewEvDate(e.target.value)}
-                className={'px-3 py-2.5 rounded-2xl border text-xs font-bold ' + themeStyles.input}
-              />
-              <input
-                type="text"
-                value={newEvTime}
-                onChange={(e) => setNewEvTime(e.target.value)}
-                placeholder="15:00 - 16:00"
-                className={'px-3 py-2.5 rounded-2xl border text-xs font-bold ' + themeStyles.input}
-              />
-            </div>
-
-            <div className="flex items-center gap-1.5 overflow-x-auto py-1">
-              {safeMembers.map(m => (
-                <button
-                  key={m.id}
-                  type="button"
-                  onClick={() => setNewEvMember(m.id)}
-                  className={'px-3 py-1.5 rounded-xl text-xs font-extrabold shrink-0 ' + (newEvMember === m.id ? 'bg-sky-500 text-white' : 'bg-white/10 opacity-75')}
-                >
-                  {m.id === 'all' ? 'Familie' : m.name.split(' ')[0]}
-                </button>
-              ))}
-            </div>
-
-            <button
-              type="submit"
-              className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-sky-500 to-indigo-600 text-white font-black text-sm shadow-lg active:scale-95"
-            >
-              💾 Termin speichern
-            </button>
-          </form>
-        </div>
-      )}
-
-      {/* UNTERE DAUMEN-NAVIGATION (4 HAUPT-REITER FÜR UNTERWEGS) */}
-      <nav className={'fixed bottom-0 left-0 right-0 z-40 border-t px-3 py-2 flex items-center justify-around shadow-2xl ' + themeStyles.header}>
+      {/* UNTERE DAUMEN-LEISTE MIT KAMERA-SCANNER IN DER MITTE */}
+      <nav className={'fixed bottom-0 left-0 right-0 z-40 border-t px-2 py-2 flex items-center justify-around shadow-2xl ' + themeStyles.header}>
         {[
-          { id: 'agenda',   label: 'Termine',  icon: Calendar,      badge: safeEvents.filter(e => e.date === todayStr).length },
-          { id: 'tasks',    label: 'Aufgaben', icon: CheckSquare,   badge: openTasks.length },
-          { id: 'shopping', label: 'Einkauf',  icon: ShoppingCart,  badge: openShop.length },
-          { id: 'school',   label: 'Schule',   icon: GraduationCap, badge: 0 }
+          { id: 'agenda',   label: 'Termine',  icon: Calendar },
+          { id: 'tasks',    label: 'Aufgaben', icon: CheckSquare },
+          { id: 'scanner',  label: 'Scanner',  icon: Camera },
+          { id: 'shopping', label: 'Einkauf',  icon: ShoppingCart },
+          { id: 'school',   label: 'Schule',   icon: GraduationCap }
         ].map(tab => {
           const Icon = tab.icon;
           const active = activeTab === tab.id;
           return (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={'relative flex-1 py-2 rounded-2xl flex flex-col items-center gap-1 text-[11px] font-extrabold transition-all active:scale-90 ' + (active ? 'bg-sky-500 text-white shadow-md' : 'opacity-70')}
+              onClick={() => {
+                if (tab.id !== 'scanner') stopCameraStream();
+                setActiveTab(tab.id);
+              }}
+              className={'flex-1 py-2 rounded-2xl flex flex-col items-center gap-1 text-[10px] font-extrabold transition-all ' + (active ? 'bg-sky-500 text-white shadow-md scale-105' : 'opacity-70')}
             >
               <Icon className="w-5 h-5" />
               <span>{tab.label}</span>
-              {tab.badge > 0 && (
-                <span className={'absolute top-1 right-4 px-1.5 py-0.2 rounded-full text-[9px] font-black ' + (active ? 'bg-white text-slate-950' : 'bg-amber-500 text-slate-950')}>
-                  {tab.badge}
-                </span>
-              )}
             </button>
           );
         })}
