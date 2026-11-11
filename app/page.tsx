@@ -7,7 +7,8 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Calendar, GraduationCap, CheckSquare, Utensils, FileText,
   Palette, Cloud, Plus, ChevronLeft, ChevronRight, Maximize2,
-  Smartphone, RefreshCw, X, Volume2, BellRing, Copy, ClipboardPaste, Clock
+  Smartphone, RefreshCw, X, Volume2, BellRing, Copy, ClipboardPaste,
+  Clock, Lock, LogOut, KeyRound, Sparkles, ShieldCheck
 } from 'lucide-react';
 
 import * as Cfg from './touchwallConfig';
@@ -35,10 +36,25 @@ const {
   updateTodoistTaskItem,
   closeOrReopenTodoistTask,
   deleteTodoistTask,
-  pushTodoistTaskToPhoneNow
+  pushTodoistTaskToPhoneNow,
+  setTouchwallAuthCookie,
+  hasTouchwallAuthCookie,
+  clearTouchwallAuthCookie
 } = Cfg;
 
 export default function TouchwallApp() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+  const [authTab, setAuthTab] = useState('cloud');
+  const [familyName, setFamilyName] = useState('Familien-Touchwall');
+
+  const [loginGasUrl, setLoginGasUrl] = useState('');
+  const [loginTodoistToken, setLoginTodoistToken] = useState('');
+  const [loginFamilyName, setLoginFamilyName] = useState('');
+  const [setupMemberNames, setSetupMemberNames] = useState(['Person 1', 'Person 2', 'Kind 1', 'Kind 2']);
+  const [loginError, setLoginError] = useState('');
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+
   const [todayStr, setTodayStr] = useState(() => formatDateStr(new Date()));
   const [currentBaseDate, setCurrentBaseDate] = useState(() => getMonday(new Date()));
   const [currentView, setCurrentView] = useState('1w');
@@ -80,12 +96,7 @@ export default function TouchwallApp() {
   const [familyNotes, setFamilyNotes] = useState(DEFAULT_NOTES);
   const [schoolData, setSchoolData] = useState(DEFAULT_SCHOOL);
   const [activeSchoolChild, setActiveSchoolChild] = useState('dean');
-  const [familyTasks, setFamilyTasks] = useState([
-    { id: 1, member: 'hans',      title: 'Todoist Team „Familie Richter“ verbinden', description: '', priority: 3, due: 'Heute', dueDate: '', dueTime: '', notifyTime: '30m', done: false },
-    { id: 2, member: 'sarah',     title: 'Essensplan für nächste Woche durchsehen',  description: '', priority: 2, due: 'Morgen', dueDate: '', dueTime: '', notifyTime: '30m', done: false },
-    { id: 3, member: 'dean',      title: '🎒 Schultasche & Sportzeug richten',       description: '', priority: 3, due: 'Bis 17:00 Uhr', dueDate: '', dueTime: '17:00', notifyTime: '15m', done: false },
-    { id: 4, member: 'valentina', title: '🧸 Zimmer aufräumen & 15 Min. Lesen',      description: '', priority: 2, due: 'Bis 16:30 Uhr', dueDate: '', dueTime: '16:30', notifyTime: '15m', done: false }
-  ]);
+  const [familyTasks, setFamilyTasks] = useState([]);
 
   const [toast, setToast] = useState(null);
   const [copiedEvent, setCopiedEvent] = useState(null);
@@ -108,9 +119,6 @@ export default function TouchwallApp() {
     setTimeout(() => setToast(null), 3800);
   };
 
-  // =========================================================
-  // SICHERER THEME-WECHSEL (VERHINDERT ZURÜCKSPRINGEN DURCH CLOUD-SYNC!)
-  // =========================================================
   const handleSelectTheme = (nextThemeId) => {
     lastLocalEditTimeRef.current = Date.now();
     lastThemeChangeRef.current = Date.now();
@@ -270,7 +278,7 @@ export default function TouchwallApp() {
     const perm = await Notification.requestPermission();
     setPushPermission(perm);
     if (perm === 'granted') {
-      new Notification('🔔 Familien-Touchwall Push aktiv!', { body: 'Browser-Push & Sound sind bereit.' });
+      new Notification('🔔 Touchwall Push aktiv!', { body: 'Browser-Push & Sound sind bereit.' });
       showToast('Browser-Push aktiv', 'Alarme sind eingeschaltet!', '🔔');
       return true;
     }
@@ -298,6 +306,7 @@ export default function TouchwallApp() {
   };
 
   useEffect(() => {
+    if (!isAuthenticated) return;
     const offsetMinutesMap = { '0m': 0, '5m': 5, '10m': 10, '15m': 15, '30m': 30, '1h': 60, '2h': 120, '1d': 1440 };
     const checkAlarms = () => {
       const now = new Date();
@@ -350,7 +359,7 @@ export default function TouchwallApp() {
 
     const timer = setInterval(checkAlarms, 15000);
     return () => clearInterval(timer);
-  }, [safeEvents, safeTasks, safeMembers, todayStr]);
+  }, [isAuthenticated, safeEvents, safeTasks, safeMembers, todayStr]);
 
   const createAndSelectTodoistProject = async (projectName) => {
     const token = safeTodoistConfig.apiToken.trim();
@@ -410,6 +419,7 @@ export default function TouchwallApp() {
   };
 
   const syncWithTodoistNow = async (showFeedback = false, cfgOverride = null) => {
+    if (!isAuthenticated) return;
     if (!showFeedback && Date.now() - lastLocalEditTimeRef.current < 3500) return;
 
     const cfg = cfgOverride || safeTodoistConfig;
@@ -457,6 +467,7 @@ export default function TouchwallApp() {
   syncTodoistRef.current = syncWithTodoistNow;
 
   useEffect(() => {
+    if (!isAuthenticated) return;
     const initTimeout = setTimeout(() => {
       syncTodoistRef.current?.(false);
     }, 1500);
@@ -481,7 +492,7 @@ export default function TouchwallApp() {
       window.removeEventListener('focus', onFocusOrVisible);
       document.removeEventListener('visibilitychange', onFocusOrVisible);
     };
-  }, []);
+  }, [isAuthenticated]);
 
   const callGoogleAppsScript = async (targetUrl, method = 'GET', postBody = null) => {
     try {
@@ -524,7 +535,7 @@ export default function TouchwallApp() {
   };
 
   const sendCalendarApiAction = async (bodyData, statusLabel = '⏳ Synchronisiere...') => {
-    const targetUrl = (appsScriptUrl || DEFAULT_APPS_SCRIPT_URL).trim();
+    const targetUrl = (appsScriptUrl || '').trim();
     if (!targetUrl) return null;
     isMutatingCalendar.current = true;
     setIsSyncing(true);
@@ -550,9 +561,9 @@ export default function TouchwallApp() {
   };
 
   const pullFromCloud = async (urlOverride, showFeedback = true) => {
-    if ((isMutatingCalendar.current || Date.now() - lastLocalEditTimeRef.current < 8000) && !showFeedback) return;
+    if ((isMutatingCalendar.current || Date.now() - lastLocalEditTimeRef.current < 8000) && !showFeedback) return false;
     const targetUrl = (urlOverride !== undefined ? urlOverride : appsScriptUrl).trim();
-    if (!targetUrl) return;
+    if (!targetUrl) return false;
     if (showFeedback) setIsSyncing(true);
     try {
       const bundle = await callGoogleAppsScript(targetUrl, 'GET', null);
@@ -563,7 +574,8 @@ export default function TouchwallApp() {
 
       if (bundle?.state) {
         const s = bundle.state;
-        const baseMembers = (Array.isArray(s.members) && s.members.length >= 5) ? s.members : safeMembers;
+        if (s.familyName) setFamilyName(s.familyName);
+        const baseMembers = (Array.isArray(s.members) && s.members.length >= 2) ? s.members : safeMembers;
         setMembers(baseMembers.map(m => {
           const cid = calMap[m.id] !== undefined && calMap[m.id] !== '' ? calMap[m.id] : (m.calendarId || (m.id === 'all' ? 'primary' : ''));
           const st = statusMap[m.id];
@@ -594,12 +606,14 @@ export default function TouchwallApp() {
       }, 250);
 
       if (showFeedback) showToast('Synchronisiert', 'Kalender & Cloud sind aktuell.', '☁️');
+      return true;
     } catch (err) {
       isInitialLoadDone.current = true;
       isApplyingRemoteState.current = false;
       if (showFeedback) {
-        showToast('Google-Verbindung', 'Bitte prüfe in Apps Script, ob die Bereitstellung auf „Jeder“ steht.', '⚠️');
+        showToast('Google-Verbindung', 'Bitte prüfe die Apps-Script-URL und ob die Bereitstellung auf „Jeder“ steht.', '⚠️');
       }
+      return false;
     } finally {
       if (showFeedback) setIsSyncing(false);
     }
@@ -610,41 +624,87 @@ export default function TouchwallApp() {
 
   useEffect(() => {
     try {
+      const params = new URLSearchParams(window.location.search);
+      const qrCloudUrl = params.get('cloud');
+      const qrFamily = params.get('family');
+
       const lockedTheme = localStorage.getItem('richter_tw_theme_lock');
-      const raw = localStorage.getItem('richter_touchwall_v6');
-      if (raw) {
-        const data = JSON.parse(raw);
-        if (Array.isArray(data.members) && data.members.length >= 5) setMembers(data.members);
-        if (Array.isArray(data.mealPlan) && data.mealPlan.length > 0) setMealPlan(data.mealPlan);
-        if (Array.isArray(data.familyNotes) && data.familyNotes.length > 0) setFamilyNotes(data.familyNotes);
-        if (data.schoolData?.dean) setSchoolData(data.schoolData);
-        if (Array.isArray(data.familyTasks)) setFamilyTasks(data.familyTasks);
-        if (lockedTheme) {
-          setCurrentTheme(lockedTheme);
-        } else if (data.currentTheme) {
-          setCurrentTheme(data.currentTheme);
-        }
-        if (data.customLogoUrl) setCustomLogoUrl(data.customLogoUrl);
-        if (data.todoistConfig && typeof data.todoistConfig === 'object') setTodoistConfig(prev => ({ ...prev, ...data.todoistConfig }));
-      } else if (lockedTheme) {
-        setCurrentTheme(lockedTheme);
+      if (lockedTheme) setCurrentTheme(lockedTheme);
+
+      const savedGasUrl = localStorage.getItem('richter_tw_gas_url') || '';
+      const rawState = localStorage.getItem('richter_touchwall_v6');
+      let parsedState = null;
+      if (rawState) {
+        try { parsedState = JSON.parse(rawState); } catch (e) {}
       }
-      const savedEv = localStorage.getItem('richter_touchwall_events_cache');
-      if (savedEv) {
-        const parsedEv = JSON.parse(savedEv);
-        if (Array.isArray(parsedEv)) setEvents(parsedEv);
+
+      if (qrCloudUrl && qrCloudUrl.startsWith('https://script.google.com')) {
+        const cleanName = qrFamily || parsedState?.familyName || 'Familien-Touchwall';
+        setAppsScriptUrl(qrCloudUrl);
+        setFamilyName(cleanName);
+        localStorage.setItem('richter_tw_gas_url', qrCloudUrl);
+        setTouchwallAuthCookie(cleanName);
+        setIsAuthenticated(true);
+        setIsCheckingAuth(false);
+        window.history.replaceState({}, '', window.location.pathname);
+        setTimeout(() => pullCloudRef.current?.(qrCloudUrl, true), 200);
+        return;
+      }
+
+      const cookieActive = hasTouchwallAuthCookie();
+      const hasExistingLocalSetup = Boolean(
+        cookieActive && (savedGasUrl || parsedState?.isConfigured || parsedState?.todoistConfig?.apiToken)
+      );
+
+      if (hasExistingLocalSetup) {
+        if (savedGasUrl) setAppsScriptUrl(savedGasUrl);
+        if (parsedState) {
+          if (parsedState.familyName) setFamilyName(parsedState.familyName);
+          if (Array.isArray(parsedState.members) && parsedState.members.length >= 2) setMembers(parsedState.members);
+          if (Array.isArray(parsedState.mealPlan) && parsedState.mealPlan.length > 0) setMealPlan(parsedState.mealPlan);
+          if (Array.isArray(parsedState.familyNotes) && parsedState.familyNotes.length > 0) setFamilyNotes(parsedState.familyNotes);
+          if (parsedState.schoolData?.dean) setSchoolData(parsedState.schoolData);
+          if (Array.isArray(parsedState.familyTasks)) setFamilyTasks(parsedState.familyTasks);
+          if (!lockedTheme && parsedState.currentTheme) setCurrentTheme(parsedState.currentTheme);
+          if (parsedState.customLogoUrl) setCustomLogoUrl(parsedState.customLogoUrl);
+          if (parsedState.todoistConfig && typeof parsedState.todoistConfig === 'object') {
+            setTodoistConfig(prev => ({ ...prev, ...parsedState.todoistConfig }));
+          }
+        }
+        const savedEv = localStorage.getItem('richter_touchwall_events_cache');
+        if (savedEv) {
+          try {
+            const parsedEv = JSON.parse(savedEv);
+            if (Array.isArray(parsedEv)) setEvents(parsedEv);
+          } catch (e) {}
+        }
+        setIsAuthenticated(true);
+        isInitialLoadDone.current = true;
+        if (savedGasUrl) {
+          setTimeout(() => pullCloudRef.current?.(savedGasUrl, false), 300);
+        }
+      } else {
+        if (savedGasUrl) setLoginGasUrl(savedGasUrl);
+        if (parsedState?.todoistConfig?.apiToken) setLoginTodoistToken(parsedState.todoistConfig.apiToken);
+        if (parsedState?.familyName) setLoginFamilyName(parsedState.familyName);
       }
     } catch (e) {}
+    setIsCheckingAuth(false);
+  }, []);
 
-    pullCloudRef.current?.(DEFAULT_APPS_SCRIPT_URL, false);
+  useEffect(() => {
+    if (!isAuthenticated || !appsScriptUrl?.trim()) return;
     const calInterval = setInterval(() => {
       pullCloudRef.current?.(undefined, false);
     }, 30000);
     return () => clearInterval(calInterval);
-  }, []);
+  }, [isAuthenticated, appsScriptUrl]);
 
   useEffect(() => {
+    if (!isAuthenticated) return;
     const payload = {
+      isConfigured: true,
+      familyName,
       members: safeMembers,
       mealPlan: safeMeals,
       familyNotes: safeNotes,
@@ -659,13 +719,136 @@ export default function TouchwallApp() {
 
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
     autoSaveTimer.current = setTimeout(async () => {
-      const targetUrl = (appsScriptUrl || DEFAULT_APPS_SCRIPT_URL).trim();
+      const targetUrl = (appsScriptUrl || '').trim();
       if (!targetUrl) return;
       try {
         await callGoogleAppsScript(targetUrl, 'POST', { action: 'saveState', payload });
       } catch (e) {}
     }, 600);
-  }, [safeMembers, safeMeals, safeNotes, safeSchoolData, safeTasks, currentTheme, customLogoUrl, safeTodoistConfig, appsScriptUrl]);
+  }, [isAuthenticated, familyName, safeMembers, safeMeals, safeNotes, safeSchoolData, safeTasks, currentTheme, customLogoUrl, safeTodoistConfig, appsScriptUrl]);
+
+  const handleCloudLoginSubmit = async (e) => {
+    e.preventDefault();
+    setLoginError('');
+    const cleanUrl = loginGasUrl.trim();
+    const cleanTok = loginTodoistToken.trim();
+    const chosenTitle = loginFamilyName.trim() || 'Familien-Touchwall';
+
+    if (!cleanUrl && !cleanTok) {
+      setLoginError('Bitte trage deine Google Apps-Script URL oder dein Todoist API-Token ein.');
+      return;
+    }
+
+    setIsLoggingIn(true);
+    try {
+      const existingRaw = localStorage.getItem('richter_touchwall_v6');
+      if (existingRaw) {
+        try {
+          const parsed = JSON.parse(existingRaw);
+          if (Array.isArray(parsed.members) && parsed.members.length >= 2) setMembers(parsed.members);
+          if (Array.isArray(parsed.mealPlan)) setMealPlan(parsed.mealPlan);
+          if (Array.isArray(parsed.familyNotes)) setFamilyNotes(parsed.familyNotes);
+          if (parsed.schoolData?.dean) setSchoolData(parsed.schoolData);
+          if (Array.isArray(parsed.familyTasks)) setFamilyTasks(parsed.familyTasks);
+        } catch (err) {}
+      }
+
+      if (cleanUrl) {
+        setAppsScriptUrl(cleanUrl);
+        localStorage.setItem('richter_tw_gas_url', cleanUrl);
+        await pullFromCloud(cleanUrl, false);
+      }
+
+      if (cleanTok) {
+        const disc = await discoverTodoistWorkspace(cleanTok);
+        setTodoistConfig({
+          apiToken: cleanTok,
+          projects: Array.isArray(disc?.projects) ? disc.projects : [],
+          shoppingProjectId: disc?.shoppingProjectId || '',
+          tasksProjectId: disc?.tasksProjectId || '',
+          collaborators: Array.isArray(disc?.collaborators) ? disc.collaborators : []
+        });
+      }
+
+      setFamilyName(chosenTitle);
+      setTouchwallAuthCookie(chosenTitle);
+      isInitialLoadDone.current = true;
+      setIsAuthenticated(true);
+      showToast('Willkommen!', chosenTitle + ' wurde erfolgreich verbunden und im Cookie gespeichert.', '🔓');
+    } catch (err) {
+      setLoginError('Verbindung fehlgeschlagen: ' + (err.message || 'Bitte Daten prüfen.'));
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  const handleCreateOwnTouchwallSubmit = (e) => {
+    e.preventDefault();
+    const chosenTitle = loginFamilyName.trim() || 'Meine Familien-Touchwall';
+    const colors = ['navy_bold', 'pink', 'crimson_bold', 'teal_bold'];
+    const emojis = ['👨', '👩', '👦', '👧'];
+    const roles = ['Elternteil', 'Elternteil', 'Kind', 'Kind'];
+    const ids = ['hans', 'sarah', 'dean', 'valentina'];
+
+    const customMembers = [
+      { id: 'all', name: 'Familie & Events', role: 'Alle gemeinsam', badge: 'FA', color: 'orange_bold', avatarType: 'emoji', emoji: '👨‍👩‍👧‍👦', photoUrl: '', calendarId: 'primary', todoistUserId: '', todoistProjectId: '', statusMsg: 'Hauptkalender', ok: true }
+    ];
+
+    setupMemberNames.forEach((rawName, idx) => {
+      const clean = String(rawName || '').trim();
+      if (clean) {
+        customMembers.push({
+          id: ids[idx] || ('mem_' + idx),
+          name: clean,
+          role: roles[idx] || 'Mitglied',
+          badge: clean.charAt(0).toUpperCase(),
+          color: colors[idx % colors.length],
+          avatarType: 'emoji',
+          emoji: emojis[idx % emojis.length],
+          photoUrl: '',
+          calendarId: '',
+          todoistUserId: '',
+          todoistProjectId: '',
+          statusMsg: 'Bereit',
+          ok: false
+        });
+      }
+    });
+
+    setFamilyName(chosenTitle);
+    setMembers(customMembers);
+    setEvents([]);
+    setFamilyTasks([]);
+    if (loginGasUrl.trim()) {
+      setAppsScriptUrl(loginGasUrl.trim());
+      localStorage.setItem('richter_tw_gas_url', loginGasUrl.trim());
+    }
+    if (loginTodoistToken.trim()) {
+      setTodoistConfig(prev => ({ ...prev, apiToken: loginTodoistToken.trim() }));
+    }
+
+    setTouchwallAuthCookie(chosenTitle);
+    isInitialLoadDone.current = true;
+    setIsAuthenticated(true);
+    showToast('Touchwall eingerichtet!', chosenTitle + ' ist jetzt lokal im Browser-Cookie aktiv.', '🎉');
+  };
+
+  const handleLogoutAndLock = () => {
+    clearTouchwallAuthCookie();
+    localStorage.removeItem('richter_touchwall_v6');
+    localStorage.removeItem('richter_touchwall_events_cache');
+    localStorage.removeItem('richter_tw_gas_url');
+    setAppsScriptUrl('');
+    setTodoistConfig({ apiToken: '', shoppingProjectId: '', tasksProjectId: '', projects: [], collaborators: [] });
+    setMembers(DEFAULT_MEMBERS);
+    setEvents([]);
+    setFamilyTasks([]);
+    setFamilyNotes(DEFAULT_NOTES);
+    setMealPlan(DEFAULT_MEALS);
+    setSchoolData(DEFAULT_SCHOOL);
+    setFamilyName('Familien-Touchwall');
+    setIsAuthenticated(false);
+  };
 
   const shoppingNoteBlock = useMemo(() => safeNotes[0] || { id: 1, title: '🛒 Einkaufsliste', items: [] }, [safeNotes]);
 
@@ -768,9 +951,6 @@ export default function TouchwallApp() {
     } : n));
   };
 
-  // =========================================================
-  // SOFORT-PUSH EINER AUFGABE ANS SMARTPHONE (TODOIST + KALENDER-PING)
-  // =========================================================
   const pushTaskToPhoneNow = async (task) => {
     if (!task) return;
     const memberObj = safeMembers.find(m => m.id === task.member);
@@ -918,9 +1098,6 @@ export default function TouchwallApp() {
     setFamilyTasks(prev => (Array.isArray(prev) ? prev : []).filter(t => !(t.member === memberId && t.done)));
   };
 
-  // =========================================================
-  // TERMINE KOPIEREN & BEI ANDEREN EINFÜGEN
-  // =========================================================
   const duplicateEventToTarget = async (sourceEv, targetMemberId, targetDateStr) => {
     const newDate = targetDateStr || sourceEv.date || todayStr;
     const newMember = targetMemberId || sourceEv.member || 'all';
@@ -933,7 +1110,7 @@ export default function TouchwallApp() {
       member: newMember,
       notifyTime: sourceEv.notifyTime || '30m',
       notifyChannel: sourceEv.notifyChannel || 'wall_push',
-      notifyUsers: newMember === 'all' ? ['hans', 'sarah', 'dean', 'valentina'] : [newMember],
+      notifyUsers: newMember === 'all' ? safeMembers.filter(m => m.id !== 'all').map(m => m.id) : [newMember],
       fromGoogle: true
     };
     setEvents(prev => [...(Array.isArray(prev) ? prev : []), copiedNewEv]);
@@ -946,7 +1123,7 @@ export default function TouchwallApp() {
       open: true, id: null, origMember: '', origTitle: '', origDate: '',
       title: '', date: dateStr, time: '15:00 - 16:00',
       member: memberId, notifyTime: '30m', notifyChannel: 'wall_push',
-      notifyUsers: memberId === 'all' ? ['hans', 'sarah', 'dean', 'valentina'] : [memberId]
+      notifyUsers: memberId === 'all' ? safeMembers.filter(m => m.id !== 'all').map(m => m.id) : [memberId]
     });
   };
 
@@ -1020,6 +1197,8 @@ export default function TouchwallApp() {
     const calMap = {};
     listToSave.forEach(m => { calMap[m.id] = (m.calendarId || '').trim(); });
     const payload = {
+      isConfigured: true,
+      familyName,
       members: listToSave,
       calendars: calMap,
       mealPlan: safeMeals,
@@ -1064,6 +1243,205 @@ export default function TouchwallApp() {
   const visibleMembers = useMemo(() => {
     return activeMemberFilter === 'all' ? safeMembers : safeMembers.filter(m => m.id === activeMemberFilter || m.id === 'all');
   }, [safeMembers, activeMemberFilter]);
+
+  // =========================================================
+  // SAUBER AUSGELAGERTE HANDLER & PROPS (VERHINDERT JEGLICHE JSX-SYNTAXFEHLER)
+  // =========================================================
+  const handleOpenEditTaskModal = (e, task) => {
+    if (e) e.stopPropagation();
+    setTaskModal({
+      open: true,
+      id: task.id,
+      todoistId: task.todoistId || null,
+      title: task.title || '',
+      description: task.description || '',
+      member: task.member || 'hans',
+      priority: task.priority || 3,
+      dueDate: task.dueDate || todayStr,
+      dueTime: task.dueTime || '17:00',
+      notifyTime: task.notifyTime || '15m',
+      syncToCalendar: false
+    });
+  };
+
+  const handleLogoUpload = (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    const r = new FileReader();
+    r.onload = (ev) => setCustomLogoUrl(ev.target.result);
+    r.readAsDataURL(f);
+  };
+
+  const handleMemberPhotoUpload = (mid, e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    const r = new FileReader();
+    r.onload = (ev) => setMembers(prev => (Array.isArray(prev) ? prev : DEFAULT_MEMBERS).map(m => m.id === mid ? { ...m, photoUrl: ev.target.result, avatarType: 'photo' } : m));
+    r.readAsDataURL(f);
+  };
+
+  const restoreScreenshotDefaults = () => {
+    setMembers(prev => (Array.isArray(prev) ? prev : DEFAULT_MEMBERS).map(m => {
+      const def = DEFAULT_MEMBERS.find(d => d.id === m.id);
+      return def ? { ...def, calendarId: m.calendarId, todoistUserId: m.todoistUserId, todoistProjectId: m.todoistProjectId } : m;
+    }));
+    handleSelectTheme('metal');
+  };
+
+  const addExtraCalendarAccount = () => {
+    const name = prompt('Name für neuen Kalender / Person:');
+    if (!name?.trim()) return;
+    const calId = prompt('Google Kalender-ID:') || '';
+    setMembers(prev => [
+      ...(Array.isArray(prev) ? prev : DEFAULT_MEMBERS),
+      {
+        id: 'cal_' + Date.now(),
+        name: name.trim(),
+        role: 'Zusatz',
+        badge: name.trim().charAt(0).toUpperCase(),
+        color: 'teal_bold',
+        avatarType: 'emoji',
+        emoji: '📅',
+        calendarId: calId.trim(),
+        todoistProjectId: '',
+        ok: Boolean(calId.trim())
+      }
+    ]);
+  };
+
+  const importBackupJson = (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    const r = new FileReader();
+    r.onload = (ev) => {
+      try {
+        const d = JSON.parse(ev.target.result);
+        if (Array.isArray(d.members)) setMembers(d.members);
+        if (Array.isArray(d.mealPlan)) setMealPlan(d.mealPlan);
+        if (Array.isArray(d.familyNotes)) setFamilyNotes(d.familyNotes);
+        if (d.schoolData) setSchoolData(d.schoolData);
+        if (Array.isArray(d.familyTasks)) setFamilyTasks(d.familyTasks);
+        showToast('Import erfolgreich', 'Backup wiederhergestellt.', '🎉');
+      } catch (err) {}
+    };
+    r.readAsText(f);
+  };
+
+  const exportBackupJson = () => {
+    const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify({
+      familyName,
+      members: safeMembers,
+      events: safeEvents,
+      mealPlan: safeMeals,
+      familyNotes: safeNotes,
+      schoolData: safeSchoolData,
+      familyTasks: safeTasks,
+      todoistConfig: safeTodoistConfig
+    }, null, 2));
+    const a = document.createElement('a');
+    a.setAttribute('href', dataStr);
+    a.setAttribute('download', 'touchwall_backup_' + todayStr + '.json');
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+
+  const syncIconClass = isSyncing ? 'w-3.5 h-3.5 animate-spin' : 'w-3.5 h-3.5';
+
+  const calendarProps = {
+    currentView,
+    currentBaseDate,
+    todayStr,
+    visibleMembers,
+    members: safeMembers,
+    events: safeEvents,
+    themeStyles,
+    getMemberStyles,
+    renderAvatar,
+    renderNotifyBadgeOnCard,
+    setActiveSection,
+    openNewEventModal,
+    openEditEventModal,
+    handleCalendarCellClick,
+    duplicateEventToTarget,
+    transferEvent,
+    copiedEvent,
+    setCopiedEvent,
+    setYearDayModal,
+    showToast
+  };
+
+  const todoistProps = {
+    members: safeMembers,
+    setMembers,
+    familyTasks: safeTasks,
+    shoppingNoteBlock,
+    setShoppingTileProjectId,
+    todoistConfig: safeTodoistConfig,
+    createAndSelectTodoistProject,
+    isSyncing,
+    lastAutoSyncTime,
+    themeStyles,
+    getMemberStyles,
+    renderAvatar,
+    syncWithTodoistNow,
+    addNewTaskWithSettings,
+    pushTaskToPhoneNow,
+    toggleTaskDone,
+    deleteTaskItem,
+    clearCompletedMemberTasks,
+    openEditTaskModal: handleOpenEditTaskModal,
+    addShoppingItem,
+    toggleShoppingItem,
+    deleteShoppingItem,
+    clearCompletedShoppingItems,
+    setActiveSection
+  };
+
+  const otherSectionsProps = {
+    activeSection,
+    members: safeMembers,
+    setMembers,
+    schoolData: safeSchoolData,
+    setSchoolData,
+    activeSchoolChild,
+    setActiveSchoolChild,
+    setSchoolModal,
+    mealPlan: safeMeals,
+    setMealPlan,
+    familyNotes: safeNotes,
+    setFamilyNotes,
+    addItemToNoteTile,
+    toggleItemInNoteTile,
+    deleteItemInNoteTile,
+    currentTheme,
+    setCurrentTheme: handleSelectTheme,
+    customLogoUrl,
+    setCustomLogoUrl,
+    handleLogoUpload,
+    handleMemberPhotoUpload,
+    restoreScreenshotDefaults,
+    appsScriptUrl,
+    setAppsScriptUrl,
+    todoistConfig: safeTodoistConfig,
+    setTodoistConfig,
+    connectAndDiscoverTodoist,
+    createAndSelectTodoistProject,
+    addShoppingItemsBatch,
+    runAllPermissionsTest,
+    isTestingDiag,
+    diagResult,
+    pullFromCloud,
+    pushToCloudAndDrive,
+    addExtraCalendarAccount,
+    importBackupJson,
+    exportBackupJson,
+    setQrModalOpen,
+    themeStyles,
+    getMemberStyles,
+    renderAvatar,
+    showToast
+  };
 
   const globalStyles = [
     '@keyframes twShockwave {',
@@ -1121,6 +1499,203 @@ export default function TouchwallApp() {
     '}'
   ].join('\n');
 
+  if (isCheckingAuth) {
+    return (
+      <div className="w-screen h-screen bg-[#15181c] text-slate-100 flex items-center justify-center">
+        <div className="text-sm font-extrabold opacity-70 animate-pulse">🔒 Prüfe lokalen Cookie-Login...</div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <div
+        onPointerDown={spawnTouchRipple}
+        style={{
+          '--tw-btn-from': themeStyles.btnFrom || '#0ea5e9',
+          '--tw-btn-to': themeStyles.btnTo || '#4f46e5',
+          '--tw-btn-border': themeStyles.btnBorder || '#38bdf8',
+          '--tw-btn-glow': themeStyles.btnGlow || 'rgba(56, 189, 248, 0.5)',
+          '--tw-btn-rest-base': '#1e222d',
+          '--tw-btn-rest-text': '#e2e8f0'
+        }}
+        className="w-screen h-screen bg-[#12151a] text-slate-100 flex items-center justify-center p-4 overflow-y-auto select-none"
+      >
+        <style>{globalStyles}</style>
+
+        <div className="w-full max-w-2xl rounded-3xl border-2 border-slate-700/80 bg-[#1c2128] p-6 sm:p-8 shadow-2xl space-y-6 my-auto">
+          <div className="flex items-center justify-between gap-4 border-b border-slate-700/80 pb-5">
+            <div className="flex items-center gap-3.5">
+              <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-sky-500 to-indigo-600 flex items-center justify-center shadow-lg">
+                <Lock className="w-7 h-7 text-white" />
+              </div>
+              <div>
+                <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[11px] font-extrabold border border-emerald-400/30">
+                  🛡️ Zero-Data Privacy • Cookie-Login
+                </span>
+                <h1 className="text-2xl font-black mt-1">Touchwall Login & Einrichtung</h1>
+                <p className="text-xs text-slate-400 font-semibold">
+                  Auf dieser Seite sind vorab keine persönlichen Daten hinterlegt. Deine Zugangsdaten werden erst nach dem Eintragen lokal im Browser-Cookie gespeichert.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2.5 p-1.5 rounded-2xl bg-[#13171c] border border-slate-700/70">
+            <button
+              type="button"
+              onClick={() => { setAuthTab('cloud'); setLoginError(''); }}
+              className={'py-3 px-4 rounded-xl text-xs sm:text-sm font-extrabold flex items-center justify-center gap-2 cursor-pointer ' + (authTab === 'cloud' ? 'tw-active-nav' : 'tw-nav-inactive text-slate-400')}
+            >
+              <KeyRound className="w-4 h-4" />
+              <span>1. Mit Cloud-Touchwall anmelden</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => { setAuthTab('new'); setLoginError(''); }}
+              className={'py-3 px-4 rounded-xl text-xs sm:text-sm font-extrabold flex items-center justify-center gap-2 cursor-pointer ' + (authTab === 'new' ? 'tw-active-nav' : 'tw-nav-inactive text-slate-400')}
+            >
+              <Sparkles className="w-4 h-4" />
+              <span>2. Eigene Touchwall erstellen</span>
+            </button>
+          </div>
+
+          {loginError && (
+            <div className="p-3.5 rounded-2xl bg-rose-500/20 border border-rose-400/50 text-rose-200 text-xs font-extrabold">
+              ⚠️ {loginError}
+            </div>
+          )}
+
+          {authTab === 'cloud' ? (
+            <form onSubmit={handleCloudLoginSubmit} className="space-y-4">
+              <div className="p-4 rounded-2xl bg-[#151920] border border-slate-700/70 space-y-3.5">
+                <div>
+                  <label className="block text-xs font-extrabold uppercase text-sky-400 mb-1">
+                    🏠 Name deiner Touchwall (Anzeigename oben im Header)
+                  </label>
+                  <input
+                    type="text"
+                    value={loginFamilyName}
+                    onChange={(e) => setLoginFamilyName(e.target.value)}
+                    placeholder="z.B. Familie ..."
+                    className="w-full px-4 py-3 rounded-xl bg-[#0e1116] border border-slate-700 text-sm font-bold text-white placeholder-slate-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-extrabold uppercase text-amber-400 mb-1">
+                    🔗 Deine persönliche Google Apps-Script URL (Cloud-Login)
+                  </label>
+                  <input
+                    type="url"
+                    value={loginGasUrl}
+                    onChange={(e) => setLoginGasUrl(e.target.value)}
+                    placeholder="https://script.google.com/macros/s/.../exec"
+                    className="w-full px-4 py-3 rounded-xl bg-[#0e1116] border border-slate-700 text-xs font-mono text-white placeholder-slate-500"
+                  />
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    Lädt nach dem Login automatisch deine Familienmitglieder, Kalender-Termine, Notizen und Einstellungen aus deiner privaten Google-Cloud.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-extrabold uppercase text-emerald-400 mb-1">
+                    🔑 Todoist API-Token (Optional – falls nicht bereits in der Cloud hinterlegt)
+                  </label>
+                  <input
+                    type="password"
+                    value={loginTodoistToken}
+                    onChange={(e) => setLoginTodoistToken(e.target.value)}
+                    placeholder="Todoist API-Token..."
+                    className="w-full px-4 py-3 rounded-xl bg-[#0e1116] border border-slate-700 text-xs font-mono text-white placeholder-slate-500"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={isLoggingIn}
+                className="tw-glow-btn w-full py-3.5 rounded-2xl font-black text-sm flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <ShieldCheck className="w-5 h-5" />
+                <span>{isLoggingIn ? 'Verbinde & lade deine Daten...' : '🔓 Anmelden & im Cookie speichern'}</span>
+              </button>
+            </form>
+          ) : (
+            <form onSubmit={handleCreateOwnTouchwallSubmit} className="space-y-4">
+              <div className="p-4 rounded-2xl bg-[#151920] border border-slate-700/70 space-y-3.5">
+                <div>
+                  <label className="block text-xs font-extrabold uppercase text-sky-400 mb-1">
+                    🏠 Euer Familien- / Team-Name
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={loginFamilyName}
+                    onChange={(e) => setLoginFamilyName(e.target.value)}
+                    placeholder="z.B. Familie Müller oder WG-Planer"
+                    className="w-full px-4 py-3 rounded-xl bg-[#0e1116] border border-slate-700 text-sm font-bold text-white placeholder-slate-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-extrabold uppercase text-amber-400 mb-1.5">
+                    👨‍👩‍👧‍👦 Eure Personen / Spalten (Jederzeit später anpassbar)
+                  </label>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    {setupMemberNames.map((mName, idx) => (
+                      <input
+                        key={idx}
+                        type="text"
+                        value={mName}
+                        onChange={(e) => {
+                          const next = [...setupMemberNames];
+                          next[idx] = e.target.value;
+                          setSetupMemberNames(next);
+                        }}
+                        placeholder={'Person ' + (idx + 1)}
+                        className="px-3.5 py-2.5 rounded-xl bg-[#0e1116] border border-slate-700 text-xs font-bold text-white placeholder-slate-500"
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                  <input
+                    type="url"
+                    value={loginGasUrl}
+                    onChange={(e) => setLoginGasUrl(e.target.value)}
+                    placeholder="Eigene Apps-Script URL (optional)"
+                    className="px-3.5 py-2.5 rounded-xl bg-[#0e1116] border border-slate-700 text-xs font-mono text-white placeholder-slate-500"
+                  />
+                  <input
+                    type="password"
+                    value={loginTodoistToken}
+                    onChange={(e) => setLoginTodoistToken(e.target.value)}
+                    placeholder="Eigenes Todoist-Token (optional)"
+                    className="px-3.5 py-2.5 rounded-xl bg-[#0e1116] border border-slate-700 text-xs font-mono text-white placeholder-slate-500"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                className="tw-glow-btn w-full py-3.5 rounded-2xl font-black text-sm flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Sparkles className="w-5 h-5" />
+                <span>✨ Eigene Touchwall starten & Cookie speichern</span>
+              </button>
+            </form>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  const qrShareUrl = typeof window !== 'undefined'
+    ? window.location.origin + window.location.pathname + (appsScriptUrl ? '?cloud=' + encodeURIComponent(appsScriptUrl) + '&family=' + encodeURIComponent(familyName) : '')
+    : 'https://vercel.com';
+
   return (
     <div
       onPointerDown={spawnTouchRipple}
@@ -1159,7 +1734,7 @@ export default function TouchwallApp() {
               onClick={() => { setCurrentBaseDate(getMonday(new Date())); setActiveSection('kalender'); }}
               className="tw-glow-btn w-12 h-12 sm:w-14 sm:h-14 rounded-2xl flex items-center justify-center overflow-hidden cursor-pointer"
             >
-              {customLogoUrl ? <img src={customLogoUrl} alt="Logo" className="w-full h-full object-cover" /> : <span className="font-black text-lg">FR</span>}
+              {customLogoUrl ? <img src={customLogoUrl} alt="Logo" className="w-full h-full object-cover" /> : <span className="font-black text-lg">TW</span>}
             </button>
 
             <nav className="flex flex-col items-center gap-2 w-full px-2">
@@ -1188,12 +1763,22 @@ export default function TouchwallApp() {
             </nav>
           </div>
 
-          <button
-            onClick={() => openNewEventModal(todayStr, 'all')}
-            className="tw-glow-btn w-12 h-12 sm:w-14 sm:h-14 rounded-2xl font-black flex items-center justify-center cursor-pointer"
-          >
-            <Plus className="w-7 h-7 stroke-[3]" />
-          </button>
+          <div className="flex flex-col items-center gap-2.5">
+            <button
+              onClick={() => openNewEventModal(todayStr, 'all')}
+              title="Neuen Termin anlegen"
+              className="tw-glow-btn w-12 h-12 sm:w-14 sm:h-14 rounded-2xl font-black flex items-center justify-center cursor-pointer"
+            >
+              <Plus className="w-7 h-7 stroke-[3]" />
+            </button>
+            <button
+              onClick={handleLogoutAndLock}
+              title="Touchwall sperren & Cookie löschen (Abmelden)"
+              className="tw-nav-inactive w-10 h-10 rounded-xl flex items-center justify-center text-rose-400 cursor-pointer"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          </div>
         </aside>
 
         {/* HAUPTBEREICH */}
@@ -1203,7 +1788,7 @@ export default function TouchwallApp() {
               <div className="flex flex-wrap items-center gap-2.5">
                 <span className="text-xl sm:text-2xl font-black">{clockStr}</span>
                 <span className="opacity-30 text-xl">|</span>
-                <span className="text-lg sm:text-xl font-extrabold">Familie Richter</span>
+                <span className="text-lg sm:text-xl font-extrabold">{familyName}</span>
 
                 <button
                   onClick={() => {
@@ -1221,7 +1806,7 @@ export default function TouchwallApp() {
                   onClick={() => { pullFromCloud(undefined, true); syncWithTodoistNow(true); }}
                   className="tw-glow-btn inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-extrabold cursor-pointer"
                 >
-                  <RefreshCw className={'w-3.5 h-3.5 ' + (isSyncing ? 'animate-spin' : '')} />
+                  <RefreshCw className={syncIconClass} />
                   <span>{syncStatusText}</span>
                 </button>
 
@@ -1245,6 +1830,14 @@ export default function TouchwallApp() {
                   className="tw-glow-btn inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-extrabold cursor-pointer"
                 >
                   <Maximize2 className="w-3.5 h-3.5" /> Vollbild
+                </button>
+
+                <button
+                  onClick={handleLogoutAndLock}
+                  title="Abmelden & lokale Daten/Cookie aus diesem Browser entfernen"
+                  className="tw-nav-inactive inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-extrabold text-rose-400 cursor-pointer"
+                >
+                  <Lock className="w-3.5 h-3.5" /> Sperren
                 </button>
               </div>
 
@@ -1297,7 +1890,6 @@ export default function TouchwallApp() {
             </div>
           </header>
 
-          {/* GROSSER TOUCH-BANNER WENN EIN TERMIN ZUM EINFÜGEN KOPIERT WURDE */}
           {copiedEvent && (
             <div className="bg-amber-400 text-slate-950 px-5 py-3 flex flex-wrap items-center justify-between gap-3 border-b-2 border-slate-900 z-30 shrink-0 shadow-lg">
               <div className="flex items-center gap-2.5 text-sm sm:text-base font-black">
@@ -1318,166 +1910,15 @@ export default function TouchwallApp() {
           {/* HAUPT-VIEWPORT */}
           <main className={'flex-1 overflow-auto ' + themeStyles.viewport}>
             {activeSection === 'kalender' && (
-              <CalendarSection
-                currentView={currentView}
-                currentBaseDate={currentBaseDate}
-                todayStr={todayStr}
-                visibleMembers={visibleMembers}
-                members={safeMembers}
-                events={safeEvents}
-                themeStyles={themeStyles}
-                getMemberStyles={getMemberStyles}
-                renderAvatar={renderAvatar}
-                renderNotifyBadgeOnCard={renderNotifyBadgeOnCard}
-                setActiveSection={setActiveSection}
-                openNewEventModal={openNewEventModal}
-                openEditEventModal={openEditEventModal}
-                handleCalendarCellClick={handleCalendarCellClick}
-                duplicateEventToTarget={duplicateEventToTarget}
-                transferEvent={transferEvent}
-                copiedEvent={copiedEvent}
-                setCopiedEvent={setCopiedEvent}
-                setYearDayModal={setYearDayModal}
-                showToast={showToast}
-              />
+              <CalendarSection {...calendarProps} />
             )}
 
             {activeSection === 'aufgaben' && (
-              <TasksTodoistSection
-                members={safeMembers}
-                setMembers={setMembers}
-                familyTasks={safeTasks}
-                shoppingNoteBlock={shoppingNoteBlock}
-                setShoppingTileProjectId={setShoppingTileProjectId}
-                todoistConfig={safeTodoistConfig}
-                createAndSelectTodoistProject={createAndSelectTodoistProject}
-                isSyncing={isSyncing}
-                lastAutoSyncTime={lastAutoSyncTime}
-                themeStyles={themeStyles}
-                getMemberStyles={getMemberStyles}
-                renderAvatar={renderAvatar}
-                syncWithTodoistNow={syncWithTodoistNow}
-                addNewTaskWithSettings={addNewTaskWithSettings}
-                pushTaskToPhoneNow={pushTaskToPhoneNow}
-                toggleTaskDone={toggleTaskDone}
-                deleteTaskItem={deleteTaskItem}
-                clearCompletedMemberTasks={clearCompletedMemberTasks}
-                openEditTaskModal={(e, task) => {
-                  if (e) e.stopPropagation();
-                  setTaskModal({
-                    open: true,
-                    id: task.id,
-                    todoistId: task.todoistId || null,
-                    title: task.title || '',
-                    description: task.description || '',
-                    member: task.member || 'hans',
-                    priority: task.priority || 3,
-                    dueDate: task.dueDate || todayStr,
-                    dueTime: task.dueTime || '17:00',
-                    notifyTime: task.notifyTime || '15m',
-                    syncToCalendar: false
-                  });
-                }}
-                addShoppingItem={addShoppingItem}
-                toggleShoppingItem={toggleShoppingItem}
-                deleteShoppingItem={deleteShoppingItem}
-                clearCompletedShoppingItems={clearCompletedShoppingItems}
-                setActiveSection={setActiveSection}
-              />
+              <TasksTodoistSection {...todoistProps} />
             )}
 
             {['schule', 'essen', 'listen', 'design', 'google'].includes(activeSection) && (
-              <OtherSections
-                activeSection={activeSection}
-                members={safeMembers}
-                setMembers={setMembers}
-                schoolData={safeSchoolData}
-                setSchoolData={setSchoolData}
-                activeSchoolChild={activeSchoolChild}
-                setActiveSchoolChild={setActiveSchoolChild}
-                setSchoolModal={setSchoolModal}
-                mealPlan={safeMeals}
-                setMealPlan={setMealPlan}
-                familyNotes={safeNotes}
-                setFamilyNotes={setFamilyNotes}
-                addItemToNoteTile={addItemToNoteTile}
-                toggleItemInNoteTile={toggleItemInNoteTile}
-                deleteItemInNoteTile={deleteItemInNoteTile}
-                currentTheme={currentTheme}
-                setCurrentTheme={handleSelectTheme}
-                customLogoUrl={customLogoUrl}
-                setCustomLogoUrl={setCustomLogoUrl}
-                handleLogoUpload={(e) => {
-                  const f = e.target.files?.[0];
-                  if (!f) return;
-                  const r = new FileReader();
-                  r.onload = (ev) => setCustomLogoUrl(ev.target.result);
-                  r.readAsDataURL(f);
-                }}
-                handleMemberPhotoUpload={(mid, e) => {
-                  const f = e.target.files?.[0];
-                  if (!f) return;
-                  const r = new FileReader();
-                  r.onload = (ev) => setMembers(prev => (Array.isArray(prev) ? prev : DEFAULT_MEMBERS).map(m => m.id === mid ? { ...m, photoUrl: ev.target.result, avatarType: 'photo' } : m));
-                  r.readAsDataURL(f);
-                }}
-                restoreScreenshotDefaults={() => {
-                  setMembers(prev => (Array.isArray(prev) ? prev : DEFAULT_MEMBERS).map(m => {
-                    const def = DEFAULT_MEMBERS.find(d => d.id === m.id);
-                    return def ? { ...def, calendarId: m.calendarId, todoistUserId: m.todoistUserId, todoistProjectId: m.todoistProjectId } : m;
-                  }));
-                  handleSelectTheme('metal');
-                }}
-                appsScriptUrl={appsScriptUrl}
-                setAppsScriptUrl={setAppsScriptUrl}
-                todoistConfig={safeTodoistConfig}
-                setTodoistConfig={setTodoistConfig}
-                connectAndDiscoverTodoist={connectAndDiscoverTodoist}
-                createAndSelectTodoistProject={createAndSelectTodoistProject}
-                addShoppingItemsBatch={addShoppingItemsBatch}
-                runAllPermissionsTest={runAllPermissionsTest}
-                isTestingDiag={isTestingDiag}
-                diagResult={diagResult}
-                pullFromCloud={pullFromCloud}
-                pushToCloudAndDrive={pushToCloudAndDrive}
-                addExtraCalendarAccount={() => {
-                  const name = prompt('Name für neuen Kalender / Person:');
-                  if (!name?.trim()) return;
-                  const calId = prompt('Google Kalender-ID:') || '';
-                  setMembers(prev => [...(Array.isArray(prev) ? prev : DEFAULT_MEMBERS), { id: 'cal_' + Date.now(), name: name.trim(), role: 'Zusatz', badge: name.trim().charAt(0).toUpperCase(), color: 'teal_bold', avatarType: 'emoji', emoji: '📅', calendarId: calId.trim(), todoistProjectId: '', ok: Boolean(calId.trim()) }]);
-                }}
-                importBackupJson={(e) => {
-                  const f = e.target.files?.[0];
-                  if (!f) return;
-                  const r = new FileReader();
-                  r.onload = (ev) => {
-                    try {
-                      const d = JSON.parse(ev.target.result);
-                      if (Array.isArray(d.members)) setMembers(d.members);
-                      if (Array.isArray(d.mealPlan)) setMealPlan(d.mealPlan);
-                      if (Array.isArray(d.familyNotes)) setFamilyNotes(d.familyNotes);
-                      if (d.schoolData) setSchoolData(d.schoolData);
-                      if (Array.isArray(d.familyTasks)) setFamilyTasks(d.familyTasks);
-                      showToast('Import erfolgreich', 'Backup wiederhergestellt.', '🎉');
-                    } catch (err) {}
-                  };
-                  r.readAsText(f);
-                }}
-                exportBackupJson={() => {
-                  const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify({ members: safeMembers, events: safeEvents, mealPlan: safeMeals, familyNotes: safeNotes, schoolData: safeSchoolData, familyTasks: safeTasks, todoistConfig: safeTodoistConfig }, null, 2));
-                  const a = document.createElement('a');
-                  a.setAttribute('href', dataStr);
-                  a.setAttribute('download', 'touchwall_backup_' + todayStr + '.json');
-                  document.body.appendChild(a);
-                  a.click();
-                  a.remove();
-                }}
-                setQrModalOpen={setQrModalOpen}
-                themeStyles={themeStyles}
-                getMemberStyles={getMemberStyles}
-                renderAvatar={renderAvatar}
-                showToast={showToast}
-              />
+              <OtherSections {...otherSectionsProps} />
             )}
           </main>
         </div>
@@ -1504,7 +1945,7 @@ export default function TouchwallApp() {
                 <button
                   key={m.id}
                   type="button"
-                  onClick={() => setEventModal({ ...eventModal, member: m.id, notifyUsers: m.id === 'all' ? ['hans', 'sarah', 'dean', 'valentina'] : [m.id] })}
+                  onClick={() => setEventModal({ ...eventModal, member: m.id, notifyUsers: m.id === 'all' ? safeMembers.filter(x => x.id !== 'all').map(x => x.id) : [m.id] })}
                   className={'p-2.5 rounded-2xl flex flex-col items-center gap-1 cursor-pointer ' + (eventModal.member === m.id ? 'tw-active-nav' : 'tw-nav-inactive ' + themeStyles.subtle)}
                 >
                   {renderAvatar(m, 'w-8 h-8', 'text-xs')}
@@ -1513,7 +1954,6 @@ export default function TouchwallApp() {
               ))}
             </div>
 
-            {/* GROSSE TOUCH-LEISTE ZUM DIREKTEN KOPIEREN AUF ANDERE PERSONEN ODER FREIEN TAG */}
             {eventModal.title.trim() && (
               <div className={'p-3.5 rounded-2xl border space-y-2.5 ' + themeStyles.subtle}>
                 <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -1754,7 +2194,7 @@ export default function TouchwallApp() {
         </div>
       )}
 
-      {/* MODAL 2: JAHRESWAND TAGES-DETAILS (MIT GROSSEM TOUCH-KOPIER-BUTTON) */}
+      {/* MODAL 2: JAHRESWAND TAGES-DETAILS */}
       {yearDayModal.open && (() => {
         const dayEvents = safeEvents.filter(e => e.date === yearDayModal.dateStr);
         return (
@@ -1835,16 +2275,19 @@ export default function TouchwallApp() {
         </div>
       )}
 
-      {/* MODAL 4: QR CODE */}
+      {/* MODAL 4: QR CODE (MIT MAGIC-LOGIN FÜR FAMILIEN-SMARTPHONES) */}
       {qrModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
           <div className={'w-full max-w-md rounded-3xl border-2 p-6 shadow-2xl text-center space-y-4 ' + themeStyles.modal}>
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-extrabold">📱 Smartphone Live-App</h3>
+              <h3 className="text-lg font-extrabold">📱 Smartphone Direkt-Login</h3>
               <button onClick={() => setQrModalOpen(false)} className="tw-nav-inactive w-9 h-9 rounded-full flex items-center justify-center cursor-pointer"><X className="w-5 h-5" /></button>
             </div>
+            <p className={'text-xs font-semibold ' + themeStyles.textMuted}>
+              Scanne diesen QR-Code mit dem Handy – eure Cloud-Verbindung und das Login-Cookie werden auf dem Smartphone sofort automatisch eingerichtet!
+            </p>
             <div className="bg-white p-4 rounded-2xl inline-block mx-auto">
-              <img src={'https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=' + encodeURIComponent(typeof window !== 'undefined' ? window.location.href : 'https://vercel.com')} alt="QR" className="w-48 h-48" />
+              <img src={'https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=' + encodeURIComponent(qrShareUrl)} alt="QR" className="w-48 h-48" />
             </div>
           </div>
         </div>
