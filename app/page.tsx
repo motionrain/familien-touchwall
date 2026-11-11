@@ -15,6 +15,7 @@ import * as Cfg from './touchwallConfig';
 import CalendarSection from './CalendarSection';
 import TasksTodoistSection from './TasksTodoistSection';
 import OtherSections from './OtherSections';
+import PantrySection from './PantrySection';
 
 const {
   formatDateStr,
@@ -95,6 +96,8 @@ export default function TouchwallApp() {
   const [familyName, setFamilyName] = useState('Familien-Touchwall');
 
   // Formularfelder für Login & Registrierung
+  const [pantryItems, setPantryItems] = useState([]);
+  const [pantryTrash, setPantryTrash] = useState([]);
   const [formUsername, setFormUsername] = useState('');
   const [formPassword, setFormPassword] = useState('');
   const [loginFamilyName, setLoginFamilyName] = useState('');
