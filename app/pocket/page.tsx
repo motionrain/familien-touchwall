@@ -6,27 +6,28 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Calendar, CheckSquare, ShoppingCart, Camera,
-  Plus, RefreshCw, Smartphone, LogOut, Send, Trash2, Utensils,
+  Plus, RefreshCw, Smartphone, LogOut, Send, Trash2,
   X, ScanLine, FileText, ChevronLeft, ChevronRight, Pencil, Check
 } from 'lucide-react';
 
 import * as Cfg from '../touchwallConfig';
+
 function getFoodEmoji(nameStr) {
   const n = String(nameStr || '').toLowerCase();
   if (/bratwurst|wurst|würstchen|wiener|lyoner|aufschnitt|schinken|salami|speck/.test(n)) return '🌭';
   if (/clementine|mandarine|orange|apfelsine/.test(n)) return '🍊';
-  if (/apfel|äpfel|elstar|boskoop|pink lady/.test(n)) return '🍎';
+  if (/apfel|äpfel|elstar|boskoop|pink lady|rotkohl/.test(n)) return '🍎';
   if (/banane/.test(n)) return '🍌';
   if (/erdbeer|himbeer|heidelbeer|blaubeer|beeren|kirsch/.test(n)) return '🍓';
   if (/zitrone|limette/.test(n)) return '🍋';
-  if (/salat|eisberg|kopfsalat|rucola|feldsalat|spinat/.test(n)) return '🥬';
+  if (/salat|eisberg|kopfsalat|rucola|feldsalat|spinat|dressing|kräuter/.test(n)) return '🥬';
   if (/gurke/.test(n)) return '🥒';
   if (/tomate|passierte/.test(n)) return '🍅';
   if (/paprika/.test(n)) return '🫑';
   if (/karotte|möhre/.test(n)) return '🥕';
   if (/kartoffel|pommes|gnocchi|schupfnudel/.test(n)) return '🥔';
   if (/zwiebel|knoblauch/.test(n)) return '🧅';
-  if (/brokkoli|blumenkohl/.test(n)) return '🥦';
+  if (/brokkoli|blumenkohl|spargel/.test(n)) return '🥦';
   if (/mais/.test(n)) return '🌽';
   if (/pilz|champignon/.test(n)) return '🍄';
   if (/avocado/.test(n)) return '🥑';
@@ -49,6 +50,7 @@ function getFoodEmoji(nameStr) {
   if (/wasser|saft|cola|limo|bier|wein|kaffee|tee/.test(n)) return '🧃';
   return '🥫';
 }
+
 const {
   formatDateStr,
   addDays,
@@ -116,7 +118,7 @@ export default function TouchwallPocketApp() {
   const [loginError, setLoginError] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
-  // 4 Haupt-Kategorien (Ohne Schule!)
+  // 4 Haupt-Kategorien
   const [activeTab, setActiveTab] = useState('agenda'); // 'agenda' | 'tasks' | 'scanner' | 'shopping'
   const [calendarSubView, setCalendarSubView] = useState('week'); // 'week' | 'month' | 'list'
   const [calCursorDate, setCalCursorDate] = useState(() => new Date());
@@ -143,16 +145,22 @@ export default function TouchwallPocketApp() {
     collaborators: []
   });
 
-  // Scanner-State (Kamera-Barcode, Kassenbon-OCR & Pflicht-MHD)
+  // Scanner-State (Kamera-Barcode, MHD-OCR & Kassenbon)
   const [scannerMode, setScannerMode] = useState('barcode');
   const [cameraActive, setCameraActive] = useState(false);
   const [scannedBarcode, setScannedBarcode] = useState('');
   const [scanName, setScanName] = useState('');
   const [scanQty, setScanQty] = useState('1x');
-  const [scanLocation, setScanLocation] = useState('fridge');
+  const [scanLocation, setScanLocation] = useState('kitchen');
   const [scanExpiry, setScanExpiry] = useState('');
   const [scanImageUrl, setScanImageUrl] = useState('');
   const [isLookingUpProduct, setIsLookingUpProduct] = useState(false);
+
+  // MHD-Kandidat zum ausdrücklichen Akzeptieren per Button
+  const [detectedMhdCandidate, setDetectedMhdCandidate] = useState('');
+  const [lastOcrRawHint, setLastOcrRawHint] = useState('');
+  const [isReadingMhd, setIsReadingMhd] = useState(false);
+  const [autoMhdScanEnabled, setAutoMhdScanEnabled] = useState(true);
 
   const [isScanningReceipt, setIsScanningReceipt] = useState(false);
   const [receiptItems, setReceiptItems] = useState([]);
@@ -162,6 +170,10 @@ export default function TouchwallPocketApp() {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const scanLoopRef = useRef(null);
+  const mhdAutoLoopRef = useRef(null);
+  const lastScannedCodeRef = useRef('');
+  const lastScanTimeRef = useRef(0);
+  const isReadingMhdRef = useRef(false);
 
   const [isSyncing, setIsSyncing] = useState(false);
   const [toast, setToast] = useState(null);
@@ -228,7 +240,6 @@ export default function TouchwallPocketApp() {
     );
   };
 
-  // Originales Touchwall-Button- & Card-Styling
   const pocketStyles = [
     '.tw-glow-card, .tw-glow-subtle {',
     '  transition: background-color 0.2s ease, border-color 0.2s ease;',
@@ -431,14 +442,9 @@ export default function TouchwallPocketApp() {
     setIsCheckingAuth(false);
   }, []);
 
-  // Zusatz-States für Endlos-Scanner & Live-MHD-Texterkennung
-  const [isReadingMhd, setIsReadingMhd] = useState(false);
-  const [autoSaveWhenComplete, setAutoSaveWhenComplete] = useState(false);
-  const lastScannedCodeRef = useRef('');
-  const lastScanTimeRef = useRef(0);
-
   const stopCameraStream = () => {
     if (scanLoopRef.current) clearInterval(scanLoopRef.current);
+    if (mhdAutoLoopRef.current) clearInterval(mhdAutoLoopRef.current);
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(t => t.stop());
       streamRef.current = null;
@@ -450,12 +456,18 @@ export default function TouchwallPocketApp() {
     return () => stopCameraStream();
   }, []);
 
-  // Hilfsfunktion: Erkennt deutsche & internationale Datumsformate auf Verpackungen
+  // =========================================================
+  // SPEZIAL-PARSER FÜR PUNKTMATRIX-MHD (WIE "MHD 21.08.27" & "MHD 27.10.2028")
+  // =========================================================
   const extractExpiryDateFromText = (rawText) => {
-    const clean = String(rawText || '').replace(/[|lI]/g, '1').replace(/O/g, '0');
+    const clean = String(rawText || '')
+      .replace(/[|lI!]/g, '1')
+      .replace(/O/g, '0')
+      .replace(/S(?=\d)/g, '5')
+      .replace(/B(?=\d)/g, '8');
 
-    // 1. Format: TT.MM.JJJJ oder TT.MM.JJ (auch mit / - oder Leerzeichen)
-    const dmyRegex = /\b(0?[1-9]|[12][0-9]|3[01])\s*[.,/\-\s]\s*(0?[1-9]|1[0-2])\s*[.,/\-\s]\s*(20[2-3][0-9]|[2-3][0-9])\b/g;
+    // 1. Format: TT . MM . JJJJ oder TT . MM . JJ (auch mit Leerzeichen, Punktmatrix oder Schrägstrich)
+    const dmyRegex = /(0?[1-9]|[12][0-9]|3[01])\s*[.,/\-\s:·•_]+\s*(0?[1-9]|1[0-2])\s*[.,/\-\s:·•_]+\s*(20[2-3][0-9]|[2-3][0-9])\b/g;
     let match;
     while ((match = dmyRegex.exec(clean)) !== null) {
       const day = String(match[1]).padStart(2, '0');
@@ -468,8 +480,18 @@ export default function TouchwallPocketApp() {
       }
     }
 
-    // 2. Format: MM.JJJJ oder MM/JJJJ (z.B. "Mindestens haltbar bis Ende: 08.2027")
-    const myRegex = /\b(0?[1-9]|1[0-2])\s*[.,/\-]\s*(20[2-3][0-9])\b/g;
+    // 2. Kompaktformat ohne erkannte Punkte: z.B. "210827" oder "27102028"
+    const compactRegex = /\b(0[1-9]|[12][0-9]|3[01])(0[1-9]|1[0-2])(20[2-3][0-9]|2[6-9]|3[0-5])\b/g;
+    while ((match = compactRegex.exec(clean)) !== null) {
+      const day = match[1];
+      const month = match[2];
+      let year = match[3];
+      if (year.length === 2) year = '20' + year;
+      return year + '-' + month + '-' + day;
+    }
+
+    // 3. Format: MM.JJJJ oder MM/JJ (z.B. "08.2027")
+    const myRegex = /\b(0?[1-9]|1[0-2])\s*[.,/\-:]+\s*(20[2-3][0-9])\b/g;
     while ((match = myRegex.exec(clean)) !== null) {
       const month = String(match[1]).padStart(2, '0');
       const year = String(match[2]);
@@ -479,15 +501,19 @@ export default function TouchwallPocketApp() {
     return null;
   };
 
-  // Liest das aufgedruckte MHD direkt aus dem laufenden Kamerabild
-  const captureMhdFromLiveCamera = async () => {
+  // Liest das aufgedruckte MHD aus dem Kamerabild (auf Wunsch lautlos im Hintergrund oder per Button)
+  const captureMhdFromLiveCamera = async (silentMode = false) => {
     if (!videoRef.current || videoRef.current.readyState < 2) {
-      showToast('Kamera nicht bereit', 'Bitte zuerst oben die Kamera einschalten.', '⚠️');
+      if (!silentMode) showToast('Kamera nicht bereit', 'Bitte zuerst die Kamera starten.', '⚠️');
       return;
     }
+    if (isReadingMhdRef.current) return;
 
+    isReadingMhdRef.current = true;
     setIsReadingMhd(true);
-    showToast('Lese Datum...', 'Halte das MHD ruhig in die Mitte des Kamerabilds...', '📅');
+    if (!silentMode) {
+      showToast('Scanne MHD-Datum...', 'Lese Aufdruck im Zielrahmen...', '📅');
+    }
 
     try {
       if (typeof window !== 'undefined' && !window.Tesseract) {
@@ -504,41 +530,62 @@ export default function TouchwallPocketApp() {
       const vw = vid.videoWidth || 640;
       const vh = vid.videoHeight || 480;
 
-      // Mittleren Zielbereich ausschneiden (dort wo man das Datum hinhält)
-      const cropX = Math.floor(vw * 0.1);
-      const cropY = Math.floor(vh * 0.25);
-      const cropW = Math.floor(vw * 0.8);
-      const cropH = Math.floor(vh * 0.5);
+      // Mittleres Band ausschneiden (wo das MHD wie 21.08.27 oder 27.10.2028 liegt)
+      const cropX = Math.floor(vw * 0.08);
+      const cropY = Math.floor(vh * 0.2);
+      const cropW = Math.floor(vw * 0.84);
+      const cropH = Math.floor(vh * 0.6);
 
       const canvas = document.createElement('canvas');
       canvas.width = cropW;
       canvas.height = cropH;
       const ctx = canvas.getContext('2d');
-      ctx.filter = 'contrast(1.45) grayscale(1)';
+      ctx.filter = 'contrast(1.75) grayscale(1) brightness(1.08)';
       ctx.drawImage(vid, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
 
       const result = await window.Tesseract.recognize(canvas, 'eng');
-      const detectedText = result?.data?.text || '';
+      const detectedText = String(result?.data?.text || '').trim();
+      const singleLineHint = detectedText.replace(/\s+/g, ' ').slice(0, 48);
+      if (singleLineHint) setLastOcrRawHint(singleLineHint);
+
       const parsedDate = extractExpiryDateFromText(detectedText);
 
       if (parsedDate) {
+        setDetectedMhdCandidate(parsedDate);
         setScanExpiry(parsedDate);
         const niceDate = parsedDate.slice(8, 10) + '.' + parsedDate.slice(5, 7) + '.' + parsedDate.slice(0, 4);
-        showToast('MHD erkannt!', 'Ablaufdatum ' + niceDate + ' wurde übernommen!', '✅');
-
-        // Falls Auto-Speichern aktiv ist und Produktname schon da ist -> sofort einbuchen!
-        if (autoSaveWhenComplete && scanName.trim()) {
-          saveProductDirectly(scanName.trim(), scannedBarcode, scanQty, scanLocation, parsedDate, scanImageUrl);
-        }
-      } else {
-        showToast('Datum nicht klar erkennbar', 'Bitte etwas näher herangehen oder Schnell-Tasten (+1 Woche) nutzen.', '🔍');
+        showToast('MHD erkannt: ' + niceDate, 'Tippe auf „✓ MHD akzeptieren & speichern“!', '🎉');
+      } else if (!silentMode) {
+        showToast(
+          'Noch kein Datum erkannt',
+          singleLineHint ? ('Gelesen: „' + singleLineHint + '“ – bitte kurz ruhiger halten.') : 'Bitte etwas näher an das MHD gehen.',
+          '🔍'
+        );
       }
     } catch (err) {
-      showToast('MHD-Scan Hinweis', 'Bitte Datum kurz näher vor die Kamera halten.', '⚠️');
+      if (!silentMode) showToast('MHD-Scan Hinweis', 'Bitte noch einmal antippen.', '⚠️');
     } finally {
+      isReadingMhdRef.current = false;
       setIsReadingMhd(false);
     }
   };
+
+  // Automatischer Hintergrund-MHD-Scan alle 2,5s, wenn Kamera aktiv ist und noch kein MHD bestätigt wurde
+  useEffect(() => {
+    if (!cameraActive || !autoMhdScanEnabled) {
+      if (mhdAutoLoopRef.current) clearInterval(mhdAutoLoopRef.current);
+      return;
+    }
+    mhdAutoLoopRef.current = setInterval(() => {
+      if (!isReadingMhdRef.current && !detectedMhdCandidate) {
+        captureMhdFromLiveCamera(true);
+      }
+    }, 2600);
+
+    return () => {
+      if (mhdAutoLoopRef.current) clearInterval(mhdAutoLoopRef.current);
+    };
+  }, [cameraActive, autoMhdScanEnabled, detectedMhdCandidate]);
 
   const lookupBarcodeOnOpenFoodFacts = async (code) => {
     const cleanCode = String(code || '').trim();
@@ -559,11 +606,11 @@ export default function TouchwallPocketApp() {
         if (fullTitle) {
           setScanName(fullTitle);
           setScanQty(qty);
-          showToast('Produkt erkannt!', fullTitle + ' – Kamera bleibt an für MHD-Scan!', getFoodEmoji(fullTitle));
+          showToast('Produkt erkannt!', fullTitle + ' – halte jetzt das MHD in die Kamera!', getFoodEmoji(fullTitle));
           return;
         }
       }
-      showToast('Barcode gescannt', 'Code ' + cleanCode + ' – bitte Namen & MHD ergänzen.', '📷');
+      showToast('Barcode gescannt', 'Code ' + cleanCode + ' – jetzt MHD scannen.', '📷');
     } catch (e) {
       showToast('Barcode erfasst', 'Code: ' + cleanCode, '📷');
     } finally {
@@ -571,7 +618,6 @@ export default function TouchwallPocketApp() {
     }
   };
 
-  // ENDLOS-KAMERA: Schließt sich NICHT mehr nach dem Scannen!
   const startLiveBarcodeCamera = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -582,7 +628,6 @@ export default function TouchwallPocketApp() {
         }
       });
 
-      // Kontinuierlichen Autofokus aktivieren (wichtig für kleines MHD-Datum)
       const track = stream.getVideoTracks()[0];
       if (track && track.applyConstraints) {
         track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(() => {});
@@ -608,7 +653,6 @@ export default function TouchwallPocketApp() {
             if (barcodes && barcodes.length > 0) {
               const rawVal = String(barcodes[0].rawValue || '').trim();
               const now = Date.now();
-              // Verhindert Dauer-Schleife beim selben Barcode, lässt Kamera aber offen!
               if (rawVal && (rawVal !== lastScannedCodeRef.current || now - lastScanTimeRef.current > 6000)) {
                 lastScannedCodeRef.current = rawVal;
                 lastScanTimeRef.current = now;
@@ -669,13 +713,17 @@ export default function TouchwallPocketApp() {
   };
 
   const saveProductDirectly = (nameVal, barcodeVal, qtyVal, locVal, expVal, imgVal) => {
+    if (!nameVal || !expVal) {
+      showToast('Fehlende Angabe', 'Bitte Produktname und MHD prüfen.', '⚠️');
+      return;
+    }
     lastLocalEditRef.current = Date.now();
     const newItem = {
       id: 'p_' + Date.now(),
       name: nameVal,
       barcode: barcodeVal || '',
       quantity: qtyVal || '1x',
-      location: locVal || 'fridge',
+      location: locVal || 'kitchen',
       expiryDate: expVal,
       imageUrl: imgVal || '',
       addedAt: todayStr
@@ -685,22 +733,24 @@ export default function TouchwallPocketApp() {
     setPantryItems(nextStock);
     saveStateToCloud({ pantryItems: nextStock });
 
-    // Felder leeren für den nächsten Scan (Kamera läuft einfach weiter!)
     setScanName('');
     setScannedBarcode('');
     setScanExpiry('');
     setScanImageUrl('');
+    setDetectedMhdCandidate('');
+    setLastOcrRawHint('');
     lastScannedCodeRef.current = '';
-    showToast('Gespeichert! Nächstes Produkt...', newItem.name + ' (MHD: ' + expVal + ')', getFoodEmoji(newItem.name));
+    showToast('In Speisekammer gespeichert!', newItem.name + ' (MHD: ' + expVal + ')', getFoodEmoji(newItem.name));
   };
 
   const handleSaveScannedProduct = (e) => {
     if (e && typeof e.preventDefault === 'function') e.preventDefault();
-    if (!scanName.trim() || !scanExpiry) {
-      showToast('Pflichtfelder', 'Bitte Name und Ablaufdatum (MHD) eingeben.', '⚠️');
+    const finalExp = scanExpiry || detectedMhdCandidate;
+    if (!scanName.trim() || !finalExp) {
+      showToast('Pflichtfelder', 'Bitte Name und Ablaufdatum (MHD) wählen.', '⚠️');
       return;
     }
-    saveProductDirectly(scanName.trim(), scannedBarcode, scanQty.trim(), scanLocation, scanExpiry, scanImageUrl);
+    saveProductDirectly(scanName.trim(), scannedBarcode, scanQty.trim(), scanLocation, finalExp, scanImageUrl);
   };
 
   const handleSaveAllReceiptItems = () => {
@@ -930,7 +980,6 @@ export default function TouchwallPocketApp() {
     }
   };
 
-  // Kalender-Navigation für Woche & Monat
   const navigateCalendarCursor = (dir) => {
     if (calendarSubView === 'month') {
       const next = new Date(calCursorDate.getFullYear(), calCursorDate.getMonth() + dir, 1);
@@ -944,13 +993,12 @@ export default function TouchwallPocketApp() {
   const weekMonday = useMemo(() => getMonday(calCursorDate), [calCursorDate]);
   const weekDaysList = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekMonday, i)), [weekMonday]);
 
-  // Monats-Raster (Mo-So) berechnen
   const monthGridCells = useMemo(() => {
     const year = calCursorDate.getFullYear();
     const month = calCursorDate.getMonth();
     const firstDayOfMonth = new Date(year, month, 1);
     const lastDayOfMonth = new Date(year, month + 1, 0);
-    const startOffset = (firstDayOfMonth.getDay() + 6) % 7; // Montag = 0
+    const startOffset = (firstDayOfMonth.getDay() + 6) % 7;
     const totalDays = lastDayOfMonth.getDate();
 
     const cells = [];
@@ -1047,9 +1095,7 @@ export default function TouchwallPocketApp() {
     >
       <style>{pocketStyles}</style>
 
-      {/* =========================================================
-          FESTER OBERER HEADER (SHRINK-0 -> NICHTS RUTSCHT DARUNTER!)
-         ========================================================= */}
+      {/* FESTER HEADER */}
       <header className={'shrink-0 z-30 px-3.5 pt-2.5 pb-2 border-b shadow-md ' + themeStyles.header}>
         <div className="flex items-center justify-between gap-2 mb-2">
           <div className="flex items-center gap-2 min-w-0">
@@ -1076,7 +1122,6 @@ export default function TouchwallPocketApp() {
           </div>
         </div>
 
-        {/* PERSONEN-FILTERLEISTE */}
         <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
           <button
             onClick={() => {
@@ -1108,18 +1153,13 @@ export default function TouchwallPocketApp() {
         </div>
       </header>
 
-      {/* =========================================================
-          SEPARATER SCROLL-VIEWPORT (KEINE ÜBERLAPPUNG MIT DEM HEADER!)
-         ========================================================= */}
+      {/* HAUPT-SCROLLBEREICH */}
       <main className={'flex-1 overflow-y-auto px-3.5 pt-3.5 pb-6 ' + themeStyles.viewport}>
         <div className="max-w-lg w-full mx-auto space-y-3.5">
 
-          {/* =====================================================
-              TAB 1: KALENDER (WOCHE / MONAT / TERMIN-ÜBERSICHT)
-             ===================================================== */}
+          {/* TAB 1: KALENDER */}
           {activeTab === 'agenda' && (
             <div className="space-y-3">
-              {/* UMSCHALTER: WOCHE | MONAT | ÜBERSICHT + NEUER TERMIN */}
               <div className={'p-2.5 rounded-2xl border space-y-2.5 ' + themeStyles.card}>
                 <div className="flex items-center justify-between gap-2">
                   <div className="grid grid-cols-3 gap-1 flex-1 p-1 rounded-xl bg-black/25">
@@ -1152,7 +1192,6 @@ export default function TouchwallPocketApp() {
                   </button>
                 </div>
 
-                {/* ZEITRAUM-NAVIGATION */}
                 <div className="flex items-center justify-between gap-2 pt-0.5">
                   <div className="flex items-center gap-1.5">
                     <button onClick={() => navigateCalendarCursor(-1)} className="tw-glow-btn w-7 h-7 rounded-xl flex items-center justify-center">
@@ -1181,7 +1220,6 @@ export default function TouchwallPocketApp() {
                 </div>
               </div>
 
-              {/* ANSICHT A: WOCHENANSICHT (ALLE 7 TAGE DER WOCHE OPTIMAL LESBAR) */}
               {calendarSubView === 'week' && (
                 <div className="space-y-2">
                   {weekDaysList.map(dayObj => {
@@ -1261,7 +1299,6 @@ export default function TouchwallPocketApp() {
                 </div>
               )}
 
-              {/* ANSICHT B: MONATSANSICHT (KOMPAKTES 7-SPALTEN RASTER + TAGES-DETAILS) */}
               {calendarSubView === 'month' && (
                 <div className="space-y-3">
                   <div className={'p-3 rounded-3xl border ' + themeStyles.card}>
@@ -1319,7 +1356,6 @@ export default function TouchwallPocketApp() {
                     </div>
                   </div>
 
-                  {/* TAGES-DETAILS UNTER DEM MONATSRASTER */}
                   <div className={'p-3.5 rounded-3xl border space-y-2 ' + themeStyles.card}>
                     <div className="flex items-center justify-between">
                       <span className="font-extrabold text-xs text-sky-400">
@@ -1366,7 +1402,6 @@ export default function TouchwallPocketApp() {
                 </div>
               )}
 
-              {/* ANSICHT C: KOMPAKTE TERMIN-ÜBERSICHT (CHRONOLOGISCHE LISTE) */}
               {calendarSubView === 'list' && (
                 <div className={'p-3.5 rounded-3xl border space-y-2.5 ' + themeStyles.card}>
                   <h3 className="font-extrabold text-sm">📋 Alle kommenden Termine</h3>
@@ -1403,9 +1438,7 @@ export default function TouchwallPocketApp() {
             </div>
           )}
 
-          {/* =====================================================
-              TAB 2: AUFGABEN & TODOIST (SAUBER IM SCROLL-BEREICH)
-             ===================================================== */}
+          {/* TAB 2: AUFGABEN */}
           {activeTab === 'tasks' && (
             <div className="space-y-3.5">
               <form onSubmit={handleAddQuickTask} className={'p-3.5 rounded-3xl border space-y-2.5 shadow-sm ' + themeStyles.card}>
@@ -1508,7 +1541,7 @@ export default function TouchwallPocketApp() {
           )}
 
           {/* =====================================================
-              TAB 3: KAMERA-SCANNER (BARCODE & KASSENBON)
+              TAB 3: KAMERA-SCANNER (ENDLOS-KAMERA + MHD-SCAN & AKZEPTIEREN-BUTTON)
              ===================================================== */}
           {activeTab === 'scanner' && (
             <div className="space-y-3.5">
@@ -1536,7 +1569,7 @@ export default function TouchwallPocketApp() {
                   <div className="flex items-center justify-between">
                     <div>
                       <h2 className="font-black text-base">📷 Produkt & MHD Scanner</h2>
-                      <p className="text-[11px] opacity-75">Barcode scannen + Pflicht-Ablaufdatum wählen</p>
+                      <p className="text-[11px] opacity-75">Barcode scannen + MHD-Datum per Kamera erfassen</p>
                     </div>
                     {!cameraActive ? (
                       <button
@@ -1557,10 +1590,101 @@ export default function TouchwallPocketApp() {
                     )}
                   </div>
 
+                  {/* LIVE-KAMERA MIT ZIELRAHMEN, MHD-SCAN-BUTTON & AKZEPTIEREN-BANNER */}
                   {cameraActive && (
-                    <div className="relative rounded-2xl overflow-hidden border-2 border-sky-400 bg-black aspect-video">
-                      <video ref={videoRef} className="w-full h-full object-cover" playsInline muted />
-                      <div className="absolute inset-x-8 top-1/2 h-0.5 bg-rose-500 shadow-[0_0_12px_#f43f5e] animate-pulse" />
+                    <div className="space-y-2.5">
+                      <div
+                        onClick={() => captureMhdFromLiveCamera(false)}
+                        className="relative rounded-2xl overflow-hidden border-2 border-sky-400 bg-black aspect-video cursor-pointer"
+                      >
+                        <video ref={videoRef} className="w-full h-full object-cover" playsInline muted />
+                        <div className="absolute inset-x-5 inset-y-5 border-2 border-dashed border-amber-400/85 rounded-xl pointer-events-none flex flex-col justify-between p-2">
+                          <span className="text-[10px] font-black bg-black/70 text-amber-300 px-2 py-0.5 rounded self-start">
+                            1. Barcode automatisch • 2. MHD-Datum hierhin halten
+                          </span>
+                          <div className="w-full h-0.5 bg-rose-500 shadow-[0_0_12px_#f43f5e] animate-pulse" />
+                          <span className="text-[10px] font-bold bg-black/70 text-white px-2.5 py-0.5 rounded self-center">
+                            👆 Aufs Bild oder Button unten tippen zum MHD-Erfassen
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* BUTTONS DIREKT UNTER DEM KAMERABILD ZUM MHD-SCANNEN */}
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => captureMhdFromLiveCamera(false)}
+                          disabled={isReadingMhd}
+                          className="tw-active-nav flex-1 py-3 px-3 rounded-2xl text-xs font-black flex items-center justify-center gap-2 shadow-lg"
+                        >
+                          <ScanLine className={'w-4 h-4 ' + (isReadingMhd ? 'animate-spin' : '')} />
+                          <span>{isReadingMhd ? '⏳ Lese MHD-Datum...' : '📸 MHD-Datum jetzt von Packung scannen'}</span>
+                        </button>
+
+                        <label className="px-2.5 py-3 rounded-2xl bg-black/35 border border-white/15 text-[10px] font-extrabold flex items-center gap-1.5 shrink-0 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={autoMhdScanEnabled}
+                            onChange={(e) => setAutoMhdScanEnabled(e.target.checked)}
+                            className="w-3.5 h-3.5 accent-emerald-500 rounded"
+                          />
+                          <span>🔄 Auto-MHD</span>
+                        </label>
+                      </div>
+
+                      {lastOcrRawHint && !detectedMhdCandidate && (
+                        <div className="text-[10px] text-slate-400 font-mono px-2 truncate">
+                          Kamera-Text: „{lastOcrRawHint}“
+                        </div>
+                      )}
+
+                      {/* GRÜNES BESTÄTIGUNGS-BANNER SOBALD EIN MHD ERKANNT WURDE */}
+                      {detectedMhdCandidate && (
+                        <div className="p-3 rounded-2xl bg-emerald-500/20 border-2 border-emerald-400 space-y-2 shadow-lg">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-black text-emerald-300">
+                              📅 Erkanntes MHD: {detectedMhdCandidate.slice(8, 10)}.{detectedMhdCandidate.slice(5, 7)}.{detectedMhdCandidate.slice(0, 4)}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setDetectedMhdCandidate('')}
+                              className="text-[10px] font-bold text-rose-300 px-2 py-0.5 rounded bg-black/30"
+                            >
+                              Neu scannen
+                            </button>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setScanExpiry(detectedMhdCandidate);
+                                showToast('MHD übernommen!', 'Datum steht jetzt im Pflichtfeld.', '✅');
+                              }}
+                              className="py-2.5 px-3 rounded-xl bg-emerald-600 text-white text-xs font-black flex items-center justify-center gap-1 shadow-md"
+                            >
+                              <Check className="w-4 h-4" /> ✓ MHD akzeptieren
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                saveProductDirectly(
+                                  scanName.trim() || 'Gescanntes Produkt',
+                                  scannedBarcode,
+                                  scanQty.trim(),
+                                  scanLocation,
+                                  detectedMhdCandidate,
+                                  scanImageUrl
+                                );
+                              }}
+                              className="tw-active-nav py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1 shadow-md"
+                            >
+                              <span>⚡ Akzeptieren & Speichern</span>
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -1591,7 +1715,7 @@ export default function TouchwallPocketApp() {
                         required
                         value={scanName}
                         onChange={(e) => setScanName(e.target.value)}
-                        placeholder="Produktname (z.B. Vollmilch, Bratwurst)..."
+                        placeholder="Produktname (z.B. Gefro Salatdressing, Apfel Rotkohl)..."
                         className={'w-full px-3.5 py-2.5 rounded-2xl border text-sm font-extrabold ' + themeStyles.input}
                       />
                     </div>
@@ -1601,7 +1725,7 @@ export default function TouchwallPocketApp() {
                         type="text"
                         value={scanQty}
                         onChange={(e) => setScanQty(e.target.value)}
-                        placeholder="Menge (z.B. 500g)"
+                        placeholder="Menge (z.B. 500g, 1x)"
                         className={'w-full px-3 py-2 rounded-xl border text-xs font-bold ' + themeStyles.input}
                       />
                       <select
@@ -1609,50 +1733,70 @@ export default function TouchwallPocketApp() {
                         onChange={(e) => setScanLocation(e.target.value)}
                         className={'w-full px-3 py-2 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
                       >
+                        <option value="kitchen" className="bg-slate-800 text-white">🍎 Küche</option>
                         <option value="fridge" className="bg-slate-800 text-white">🧊 Kühlschrank</option>
                         <option value="freezer" className="bg-slate-800 text-white">❄️ Gefrierschrank</option>
                         <option value="pantry" className="bg-slate-800 text-white">🗄️ Vorratslager</option>
-                        <option value="kitchen" className="bg-slate-800 text-white">🍎 Küche</option>
                       </select>
                     </div>
 
                     <div className="p-3 rounded-2xl bg-amber-500/15 border border-amber-400/50 space-y-2">
-                      <label className="block text-[11px] font-black uppercase text-amber-300">
-                        Pflichtfeld: Ablaufdatum (MHD)
-                      </label>
+                      <div className="flex items-center justify-between">
+                        <label className="block text-[11px] font-black uppercase text-amber-300">
+                          Pflichtfeld: Ablaufdatum (MHD)
+                        </label>
+                        {scanExpiry && (
+                          <span className="text-[11px] font-black text-emerald-400">
+                            ✓ Gewählt: {scanExpiry.slice(8, 10)}.{scanExpiry.slice(5, 7)}.{scanExpiry.slice(0, 4)}
+                          </span>
+                        )}
+                      </div>
+
                       <div className="flex flex-wrap gap-1.5">
                         {[
                           { l: '+3 Tage', d: 3 },
                           { l: '+1 Woche', d: 7 },
                           { l: '+2 Wochen', d: 14 },
-                          { l: '+1 Monat', d: 30 }
+                          { l: '+1 Monat', d: 30 },
+                          { l: '+6 Mon.', d: 180 },
+                          { l: '+1 Jahr', d: 365 }
                         ].map(b => (
                           <button
                             key={b.d}
                             type="button"
-                            onClick={() => setScanExpiry(formatDateStr(addDays(new Date(), b.d)))}
+                            onClick={() => {
+                              const d = formatDateStr(addDays(new Date(), b.d));
+                              setScanExpiry(d);
+                              setDetectedMhdCandidate(d);
+                            }}
                             className="tw-glow-btn px-2.5 py-1 rounded-xl text-[11px] font-black"
                           >
                             {b.l}
                           </button>
                         ))}
                       </div>
+
                       <input
                         type="date"
                         required
                         min={todayStr}
                         value={scanExpiry}
-                        onChange={(e) => setScanExpiry(e.target.value)}
+                        onChange={(e) => {
+                          setScanExpiry(e.target.value);
+                          setDetectedMhdCandidate(e.target.value);
+                        }}
                         className={'w-full px-3.5 py-2.5 rounded-xl border text-xs font-black ' + themeStyles.input}
                       />
                     </div>
 
                     <button
                       type="submit"
-                      disabled={!scanName.trim() || !scanExpiry}
-                      className={'w-full py-3 rounded-2xl font-black text-xs ' + (!scanName.trim() || !scanExpiry ? 'bg-slate-700 text-slate-400 opacity-50' : 'tw-glow-btn')}
+                      disabled={!scanName.trim() || (!scanExpiry && !detectedMhdCandidate)}
+                      className={'w-full py-3.5 rounded-2xl font-black text-xs shadow-lg ' + (!scanName.trim() || (!scanExpiry && !detectedMhdCandidate) ? 'bg-slate-700 text-slate-400 opacity-50' : 'tw-active-nav')}
                     >
-                      {scanExpiry ? '🥫 In Speisekammer speichern' : '⚠️ Erst Ablaufdatum (MHD) wählen'}
+                      {scanExpiry || detectedMhdCandidate
+                        ? ('✓ MHD (' + (scanExpiry || detectedMhdCandidate).slice(8, 10) + '.' + (scanExpiry || detectedMhdCandidate).slice(5, 7) + '.' + (scanExpiry || detectedMhdCandidate).slice(0, 4) + ') akzeptieren & in Speisekammer speichern')
+                        : '⚠️ Erst Ablaufdatum (MHD) scannen oder wählen'}
                     </button>
                   </form>
                 </div>
@@ -1739,7 +1883,7 @@ export default function TouchwallPocketApp() {
                         <div className="min-w-0 flex-1">
                           <div className="font-extrabold text-xs truncate">{item.name}</div>
                           <div className="text-[10px] text-amber-400 font-bold">
-                            {item.quantity} • MHD: {item.expiryDate.slice(8, 10)}.{item.expiryDate.slice(5, 7)}.
+                            {item.quantity} • MHD: {item.expiryDate.slice(8, 10)}.{item.expiryDate.slice(5, 7)}.{item.expiryDate.slice(2, 4)}
                           </div>
                         </div>
                       </div>
@@ -1790,9 +1934,7 @@ export default function TouchwallPocketApp() {
             </div>
           )}
 
-          {/* =====================================================
-              TAB 4: EINKAUFSLISTE & HEUTIGES ESSEN
-             ===================================================== */}
+          {/* TAB 4: EINKAUFSLISTE */}
           {activeTab === 'shopping' && (
             <div className="space-y-3.5">
               <form onSubmit={handleAddQuickShopItem} className="flex gap-2">
@@ -1902,9 +2044,7 @@ export default function TouchwallPocketApp() {
         </div>
       )}
 
-      {/* =========================================================
-          FESTE UNTERE NAVIGATION (4 REITER OHNE SCHULE)
-         ========================================================= */}
+      {/* UNTERE NAVIGATION */}
       <nav className={'shrink-0 z-40 border-t px-2.5 py-2 flex items-center justify-around gap-1.5 shadow-2xl ' + themeStyles.header}>
         {[
           { id: 'agenda',   label: 'Kalender', icon: Calendar,     badge: filteredEvents.filter(e => e.date === todayStr).length },
