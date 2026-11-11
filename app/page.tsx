@@ -36,11 +36,57 @@ const {
   updateTodoistTaskItem,
   closeOrReopenTodoistTask,
   deleteTodoistTask,
-  pushTodoistTaskToPhoneNow,
-  setTouchwallAuthCookie,
-  hasTouchwallAuthCookie,
-  clearTouchwallAuthCookie
+  pushTodoistTaskToPhoneNow
 } = Cfg;
+
+// =========================================================
+// EINGEBAUTER COOKIE-FALLBACK (FUNKTIONIERT IMMER & ABSTURZSICHER)
+// =========================================================
+function writeAuthCookie(familyName = 'Familien-Touchwall') {
+  try {
+    if (typeof Cfg.setTouchwallAuthCookie === 'function') {
+      Cfg.setTouchwallAuthCookie(familyName);
+    }
+    if (typeof document !== 'undefined') {
+      const maxAge = 60 * 60 * 24 * 365;
+      document.cookie = 'tw_auth_session=1; path=/; max-age=' + maxAge + '; SameSite=Lax';
+      document.cookie = 'tw_family_name=' + encodeURIComponent(familyName) + '; path=/; max-age=' + maxAge + '; SameSite=Lax';
+    }
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('richter_tw_auth_active', '1');
+    }
+  } catch (e) {}
+}
+
+function checkAuthCookie() {
+  try {
+    if (typeof Cfg.hasTouchwallAuthCookie === 'function' && Cfg.hasTouchwallAuthCookie()) {
+      return true;
+    }
+    if (typeof document !== 'undefined' && document.cookie.split(';').some(c => c.trim().startsWith('tw_auth_session=1'))) {
+      return true;
+    }
+    if (typeof localStorage !== 'undefined' && localStorage.getItem('richter_tw_auth_active') === '1') {
+      return true;
+    }
+  } catch (e) {}
+  return false;
+}
+
+function removeAuthCookie() {
+  try {
+    if (typeof Cfg.clearTouchwallAuthCookie === 'function') {
+      Cfg.clearTouchwallAuthCookie();
+    }
+    if (typeof document !== 'undefined') {
+      document.cookie = 'tw_auth_session=; path=/; max-age=0; SameSite=Lax';
+      document.cookie = 'tw_family_name=; path=/; max-age=0; SameSite=Lax';
+    }
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem('richter_tw_auth_active');
+    }
+  } catch (e) {}
+}
 
 export default function TouchwallApp() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -65,7 +111,7 @@ export default function TouchwallApp() {
   const [customLogoUrl, setCustomLogoUrl] = useState('');
   const [clockStr, setClockStr] = useState('');
 
-  const [appsScriptUrl, setAppsScriptUrl] = useState(DEFAULT_APPS_SCRIPT_URL);
+  const [appsScriptUrl, setAppsScriptUrl] = useState(DEFAULT_APPS_SCRIPT_URL || '');
   const [todoistConfig, setTodoistConfig] = useState({
     apiToken: '',
     shoppingProjectId: '',
@@ -644,7 +690,7 @@ export default function TouchwallApp() {
         setAppsScriptUrl(qrCloudUrl);
         setFamilyName(cleanName);
         localStorage.setItem('richter_tw_gas_url', qrCloudUrl);
-        setTouchwallAuthCookie(cleanName);
+        writeAuthCookie(cleanName);
         setIsAuthenticated(true);
         setIsCheckingAuth(false);
         window.history.replaceState({}, '', window.location.pathname);
@@ -652,7 +698,7 @@ export default function TouchwallApp() {
         return;
       }
 
-      const cookieActive = hasTouchwallAuthCookie();
+      const cookieActive = checkAuthCookie();
       const hasExistingLocalSetup = Boolean(
         cookieActive && (savedGasUrl || parsedState?.isConfigured || parsedState?.todoistConfig?.apiToken)
       );
@@ -732,7 +778,7 @@ export default function TouchwallApp() {
   }, [isAuthenticated, familyName, safeMembers, safeMeals, safeNotes, safeSchoolData, safeTasks, currentTheme, customLogoUrl, safeTodoistConfig, appsScriptUrl]);
 
   const handleCloudLoginSubmit = async (e) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
     setLoginError('');
     const cleanUrl = loginGasUrl.trim();
     const cleanTok = loginTodoistToken.trim();
@@ -775,7 +821,7 @@ export default function TouchwallApp() {
       }
 
       setFamilyName(chosenTitle);
-      setTouchwallAuthCookie(chosenTitle);
+      writeAuthCookie(chosenTitle);
       isInitialLoadDone.current = true;
       setIsAuthenticated(true);
       showToast('Willkommen!', chosenTitle + ' wurde erfolgreich verbunden und im Cookie gespeichert.', '🔓');
@@ -786,8 +832,13 @@ export default function TouchwallApp() {
     }
   };
 
+  // =========================================================
+  // SCHNELLSTART-FUNKTION (FUNKTIONIERT MIT 1 KLICK OHNE PFLICHTFELDER)
+  // =========================================================
   const handleCreateOwnTouchwallSubmit = (e) => {
-    if (e) e.preventDefault();
+    if (e && typeof e.preventDefault === 'function') e.preventDefault();
+    setLoginError('');
+
     const chosenTitle = loginFamilyName.trim() || 'Unsere Familien-Touchwall';
     const colors = ['navy_bold', 'pink', 'crimson_bold', 'teal_bold'];
     const emojis = ['👨', '👩', '👦', '👧'];
@@ -799,39 +850,38 @@ export default function TouchwallApp() {
     ];
 
     setupMemberNames.forEach((rawName, idx) => {
-      const clean = String(rawName || '').trim();
-      if (clean) {
-        customMembers.push({
-          id: ids[idx] || ('mem_' + idx),
-          name: clean,
-          role: roles[idx] || 'Mitglied',
-          badge: clean.charAt(0).toUpperCase(),
-          color: colors[idx % colors.length],
-          avatarType: 'emoji',
-          emoji: emojis[idx % emojis.length],
-          photoUrl: '',
-          calendarId: '',
-          todoistUserId: '',
-          todoistProjectId: '',
-          statusMsg: 'Bereit',
-          ok: false
-        });
-      }
+      const clean = String(rawName || '').trim() || ('Person ' + (idx + 1));
+      customMembers.push({
+        id: ids[idx] || ('mem_' + idx),
+        name: clean,
+        role: roles[idx] || 'Mitglied',
+        badge: clean.charAt(0).toUpperCase(),
+        color: colors[idx % colors.length],
+        avatarType: 'emoji',
+        emoji: emojis[idx % emojis.length],
+        photoUrl: '',
+        calendarId: '',
+        todoistUserId: '',
+        todoistProjectId: '',
+        statusMsg: 'Bereit',
+        ok: false
+      });
     });
 
     setFamilyName(chosenTitle);
     setMembers(customMembers);
     setEvents([]);
     setFamilyTasks([]);
+
     if (loginGasUrl.trim()) {
       setAppsScriptUrl(loginGasUrl.trim());
-      localStorage.setItem('richter_tw_gas_url', loginGasUrl.trim());
+      try { localStorage.setItem('richter_tw_gas_url', loginGasUrl.trim()); } catch (err) {}
     }
     if (loginTodoistToken.trim()) {
       setTodoistConfig(prev => ({ ...prev, apiToken: loginTodoistToken.trim() }));
     }
 
-    setTouchwallAuthCookie(chosenTitle);
+    writeAuthCookie(chosenTitle);
     isInitialLoadDone.current = true;
     setIsAuthenticated(true);
     showToast('Touchwall gestartet!', chosenTitle + ' ist jetzt aktiv und im Cookie gespeichert.', '🎉');
@@ -853,7 +903,7 @@ export default function TouchwallApp() {
         if (d.schoolData) setSchoolData(d.schoolData);
         if (Array.isArray(d.familyTasks)) setFamilyTasks(d.familyTasks);
         if (d.todoistConfig) setTodoistConfig(prev => ({ ...prev, ...d.todoistConfig }));
-        setTouchwallAuthCookie(restoredFamily);
+        writeAuthCookie(restoredFamily);
         isInitialLoadDone.current = true;
         setIsAuthenticated(true);
         showToast('Backup geladen!', restoredFamily + ' wurde erfolgreich wiederhergestellt.', '📂');
@@ -865,10 +915,12 @@ export default function TouchwallApp() {
   };
 
   const handleLogoutAndLock = () => {
-    clearTouchwallAuthCookie();
-    localStorage.removeItem('richter_touchwall_v6');
-    localStorage.removeItem('richter_touchwall_events_cache');
-    localStorage.removeItem('richter_tw_gas_url');
+    removeAuthCookie();
+    try {
+      localStorage.removeItem('richter_touchwall_v6');
+      localStorage.removeItem('richter_touchwall_events_cache');
+      localStorage.removeItem('richter_tw_gas_url');
+    } catch (e) {}
     setAppsScriptUrl('');
     setTodoistConfig({ apiToken: '', shoppingProjectId: '', tasksProjectId: '', projects: [], collaborators: [] });
     setMembers(DEFAULT_MEMBERS);
@@ -1575,11 +1627,18 @@ export default function TouchwallApp() {
           <div className="grid grid-cols-2 gap-2.5 p-1.5 rounded-2xl bg-[#13171c] border border-slate-700/70">
             <button
               type="button"
-              onClick={() => { setAuthTab('new'); setLoginError(''); }}
+              onClick={() => {
+                if (authTab === 'new') {
+                  handleCreateOwnTouchwallSubmit();
+                } else {
+                  setAuthTab('new');
+                  setLoginError('');
+                }
+              }}
               className={'py-3 px-4 rounded-xl text-xs sm:text-sm font-extrabold flex items-center justify-center gap-2 cursor-pointer ' + (authTab === 'new' ? 'tw-active-nav' : 'tw-nav-inactive text-slate-400')}
             >
               <Sparkles className="w-4 h-4" />
-              <span>✨ Schnellstart (In 30 Sek. neu starten)</span>
+              <span>✨ Schnellstart (Direkt neu starten)</span>
             </button>
             <button
               type="button"
@@ -1670,6 +1729,7 @@ export default function TouchwallApp() {
 
               <button
                 type="submit"
+                onClick={handleCreateOwnTouchwallSubmit}
                 className="tw-glow-btn w-full py-3.5 rounded-2xl font-black text-sm flex items-center justify-center gap-2 cursor-pointer"
               >
                 <Sparkles className="w-5 h-5" />
