@@ -4,8 +4,15 @@
 'use client';
 
 import React, { useState } from 'react';
-import { QrCode, ShieldCheck, RefreshCw, Cloud, Check, FolderKanban } from 'lucide-react';
+import { QrCode, ShieldCheck, RefreshCw, Cloud, Check, FolderKanban, Plus, Calendar, ChevronDown } from 'lucide-react';
 import { COLOR_PALETTES, PAGE_THEMES, AVATAR_EMOJIS } from './touchwallConfig';
+
+const CALENDAR_PROVIDERS = [
+  { id: 'outlook', label: '🟦 Microsoft Outlook / Hotmail (.ics Link)', placeholder: 'https://outlook.live.com/owa/calendar/.../reachcalendar.ics' },
+  { id: 'google',  label: '🔵 Google Kalender (E-Mail / ID oder .ics Link)', placeholder: 'name@gmail.com oder https://calendar.google.com/calendar/ical/.../basic.ics' },
+  { id: 'apple',   label: '🍎 Apple iCloud Kalender (webcal:// oder .ics Link)', placeholder: 'webcal://p12-caldav.icloud.com/published/2/...' },
+  { id: 'school',  label: '🏫 Schule / WebUntis / Verein (.ics Link)', placeholder: 'https://... (.ics Kalender-Link)' }
+];
 
 export default function OtherSections({
   activeSection,
@@ -61,7 +68,88 @@ export default function OtherSections({
   const [newNoteAuthor, setNewNoteAuthor] = useState('Familie');
   const [newNoteProjectId, setNewNoteProjectId] = useState('');
 
+  // Multi-Kalender Eingabestatus pro Mitglied
+  const [addingCalForMember, setAddingCalForMember] = useState(null);
+  const [newCalProvider, setNewCalProvider] = useState('outlook');
+  const [newCalLabel, setNewCalLabel] = useState('');
+  const [newCalUrl, setNewCalUrl] = useState('');
+  const [showExpertServerUrl, setShowExpertServerUrl] = useState(false);
+
   const projectsList = Array.isArray(todoistConfig?.projects) ? todoistConfig.projects : [];
+
+  const getMemberCalendarSources = (m) => {
+    const list = Array.isArray(m?.calendarSources) ? [...m.calendarSources] : [];
+    if (m?.calendarId && String(m.calendarId).trim() !== '' && String(m.calendarId).toLowerCase() !== 'cloud') {
+      String(m.calendarId).split(',').forEach(rawPart => {
+        const clean = rawPart.trim();
+        if (clean && !list.some(x => x.url === clean)) {
+          const isUrl = clean.startsWith('http') || clean.startsWith('webcal');
+          list.push({
+            id: 'leg_' + clean.slice(0, 12),
+            type: clean.includes('outlook') || clean.includes('office') ? 'outlook' : clean.includes('icloud') ? 'apple' : isUrl ? 'school' : 'google',
+            name: isUrl ? 'Verknüpfter Kalender' : 'Google Kalender',
+            url: clean
+          });
+        }
+      });
+    }
+    return list;
+  };
+
+  const handleAddCalendarSource = (memberId) => {
+    const cleanUrl = newCalUrl.trim();
+    if (!cleanUrl) return;
+    const providerObj = CALENDAR_PROVIDERS.find(p => p.id === newCalProvider) || CALENDAR_PROVIDERS[0];
+    const defaultLabel =
+      newCalProvider === 'outlook' ? 'Outlook' :
+      newCalProvider === 'google' ? 'Google' :
+      newCalProvider === 'apple' ? 'Apple iCloud' : 'Schule / ICS';
+
+    const updatedMembers = (Array.isArray(members) ? members : []).map(item => {
+      if (item.id !== memberId) return item;
+      const existing = getMemberCalendarSources(item);
+      const nextSources = [
+        ...existing,
+        {
+          id: 'src_' + Date.now(),
+          type: providerObj.id,
+          name: newCalLabel.trim() || defaultLabel,
+          url: cleanUrl
+        }
+      ];
+      const combinedIds = nextSources.map(s => s.url).join(', ');
+      return {
+        ...item,
+        calendarSources: nextSources,
+        calendarId: combinedIds,
+        ok: true,
+        statusMsg: nextSources.length + ' Kalender aktiv ✓'
+      };
+    });
+
+    setMembers(updatedMembers);
+    setNewCalUrl('');
+    setNewCalLabel('');
+    setAddingCalForMember(null);
+    pushToCloudAndDrive(updatedMembers, true);
+  };
+
+  const handleRemoveCalendarSource = (memberId, targetUrl) => {
+    const updatedMembers = (Array.isArray(members) ? members : []).map(item => {
+      if (item.id !== memberId) return item;
+      const nextSources = getMemberCalendarSources(item).filter(s => s.url !== targetUrl);
+      const combinedIds = nextSources.map(s => s.url).join(', ');
+      return {
+        ...item,
+        calendarSources: nextSources,
+        calendarId: combinedIds,
+        ok: true,
+        statusMsg: nextSources.length > 0 ? (nextSources.length + ' Kalender aktiv ✓') : 'Cloud-Kalender ✓'
+      };
+    });
+    setMembers(updatedMembers);
+    pushToCloudAndDrive(updatedMembers, true);
+  };
 
   // =========================================================
   // ANSICHT 4: SCHULE
@@ -460,7 +548,7 @@ export default function OtherSections({
                 onClick={() => setQrModalOpen(true)}
                 className="tw-glow-btn px-3.5 py-1.5 rounded-xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
               >
-                <QrCode className="w-4 h-4" /> Handy-App & QR-Code
+                <QrCode className="w-4 h-4" /> Handy-Einladung & QR-Code
               </button>
             </div>
             <p className={'text-sm font-semibold mt-1 ' + themeStyles.textMuted}>
@@ -633,7 +721,7 @@ export default function OtherSections({
   }
 
   // =========================================================
-  // ANSICHT 8: DESIGN (KOMPAKTE THEME-BUTTONS WIE IM HEADER)
+  // ANSICHT 8: DESIGN
   // =========================================================
   if (activeSection === 'design') {
     const boldKeys = Object.keys(COLOR_PALETTES).filter(k => COLOR_PALETTES[k].bold);
@@ -805,7 +893,7 @@ export default function OtherSections({
   }
 
   // =========================================================
-  // ANSICHT 9: KONTEN & CLOUD-VERBINDUNG
+  // ANSICHT 9: KONTEN & MULTI-KALENDER VERKNÜPFUNG (GOOGLE, OUTLOOK, ICLOUD)
   // =========================================================
   return (
     <div className="p-6 flex flex-col gap-6">
@@ -813,207 +901,316 @@ export default function OtherSections({
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <span className="px-3 py-1 rounded-full bg-sky-500/20 text-sky-300 text-xs font-extrabold">
-              ⚡ 8-Sekunden-Echtzeit-Sync • Todoist Team-Integration
+              ⚡ Multi-Kalender & Todoist Synchronisation
             </span>
-            <h2 className="text-2xl font-extrabold mt-2">Todoist Team-Verbindung</h2>
+            <h2 className="text-2xl font-extrabold mt-2">Externe Kalender & Todoist verbinden</h2>
             <p className={'text-sm mt-1 ' + themeStyles.textMuted}>
-              Hier hinterlegst du nur einmalig dein API-Token. Welches Projekt eine Kachel nutzt, wählst du direkt oben auf der jeweiligen Kachel unter „Todoist“ oder „Notizen“!
+              Euer integrierter Cloud-Kalender ist sofort bereit. Zusätzlich könnt ihr unten bei jeder Person beliebig viele <strong>Microsoft Outlook</strong>-, <strong>Google</strong>-, <strong>Apple iCloud</strong>- oder <strong>Schul-Kalender</strong> verknüpfen!
             </p>
           </div>
           <button
             onClick={connectAndDiscoverTodoist}
             className="tw-glow-btn px-5 py-2.5 rounded-xl font-black text-xs flex items-center gap-2 cursor-pointer"
           >
-            <Check className="w-4 h-4" /> Team & Projekte aktualisieren
+            <Check className="w-4 h-4" /> Todoist Team & Projekte verbinden
           </button>
         </div>
 
         <div className={'p-4 rounded-2xl border flex flex-wrap items-center gap-4 ' + themeStyles.subtle}>
-          <span className="text-xs font-extrabold uppercase text-sky-400 shrink-0">🔑 Todoist API-Token:</span>
+          <span className="text-xs font-extrabold uppercase text-sky-400 shrink-0">🔑 Todoist API-Token (Optional):</span>
           <input
             type="password"
             value={todoistConfig?.apiToken || ''}
             onChange={(e) => setTodoistConfig(prev => ({ ...prev, apiToken: e.target.value }))}
-            placeholder="Dein Todoist API-Token..."
+            placeholder="Optional: Todoist API-Token für Aufgaben-Sync..."
             className={'flex-1 min-w-[260px] px-4 py-2.5 rounded-xl border text-xs font-mono ' + themeStyles.input}
           />
           <span className="px-3.5 py-2 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-xs font-extrabold">
-            📂 {projectsList.length} Projekte & 👥 {(Array.isArray(todoistConfig?.collaborators) ? todoistConfig.collaborators : []).length} Team-Mitglieder aktiv
+            📂 {projectsList.length} Projekte & 👥 {(Array.isArray(todoistConfig?.collaborators) ? todoistConfig.collaborators : []).length} Team-Mitglieder
           </span>
         </div>
       </div>
 
+      {/* MULTI-KALENDER-VERWALTUNG PRO FAMILIENMITGLIED */}
       <div className={'rounded-3xl border overflow-hidden divide-y ' + themeStyles.card + ' ' + themeStyles.divider}>
         {(Array.isArray(members) ? members : []).map(m => {
           const isCustom = !['all', 'hans', 'sarah', 'dean', 'valentina'].includes(m.id);
           const st = getMemberStyles(m);
+          const calSources = getMemberCalendarSources(m);
+          const isAddingHere = addingCalForMember === m.id;
+          const activeProviderObj = CALENDAR_PROVIDERS.find(p => p.id === newCalProvider) || CALENDAR_PROVIDERS[0];
+
           return (
-            <div key={m.id} style={st.headerStyle} className="p-5 flex flex-wrap items-center justify-between gap-4">
-              <div className="flex items-center gap-3.5 min-w-[260px] flex-1">
-                {renderAvatar(m, 'w-12 h-12', 'text-xl')}
-                <div className="flex flex-col sm:flex-row gap-2 flex-1">
-                  <div className="flex-1">
-                    <label className={'block text-[10px] font-extrabold uppercase mb-0.5 ' + themeStyles.textMuted}>
-                      Benutzername / Kachelname
-                    </label>
-                    <input
-                      type="text"
-                      value={m.name}
-                      onChange={(e) => {
-                        const newName = e.target.value;
-                        const newBadge = m.id === 'all' ? 'FA' : (newName.trim().charAt(0).toUpperCase() || m.badge);
-                        setMembers(prev => (Array.isArray(prev) ? prev : []).map(item => item.id === m.id ? { ...item, name: newName, badge: newBadge } : item));
-                      }}
-                      className={'w-full px-3 py-2 rounded-xl border text-sm font-extrabold ' + themeStyles.input}
-                    />
+            <div key={m.id} style={st.headerStyle} className="p-5 flex flex-col gap-4">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div className="flex items-center gap-3.5 min-w-[260px] flex-1">
+                  {renderAvatar(m, 'w-12 h-12', 'text-xl')}
+                  <div className="flex flex-col sm:flex-row gap-2 flex-1">
+                    <div className="flex-1">
+                      <label className={'block text-[10px] font-extrabold uppercase mb-0.5 ' + themeStyles.textMuted}>
+                        Name der Person / Zeile
+                      </label>
+                      <input
+                        type="text"
+                        value={m.name}
+                        onChange={(e) => {
+                          const newName = e.target.value;
+                          const newBadge = m.id === 'all' ? 'FA' : (newName.trim().charAt(0).toUpperCase() || m.badge);
+                          setMembers(prev => (Array.isArray(prev) ? prev : []).map(item => item.id === m.id ? { ...item, name: newName, badge: newBadge } : item));
+                        }}
+                        className={'w-full px-3 py-2 rounded-xl border text-sm font-extrabold ' + themeStyles.input}
+                      />
+                    </div>
+                    <div className="w-full sm:w-36">
+                      <label className={'block text-[10px] font-extrabold uppercase mb-0.5 ' + themeStyles.textMuted}>
+                        Rolle
+                      </label>
+                      <input
+                        type="text"
+                        value={m.role || ''}
+                        onChange={(e) => {
+                          const newRole = e.target.value;
+                          setMembers(prev => (Array.isArray(prev) ? prev : []).map(item => item.id === m.id ? { ...item, role: newRole } : item));
+                        }}
+                        className={'w-full px-3 py-2 rounded-xl border text-xs font-bold ' + themeStyles.input}
+                      />
+                    </div>
                   </div>
-                  <div className="w-full sm:w-36">
-                    <label className={'block text-[10px] font-extrabold uppercase mb-0.5 ' + themeStyles.textMuted}>
-                      Rolle
+                </div>
+
+                {m.id !== 'all' && (
+                  <div className="min-w-[200px]">
+                    <label className="block text-[10px] font-extrabold uppercase mb-0.5 text-sky-400">
+                      📲 Todoist Team-Account
                     </label>
-                    <input
-                      type="text"
-                      value={m.role || ''}
+                    <select
+                      value={m.todoistUserId || ''}
                       onChange={(e) => {
-                        const newRole = e.target.value;
-                        setMembers(prev => (Array.isArray(prev) ? prev : []).map(item => item.id === m.id ? { ...item, role: newRole } : item));
+                        const val = e.target.value;
+                        setMembers(prev => (Array.isArray(prev) ? prev : []).map(item => item.id === m.id ? { ...item, todoistUserId: val } : item));
                       }}
                       className={'w-full px-3 py-2 rounded-xl border text-xs font-bold ' + themeStyles.input}
-                    />
+                    >
+                      <option value="" className="bg-slate-800 text-white">-- Nicht zugewiesen --</option>
+                      {(Array.isArray(todoistConfig?.collaborators) ? todoistConfig.collaborators : []).map(col => (
+                        <option key={col.id} value={col.id} className="bg-slate-800 text-white">
+                          {col.name} ({col.email || 'Team'})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAddingCalForMember(isAddingHere ? null : m.id);
+                      setNewCalUrl('');
+                      setNewCalLabel('');
+                    }}
+                    className="tw-glow-btn px-4 py-2.5 rounded-xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>+ Kalender verknüpfen (Outlook / Google / iCloud)</span>
+                  </button>
+
+                  {isCustom && (
+                    <button
+                      onClick={() => {
+                        const filtered = (Array.isArray(members) ? members : []).filter(item => item.id !== m.id);
+                        setMembers(filtered);
+                        pushToCloudAndDrive(filtered, true);
+                      }}
+                      className="px-3.5 py-2.5 rounded-xl bg-rose-500/20 text-rose-400 text-xs font-extrabold cursor-pointer"
+                    >
+                      🗑️
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* LISTE DER AKTIVEN KALENDER DIESER PERSON */}
+              <div className="flex flex-wrap items-center gap-2 pl-0 sm:pl-14">
+                <span className="px-3 py-1 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-xs font-extrabold flex items-center gap-1.5">
+                  ☁️ Integrierter Touchwall-Kalender ✓
+                </span>
+
+                {calSources.map((src, sIdx) => {
+                  const icon =
+                    src.type === 'outlook' ? '🟦 Outlook:' :
+                    src.type === 'apple' ? '🍎 iCloud:' :
+                    src.type === 'school' ? '🏫 ICS:' : '🔵 Google:';
+                  return (
+                    <div
+                      key={sIdx}
+                      className="px-3 py-1 rounded-xl bg-black/35 border border-white/15 text-xs font-extrabold flex items-center gap-2"
+                    >
+                      <span>{icon} {src.name}</span>
+                      <span className="opacity-60 font-mono text-[10px] max-w-[180px] truncate">{src.url}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveCalendarSource(m.id, src.url)}
+                        className="text-rose-400 hover:text-rose-300 font-black cursor-pointer"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* AUSKLAPPBARES FORMULAR ZUM HINZUFÜGEN EINES NEUEN KALENDERS (OUTLOOK, GOOGLE, APPLE) */}
+              {isAddingHere && (
+                <div className={'p-4 rounded-2xl border-2 border-sky-400/50 space-y-3 ml-0 sm:ml-14 ' + themeStyles.subtle}>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
+                    <div>
+                      <label className="block text-[10px] font-extrabold uppercase text-sky-400 mb-1">
+                        1. Kalender-Anbieter wählen
+                      </label>
+                      <select
+                        value={newCalProvider}
+                        onChange={(e) => setNewCalProvider(e.target.value)}
+                        className={'w-full px-3 py-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+                      >
+                        {CALENDAR_PROVIDERS.map(p => (
+                          <option key={p.id} value={p.id} className="bg-slate-800 text-white">{p.label}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-extrabold uppercase text-amber-400 mb-1">
+                        2. Bezeichnung (Optional)
+                      </label>
+                      <input
+                        type="text"
+                        value={newCalLabel}
+                        onChange={(e) => setNewCalLabel(e.target.value)}
+                        placeholder="z.B. Büro Outlook, Schichtplan, Verein..."
+                        className={'w-full px-3 py-2.5 rounded-xl border text-xs font-bold ' + themeStyles.input}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-extrabold uppercase text-emerald-400 mb-1">
+                        3. Kalender-Link (.ics) oder Google-ID
+                      </label>
+                      <input
+                        type="text"
+                        value={newCalUrl}
+                        onChange={(e) => setNewCalUrl(e.target.value)}
+                        placeholder={activeProviderObj.placeholder}
+                        className={'w-full px-3 py-2.5 rounded-xl border text-xs font-mono ' + themeStyles.input}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                    <span className="text-[11px] opacity-80 font-semibold">
+                      💡 <strong>Tipp für Outlook / Apple / Google:</strong> Kopiere in deinen Kalender-Einstellungen unter „Kalender teilen / veröffentlichen“ einfach den <strong>ICS-Link</strong> hier hinein!
+                    </span>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setAddingCalForMember(null)}
+                        className="tw-nav-inactive px-4 py-2 rounded-xl text-xs font-bold cursor-pointer"
+                      >
+                        Abbrechen
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleAddCalendarSource(m.id)}
+                        className="tw-glow-btn px-5 py-2 rounded-xl text-xs font-extrabold cursor-pointer"
+                      >
+                        ✓ Kalender hinzufügen & synchronisieren
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
-
-              {m.id !== 'all' && (
-                <div className="min-w-[200px]">
-                  <label className="block text-[10px] font-extrabold uppercase mb-0.5 text-sky-400">
-                    📲 Todoist Team-Account
-                  </label>
-                  <select
-                    value={m.todoistUserId || ''}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setMembers(prev => (Array.isArray(prev) ? prev : []).map(item => item.id === m.id ? { ...item, todoistUserId: val } : item));
-                    }}
-                    className={'w-full px-3 py-2 rounded-xl border text-xs font-bold ' + themeStyles.input}
-                  >
-                    <option value="" className="bg-slate-800 text-white">-- Nicht zugewiesen --</option>
-                    {(Array.isArray(todoistConfig?.collaborators) ? todoistConfig.collaborators : []).map(col => (
-                      <option key={col.id} value={col.id} className="bg-slate-800 text-white">
-                        {col.name} ({col.email || 'Team'})
-                      </option>
-                    ))}
-                  </select>
-                </div>
               )}
-
-              <div className="flex-1 min-w-[230px]">
-                <label className={'block text-[10px] font-extrabold uppercase mb-0.5 ' + themeStyles.textMuted}>
-                  Google Kalender-ID
-                </label>
-                <input
-                  type="text"
-                  value={m.calendarId || ''}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setMembers(prev => (Array.isArray(prev) ? prev : []).map(item => item.id === m.id ? { ...item, calendarId: val, ok: Boolean(val.trim()), statusMsg: val.trim() ? 'Bereit' : 'Leer' } : item));
-                  }}
-                  placeholder={m.id === 'all' ? 'primary' : 'name@gmail.com'}
-                  className={'w-full px-3.5 py-2 rounded-xl border text-sm font-bold ' + themeStyles.input}
-                />
-              </div>
-
-              <div className="flex items-center gap-2 pt-3 sm:pt-4">
-                {isCustom && (
-                  <button
-                    onClick={() => {
-                      const filtered = (Array.isArray(members) ? members : []).filter(item => item.id !== m.id);
-                      setMembers(filtered);
-                      pushToCloudAndDrive(filtered, true);
-                    }}
-                    className="px-3.5 py-2 rounded-xl bg-rose-500/20 text-rose-400 text-xs font-extrabold cursor-pointer"
-                  >
-                    🗑️
-                  </button>
-                )}
-                <span className={'px-3 py-2 rounded-xl text-xs font-extrabold ' + (m.calendarId ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400')}>
-                  {m.statusMsg || (m.calendarId ? 'Verbunden ✓' : 'Bereit')}
-                </span>
-              </div>
             </div>
           );
         })}
       </div>
 
+      {/* CLOUD-SPEICHER & BACKUP (OHNE SICHTBARE APPS-SCRIPT-URL FÜR NORMALE NUTZER) */}
       <div className={'rounded-3xl p-6 shadow-md border space-y-4 ' + themeStyles.card}>
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h3 className="text-lg font-extrabold">☁️ Google Kalender & Cloud-Speicher Brücke</h3>
-            <p className={'text-xs ' + themeStyles.textMuted}>Speichert deine Einstellungen, Kachel-Projekte und Google-Kalender-Termine.</p>
+            <h3 className="text-lg font-extrabold">☁️ Cloud-Synchronisation & Backup</h3>
+            <p className={'text-xs ' + themeStyles.textMuted}>
+              Synchronisiert alle verknüpften Google-, Outlook- und iCloud-Kalender und sichert eure Einstellungen im Familien-Konto.
+            </p>
           </div>
           <div className="flex flex-wrap gap-2.5">
-            <button
-              onClick={runAllPermissionsTest}
-              disabled={isTestingDiag}
-              className="tw-glow-btn px-4 py-2 rounded-xl font-extrabold text-xs flex items-center gap-1.5 cursor-pointer"
-            >
-              <ShieldCheck className="w-4 h-4" />
-              <span>{isTestingDiag ? 'Prüfe...' : '🧪 Lese-/Schreibrechte testen'}</span>
-            </button>
             <button
               onClick={() => pullFromCloud(undefined, true)}
               className="tw-glow-btn px-4 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 cursor-pointer"
             >
-              <RefreshCw className="w-4 h-4" /> Aus Google laden
+              <RefreshCw className="w-4 h-4" /> Jetzt alle Kalender abrufen
             </button>
             <button
               onClick={() => pushToCloudAndDrive(members, true)}
               className="tw-glow-btn px-5 py-2 rounded-xl font-extrabold text-xs flex items-center gap-1.5 cursor-pointer"
             >
-              <Cloud className="w-4 h-4" /> Alles in Cloud sichern
+              <Cloud className="w-4 h-4" /> Änderungen in Cloud speichern
             </button>
             <button
               onClick={addExtraCalendarAccount}
               className="tw-glow-btn px-4 py-2 rounded-xl font-extrabold text-xs cursor-pointer"
             >
-              + Weiterer Kalender / Person
+              + Weitere Person / Kalender-Spalte
             </button>
           </div>
         </div>
 
-        {diagResult && (
-          <div className={'p-4 rounded-2xl border grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-xs font-extrabold ' + themeStyles.subtle}>
-            <div className={diagResult.calendarReadWrite ? 'text-emerald-400' : 'text-rose-400'}>
-              {diagResult.calendarReadWrite ? '✅ Google Kalender: OK' : '❌ Kalender Fehler'}
-            </div>
-            <div className={todoistConfig?.apiToken ? 'text-emerald-400' : 'text-amber-400'}>
-              {todoistConfig?.apiToken ? '✅ Todoist API: Aktiv' : 'ℹ️ Todoist Token noch leer'}
-            </div>
-            <div className={diagResult.propertiesReadWrite ? 'text-emerald-400' : 'text-rose-400'}>
-              {diagResult.propertiesReadWrite ? '✅ Cloud-Properties: OK' : '❌ Properties Fehler'}
-            </div>
-            <div className="flex gap-2 justify-end">
-              <label className="text-indigo-400 underline cursor-pointer">
-                JSON Import <input type="file" accept=".json" className="hidden" onChange={importBackupJson} />
-              </label>
-              <button onClick={exportBackupJson} className="text-emerald-400 underline cursor-pointer">JSON Export</button>
+        <div className="pt-2 border-t border-slate-700/40 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-4 font-extrabold">
+            <label className="text-sky-400 hover:underline cursor-pointer">
+              📂 Backup-Datei (.json) importieren
+              <input type="file" accept=".json" className="hidden" onChange={importBackupJson} />
+            </label>
+            <button onClick={exportBackupJson} className="text-emerald-400 hover:underline cursor-pointer">
+              💾 Backup-Datei (.json) herunterladen
+            </button>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setShowExpertServerUrl(!showExpertServerUrl)}
+            className="text-[11px] font-bold opacity-60 hover:opacity-100 flex items-center gap-1 cursor-pointer"
+          >
+            <ChevronDown className={'w-3.5 h-3.5 transition-transform ' + (showExpertServerUrl ? 'rotate-180' : '')} />
+            <span>⚙️ Erweiterte Server-Einstellungen (Nur für Selbst-Hoster)</span>
+          </button>
+        </div>
+
+        {showExpertServerUrl && (
+          <div className={'p-3.5 rounded-2xl border space-y-3 ' + themeStyles.subtle}>
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-xs font-extrabold uppercase text-amber-400 shrink-0">🔗 Eigener Cloud-Server (Optional):</span>
+              <input
+                type="url"
+                value={appsScriptUrl}
+                onChange={(e) => {
+                  setAppsScriptUrl(e.target.value);
+                  try { localStorage.setItem('richter_tw_gas_url', e.target.value); } catch (err) {}
+                }}
+                placeholder="Standard-Cloud-Server aktiv"
+                className={'flex-1 min-w-[260px] px-3.5 py-2 rounded-xl border text-xs font-mono ' + themeStyles.input}
+              />
+              <button
+                onClick={runAllPermissionsTest}
+                disabled={isTestingDiag}
+                className="tw-glow-btn px-4 py-2 rounded-xl font-extrabold text-xs flex items-center gap-1.5 cursor-pointer"
+              >
+                <ShieldCheck className="w-4 h-4" />
+                <span>{isTestingDiag ? 'Prüfe...' : '🧪 Server testen'}</span>
+              </button>
             </div>
           </div>
         )}
-
-        <div className={'p-3.5 rounded-2xl border flex flex-wrap items-center gap-3 ' + themeStyles.subtle}>
-          <span className="text-xs font-extrabold uppercase text-amber-400 shrink-0">🔗 Apps-Script URL:</span>
-          <input
-            type="url"
-            value={appsScriptUrl}
-            onChange={(e) => {
-              setAppsScriptUrl(e.target.value);
-              try { localStorage.setItem('richter_tw_gas_url', e.target.value); } catch (err) {}
-            }}
-            placeholder="https://script.google.com/macros/s/.../exec"
-            className={'flex-1 min-w-[260px] px-3.5 py-2 rounded-xl border text-xs font-mono ' + themeStyles.input}
-          />
-        </div>
       </div>
     </div>
   );
