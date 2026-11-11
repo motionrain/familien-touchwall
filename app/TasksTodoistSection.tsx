@@ -61,6 +61,7 @@ export default function TasksTodoistSection({
   const doneShopItems = shopItems.map((it, idx) => ({ ...it, origIdx: idx })).filter(it => it.done);
   const hasTodoistToken = Boolean(todoistConfig?.apiToken?.trim());
   const projectsList = Array.isArray(todoistConfig?.projects) ? todoistConfig.projects : [];
+  const syncIconClass = isSyncing ? 'w-3.5 h-3.5 animate-spin' : 'w-3.5 h-3.5';
 
   const setQuickDeadline = (type) => {
     const now = new Date();
@@ -138,13 +139,13 @@ export default function TasksTodoistSection({
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-3 flex-wrap">
-              <h2 className="text-2xl font-extrabold">✅ Todoist Team „Familie Richter“ & Projekt-Kacheln</h2>
+              <h2 className="text-2xl font-extrabold">✅ Todoist Team & Projekt-Kacheln</h2>
               {hasTodoistToken ? (
                 <button
                   onClick={() => syncWithTodoistNow(true)}
                   className="tw-glow-btn px-3.5 py-1.5 rounded-xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
                 >
-                  <RefreshCw className={'w-3.5 h-3.5 ' + (isSyncing ? 'animate-spin' : '')} />
+                  <RefreshCw className={syncIconClass} />
                   <span>⚡ 8s Auto-Sync aktiv {lastAutoSyncTime ? '(' + lastAutoSyncTime + ')' : ''}</span>
                 </button>
               ) : (
