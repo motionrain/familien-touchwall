@@ -1,11 +1,13 @@
 // @ts-nocheck
 /* eslint-disable react/no-unescaped-entities */
+/* eslint-disable @next/next/no-img-element */
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-  Package, Trash2, Utensils, Plus, AlertTriangle, CheckCircle2,
-  ShoppingCart, Sparkles, RotateCcw, Calendar, Archive, Check
+  Package, Trash2, Utensils, Plus, CheckCircle2,
+  ShoppingCart, Sparkles, RotateCcw, Globe, Clock,
+  Wand2, ExternalLink, ChefHat, Flame, Filter
 } from 'lucide-react';
 import { formatDateStr, addDays } from './touchwallConfig';
 
@@ -17,51 +19,187 @@ const STORAGE_LOCATIONS = [
   { id: 'kitchen', label: '🍎 Küche / Vorratsschrank' }
 ];
 
-// Intelligente Rezept-Datenbank für automatische Bestands- & Reste-Vorschläge
-const SMART_RECIPES = [
+// Schnelle, familientaugliche Alltagsrezepte (15 bis max. 30 Minuten)
+const QUICK_FAMILY_RECIPES = [
   {
-    id: 'rec_bolo',
-    title: '🍝 Spaghetti Bolognese',
-    keywords: ['spaghetti', 'nudeln', 'pasta', 'hackfleisch', 'rinderhack', 'tomaten', 'passierte', 'parmesan'],
-    ingredients: ['Spaghetti / Nudeln', 'Hackfleisch', 'Passierte Tomaten', 'Parmesan']
+    id: 'fam_bolo',
+    title: '🍝 Schnelle Familien-Bolognese',
+    prepMinutes: 20,
+    kidFavorite: true,
+    category: 'One-Pot & Pasta',
+    shortDesc: 'Klassiker für Kinder – in 20 Min. fertig auf dem Tisch.',
+    keywords: ['spaghetti', 'nudeln', 'pasta', 'hackfleisch', 'rinderhack', 'tomaten', 'passierte', 'parmesan', 'möhren', 'karotten'],
+    ingredients: ['Nudeln / Spaghetti', 'Hackfleisch', 'Passierte Tomaten', 'Geriebener Käse / Parmesan']
   },
   {
-    id: 'rec_pfannkuchen',
-    title: '🥞 Pfannkuchen mit Apfelmus',
-    keywords: ['mehl', 'eier', 'ei', 'milch', 'apfelmus', 'äpfel', 'apfel'],
-    ingredients: ['Mehl', 'Eier', 'Milch', 'Apfelmus']
+    id: 'fam_schupfnudeln',
+    title: '🥘 15-Minuten Schupfnudel-Gemüse-Pfanne',
+    prepMinutes: 15,
+    kidFavorite: true,
+    category: 'Express-Pfanne',
+    shortDesc: 'Alles in einer Pfanne gebraten – kaum Abwasch und extrem schnell.',
+    keywords: ['schupfnudeln', 'gnocchi', 'speck', 'schinken', 'paprika', 'zucchini', 'gemüse', 'sahne', 'frischkäse', 'käse'],
+    ingredients: ['Schupfnudeln oder Gnocchi', 'Schinken / Speckwürfel', 'Gemüse (Paprika / Zucchini)', 'etwas Sahne oder Frischkäse']
   },
   {
-    id: 'rec_wok',
-    title: '🥦 Gemüse-Pfanne mit Reis',
-    keywords: ['reis', 'basmatireis', 'brokkoli', 'paprika', 'gemüse', 'hähnchen', 'tofu', 'sojasoße', 'karotten'],
-    ingredients: ['Reis', 'Gemüse (Brokkoli/Paprika)', 'Hähnchen / Tofu', 'Sojasoße']
+    id: 'fam_tortellini',
+    title: '🥟 Tortellini alla Panna (Käse-Schinken-Soße)',
+    prepMinutes: 15,
+    kidFavorite: true,
+    category: 'Express-Pasta',
+    shortDesc: 'Tortellini aus dem Kühlregal in cremiger 5-Minuten-Schinken-Sahnesoße.',
+    keywords: ['tortellini', 'ravioli', 'nudeln', 'schinken', 'sahne', 'käse', 'parmesan', 'erbsen'],
+    ingredients: ['Tortellini (Kühlregal)', 'Kochschinken', 'Sahne / Kochsahne', 'Erbsen', 'Geriebener Käse']
   },
   {
-    id: 'rec_auflauf',
-    title: '🧀 Kartoffel-Gemüse-Gratin',
-    keywords: ['kartoffeln', 'käse', 'gouda', 'mozzarella', 'sahne', 'milch', 'gemüse', 'schinken'],
-    ingredients: ['Kartoffeln', 'Geriebener Käse', 'Sahne / Milch', 'Gemüse']
+    id: 'fam_pfannkuchen',
+    title: '🥞 Goldene Familien-Pfannkuchen',
+    prepMinutes: 20,
+    kidFavorite: true,
+    category: 'Süß & Herzhaft',
+    shortDesc: 'Perfekt, wenn Eier, Milch oder Äpfel bald verbraucht werden müssen.',
+    keywords: ['mehl', 'eier', 'ei', 'milch', 'apfelmus', 'äpfel', 'apfel', 'nutella', 'marmelade', 'käse', 'schinken'],
+    ingredients: ['Mehl', 'Eier', 'Milch', 'Apfelmus / Obst oder Käse']
   },
   {
-    id: 'rec_pizza',
-    title: '🍕 Hausgemachte Familien-Pizza',
-    keywords: ['pizzateig', 'hefe', 'mehl', 'mozzarella', 'käse', 'salami', 'champignons', 'pilze', 'tomaten'],
-    ingredients: ['Pizzateig', 'Mozzarella / Käse', 'Passierte Tomaten', 'Salami / Champignons']
+    id: 'fam_fischstaebchen',
+    title: '🐟 Knusper-Fischstäbchen mit Kartoffelstampf',
+    prepMinutes: 20,
+    kidFavorite: true,
+    category: 'Kinder-Hit',
+    shortDesc: 'Aus dem Gefrierschrank direkt in die Pfanne, dazu cremiger Stampf.',
+    keywords: ['fischstäbchen', 'fisch', 'kartoffeln', 'milch', 'butter', 'spinat', 'rahmgemüse', 'erbsen', 'gurke'],
+    ingredients: ['Fischstäbchen', 'Kartoffeln', 'Milch & Butter', 'Rahmspinat oder Gurkensalat']
   },
   {
-    id: 'rec_omelett',
-    title: '🍳 Bauern-Omelett mit Bratkartoffeln',
-    keywords: ['eier', 'ei', 'kartoffeln', 'speck', 'schinken', 'zwiebeln', 'käse', 'schnittlauch'],
-    ingredients: ['Eier', 'Kartoffeln', 'Schinken / Speck', 'Käse']
+    id: 'fam_bauerntopf',
+    title: '🍲 Schneller Ein-Topf-Bauerntopf',
+    prepMinutes: 25,
+    kidFavorite: false,
+    category: 'One-Pot & Wärmend',
+    shortDesc: 'Kartoffeln, Paprika und Hackfleisch schmoren gemeinsam in einem Topf.',
+    keywords: ['kartoffeln', 'hackfleisch', 'rinderhack', 'paprika', 'tomaten', 'passierte', 'schmand', 'creme fraiche', 'brühe'],
+    ingredients: ['Kartoffeln', 'Hackfleisch', 'Paprika', 'Passierte Tomaten', 'Schmand / Crème fraîche']
   },
   {
-    id: 'rec_tacos',
-    title: '🌮 Familien-Tacos / Wraps',
-    keywords: ['tacos', 'wraps', 'tortilla', 'hackfleisch', 'mais', 'bohnen', 'avocado', 'salat', 'käse', 'salsa'],
-    ingredients: ['Tacos / Wraps', 'Hackfleisch', 'Mais & Salat', 'Salsa / Käse']
+    id: 'fam_wok',
+    title: '🥦 Schnelle Hähnchen-Reis-Pfanne',
+    prepMinutes: 20,
+    kidFavorite: true,
+    category: 'Pfanne & Wok',
+    shortDesc: 'Ideal zur Resteverwertung von jeglichem Gemüse aus dem Kühlschrank.',
+    keywords: ['reis', 'basmatireis', 'hähnchen', 'pute', 'geschnetzeltes', 'brokkoli', 'paprika', 'karotten', 'gemüse', 'sojasoße', 'kokosmilch'],
+    ingredients: ['Reis', 'Hähnchenbrust / Geschnetzeltes', 'Gemüse (Brokkoli, Paprika, Karotten)', 'Sojasoße oder Kokosmilch']
+  },
+  {
+    id: 'fam_kaesespaetzle',
+    title: '🧀 Allgäuer Pfannen-Käsespätzle',
+    prepMinutes: 15,
+    kidFavorite: true,
+    category: 'Express-Pfanne',
+    shortDesc: 'Frische Spätzle direkt in der Pfanne mit viel Käse geschmolzen.',
+    keywords: ['spätzle', 'knöpfle', 'käse', 'gouda', 'emmentaler', 'röstzwiebeln', 'zwiebeln', 'butter', 'salat'],
+    ingredients: ['Frische Spätzle (Kühlregal)', 'Geriebener Käse', 'Zwiebeln / Röstzwiebeln', 'Grüner Beilagensalat']
+  },
+  {
+    id: 'fam_quesadillas',
+    title: '🌮 Knusprige Familien-Wraps / Quesadillas',
+    prepMinutes: 15,
+    kidFavorite: true,
+    category: 'Fingerfood',
+    shortDesc: 'Tortilla-Wraps mit Käse, Mais und Schinken/Hack in 5 Min. in der Pfanne gebräunt.',
+    keywords: ['wraps', 'tortilla', 'tacos', 'käse', 'gouda', 'mozzarella', 'mais', 'paprika', 'schinken', 'hackfleisch', 'hähnchen', 'schmand'],
+    ingredients: ['Tortilla-Wraps', 'Geriebener Käse', 'Mais & Paprika', 'Schinken oder Hackfleisch', 'Schmand / Dip']
+  },
+  {
+    id: 'fam_auflauf',
+    title: '🥘 Fixer Nudel-Schinken-Auflauf',
+    prepMinutes: 25,
+    kidFavorite: true,
+    category: 'Aus dem Ofen',
+    shortDesc: '5 Minuten Vorbereitung, den Rest erledigt der Backofen von allein.',
+    keywords: ['nudeln', 'penne', 'rigatoni', 'schinken', 'sahne', 'milch', 'käse', 'mozzarella', 'gouda', 'erbsen', 'mais'],
+    ingredients: ['Nudeln (Penne/Rigatoni)', 'Kochschinken', 'Sahne & Milch', 'Geriebener Käse zum Überbacken']
+  },
+  {
+    id: 'fam_lachsnudeln',
+    title: '🐟 Blitz-Pasta mit Lachs-Sahne-Soße',
+    prepMinutes: 18,
+    kidFavorite: false,
+    category: 'Express-Pasta',
+    shortDesc: 'Während die Nudeln kochen, ist die Lachs-Sahne-Soße schon fertig.',
+    keywords: ['lachs', 'räucherlachs', 'nudeln', 'spaghetti', 'tagliatelle', 'sahne', 'frischkäse', 'spinat', 'zitrone'],
+    ingredients: ['Nudeln', 'Lachs (frisch, TK oder Räucherlachs)', 'Sahne oder Frischkäse', 'Blattspinat (optional)']
+  },
+  {
+    id: 'fam_flammkuchen',
+    title: '🍕 Schnelle Flammkuchen / Pizza-Blech',
+    prepMinutes: 20,
+    kidFavorite: true,
+    category: 'Aus dem Ofen',
+    shortDesc: 'Jeder belegt seine Ecke selbst – ideal für Vorratsreste aus dem Kühlschrank.',
+    keywords: ['pizzateig', 'flammkuchenteig', 'blätterteig', 'toast', 'schmand', 'speck', 'salami', 'schinken', 'mozzarella', 'käse', 'champignons', 'mais'],
+    ingredients: ['Fertiger Pizza- oder Flammkuchenteig', 'Schmand oder Passierte Tomaten', 'Schinken / Salami / Speck', 'Mozzarella / Reibekäse']
   }
 ];
+
+// Übersetzungstabelle (Deutsch -> Englisch) für die Live-Abfrage bei TheMealDB
+const DE_TO_EN_INGREDIENT_MAP = [
+  { de: ['hähnchen', 'huhn', 'pute', 'geflügel', 'geschnetzeltes'], en: 'chicken', label: 'Hähnchen' },
+  { de: ['hackfleisch', 'rinderhack', 'rind', 'rindfleisch', 'steak'], en: 'beef', label: 'Rind / Hackfleisch' },
+  { de: ['schwein', 'schinken', 'speck', 'würstchen', 'salami'], en: 'pork', label: 'Schinken / Schwein' },
+  { de: ['lachs', 'fisch', 'fischstäbchen', 'thunfisch'], en: 'salmon', label: 'Lachs / Fisch' },
+  { de: ['nudeln', 'spaghetti', 'pasta', 'penne', 'tortellini', 'maccheroni'], en: 'pasta', label: 'Nudeln / Pasta' },
+  { de: ['reis', 'basmatireis', 'jasminreis', 'milchreis'], en: 'rice', label: 'Reis' },
+  { de: ['kartoffel', 'kartoffeln', 'gnocchi', 'schupfnudeln'], en: 'potatoes', label: 'Kartoffeln' },
+  { de: ['ei', 'eier'], en: 'egg', label: 'Eier' },
+  { de: ['käse', 'gouda', 'mozzarella', 'emmentaler', 'parmesan', 'cheddar'], en: 'cheese', label: 'Käse' },
+  { de: ['tomate', 'tomaten', 'passierte'], en: 'tomatoes', label: 'Tomaten' },
+  { de: ['brokkoli'], en: 'broccoli', label: 'Brokkoli' },
+  { de: ['paprika'], en: 'red_pepper', label: 'Paprika' },
+  { de: ['champignons', 'pilze'], en: 'mushrooms', label: 'Champignons' },
+  { de: ['spinat'], en: 'spinach', label: 'Spinat' },
+  { de: ['apfel', 'äpfel'], en: 'apples', label: 'Äpfel' },
+  { de: ['milch', 'sahne', 'schmand', 'quark', 'joghurt'], en: 'milk', label: 'Milchprodukte' }
+];
+
+const EN_TO_DE_DISH_WORDS = {
+  'Chicken': 'Hähnchen',
+  'Beef': 'Rindfleisch',
+  'Pork': 'Schweinefleisch',
+  'Pasta': 'Nudel-Pfanne',
+  'Spaghetti': 'Spaghetti',
+  'Salmon': 'Lachs',
+  'Potato': 'Kartoffel',
+  'Potatoes': 'Kartoffeln',
+  'Cheese': 'Käse',
+  'Creamy': 'Cremige',
+  'Baked': 'Ofen-',
+  'Grilled': 'Gegrilltes',
+  'Soup': 'Suppe',
+  'Salad': 'Salat',
+  'Rice': 'Reis-Pfanne',
+  'With': 'mit',
+  'And': '&',
+  'Garlic': 'Knoblauch',
+  'Tomato': 'Tomaten',
+  'Mushroom': 'Champignon',
+  'Pie': 'Auflauf',
+  'Casserole': 'Familien-Auflauf',
+  'Stew': 'Schmortopf',
+  'Curry': 'Mildes Familien-Curry',
+  'Pancakes': 'Pfannkuchen',
+  'Omelette': 'Bauern-Omelett'
+};
+
+function translateWebMealTitle(enTitle) {
+  let out = String(enTitle || '');
+  Object.keys(EN_TO_DE_DISH_WORDS).forEach(enWord => {
+    const reg = new RegExp('\\b' + enWord + '\\b', 'gi');
+    out = out.replace(reg, EN_TO_DE_DISH_WORDS[enWord]);
+  });
+  return out;
+}
 
 function getDaysUntil(expiryDateStr, todayStr) {
   if (!expiryDateStr) return 999;
@@ -84,6 +222,7 @@ export default function PantrySection({
 }) {
   const [activeSubTab, setActiveSubTab] = useState('stock'); // 'stock' | 'recipes' | 'trash'
   const [locationFilter, setLocationFilter] = useState('all');
+  const [recipeFilter, setRecipeFilter] = useState('all'); // 'all' | 'express' | 'kids' | 'web'
 
   // Formular: Neues Produkt (Ablaufdatum ist Pflicht!)
   const [itemName, setItemName] = useState('');
@@ -91,7 +230,13 @@ export default function PantrySection({
   const [itemLocation, setItemLocation] = useState('pantry');
   const [itemExpiry, setItemExpiry] = useState('');
   const [confirmConsumeId, setConfirmConsumeId] = useState(null);
+
+  // Tages-Menü & Web-Suche State
   const [targetMealDayId, setTargetMealDayId] = useState(1);
+  const [includeSideAndDessert, setIncludeSideAndDessert] = useState(true);
+  const [alsoSendMissingToShopping, setAlsoSendMissingToShopping] = useState(true);
+  const [webRecipes, setWebRecipes] = useState([]);
+  const [isLoadingWebRecipes, setIsLoadingWebRecipes] = useState(false);
 
   const safeStock = useMemo(() => Array.isArray(pantryItems) ? pantryItems : [], [pantryItems]);
   const safeTrash = useMemo(() => Array.isArray(pantryTrash) ? pantryTrash : [], [pantryTrash]);
@@ -152,13 +297,12 @@ export default function PantrySection({
     showToast('In Speisekammer gespeichert', cleanName + ' (MHD: ' + itemExpiry + ')', '🥫');
   };
 
-  // Produkt wurde verzehrt (mit Bestätigung) oder weggeworfen -> in Mülleimer ablegen
   const MoveItemToTrash = (item, reasonType) => {
     setPantryItems(prev => (Array.isArray(prev) ? prev : []).filter(x => x.id !== item.id));
     const trashEntry = {
       ...item,
       trashedAt: todayStr,
-      reason: reasonType, // 'consumed' | 'wasted' | 'expired'
+      reason: reasonType,
       reasonLabel:
         reasonType === 'consumed'
           ? '🍽️ Rechtzeitig verzehrt am ' + todayStr
@@ -193,7 +337,6 @@ export default function PantrySection({
     showToast('Wiederhergestellt', trashItem.name + ' ist wieder im Bestand.', '↩️');
   };
 
-  // Sortierter Bestand: Bald ablaufende Produkte stehen ganz oben!
   const filteredStock = useMemo(() => {
     return safeStock
       .filter(it => locationFilter === 'all' || it.location === locationFilter)
@@ -201,11 +344,12 @@ export default function PantrySection({
       .sort((a, b) => String(a.expiryDate || '9999').localeCompare(String(b.expiryDate || '9999')));
   }, [safeStock, locationFilter]);
 
-  const expiringSoonCount = useMemo(() => {
-    return safeStock.filter(it => getDaysUntil(it.expiryDate, todayStr) <= 4).length;
+  const expiringSoonItems = useMemo(() => {
+    return safeStock
+      .filter(it => getDaysUntil(it.expiryDate, todayStr) <= 5)
+      .sort((a, b) => String(a.expiryDate).localeCompare(String(b.expiryDate)));
   }, [safeStock, todayStr]);
 
-  // Nachhaltigkeits-Statistik aus dem Mülleimer
   const trashStats = useMemo(() => {
     const consumed = safeTrash.filter(x => x.reason === 'consumed').length;
     const wasted = safeTrash.filter(x => x.reason === 'expired' || x.reason === 'wasted').length;
@@ -215,70 +359,236 @@ export default function PantrySection({
   }, [safeTrash]);
 
   // =========================================================
-  // SMARTE REZEPT-ENGINE (PRÜFT BESTAND & BALD ABLAUFENDE PRODUKTE)
+  // LIVE-REZEPTABFRAGE AUS DEM INTERNET ANHAND DES VORRATS
   // =========================================================
-  const recipeSuggestions = useMemo(() => {
-    return SMART_RECIPES.map(rec => {
-      const matchedStock = [];
-      let urgentCount = 0;
+  const fetchWebRecipesFromStock = async () => {
+    setIsLoadingWebRecipes(true);
+    setRecipeFilter('web');
 
-      rec.keywords.forEach(kw => {
-        const found = safeStock.find(st => String(st.name || '').toLowerCase().includes(kw));
-        if (found && !matchedStock.some(m => m.id === found.id)) {
-          matchedStock.push(found);
-          if (getDaysUntil(found.expiryDate, todayStr) <= 4) {
-            urgentCount++;
+    try {
+      // Bevorzuge Zutaten aus dem Vorrat, die bald ablaufen!
+      const sortedByExpiry = [...safeStock].sort((a, b) =>
+        String(a.expiryDate || '9999').localeCompare(String(b.expiryDate || '9999'))
+      );
+
+      const matchedQueries = [];
+      sortedByExpiry.forEach(item => {
+        const lower = String(item.name || '').toLowerCase();
+        DE_TO_EN_INGREDIENT_MAP.forEach(entry => {
+          if (entry.de.some(w => lower.includes(w)) && !matchedQueries.some(q => q.en === entry.en)) {
+            matchedQueries.push({ en: entry.en, deLabel: item.name });
           }
+        });
+      });
+
+      if (matchedQueries.length === 0) {
+        matchedQueries.push({ en: 'pasta', deLabel: 'Pasta / Vorrat' }, { en: 'chicken', deLabel: 'Familien-Gericht' });
+      }
+
+      const fetchedCards = [];
+      const seenMealIds = new Set();
+
+      for (const q of matchedQueries.slice(0, 3)) {
+        const res = await fetch('https://www.themealdb.com/api/json/v1/1/filter.php?i=' + encodeURIComponent(q.en));
+        const data = await res.json();
+        const meals = Array.isArray(data?.meals) ? data.meals.slice(0, 3) : [];
+
+        for (const m of meals) {
+          if (seenMealIds.has(m.idMeal)) continue;
+          seenMealIds.add(m.idMeal);
+
+          const detailRes = await fetch('https://www.themealdb.com/api/json/v1/1/lookup.php?i=' + encodeURIComponent(m.idMeal));
+          const detailData = await detailRes.json();
+          const fullMeal = detailData?.meals?.[0];
+          if (!fullMeal) continue;
+
+          const rawIngs = [];
+          for (let i = 1; i <= 6; i++) {
+            const ingName = String(fullMeal['strIngredient' + i] || '').trim();
+            if (ingName) rawIngs.push(ingName);
+          }
+
+          fetchedCards.push({
+            id: 'web_' + fullMeal.idMeal,
+            title: '🌐 ' + translateWebMealTitle(fullMeal.strMeal),
+            prepMinutes: 25,
+            kidFavorite: true,
+            isWebRecipe: true,
+            thumbUrl: fullMeal.strMealThumb || '',
+            sourceUrl: fullMeal.strSource || fullMeal.strYoutube || '',
+            category: 'Web-Rezept passend zu ' + q.deLabel,
+            shortDesc: 'Live aus dem Netz gefunden für deinen Vorrat: „' + q.deLabel + '“.',
+            keywords: [q.deLabel.toLowerCase()],
+            ingredients: rawIngs.length > 0 ? rawIngs : [q.deLabel, 'Beilage nach Wahl']
+          });
         }
-      });
+      }
 
-      const ingredientStatus = rec.ingredients.map(ingLabel => {
-        const words = ingLabel.toLowerCase().split(/[\s/(),]+/).filter(w => w.length >= 3);
-        const inPantry = safeStock.find(st =>
-          words.some(w => String(st.name || '').toLowerCase().includes(w))
-        );
+      setWebRecipes(fetchedCards);
+      showToast('Web-Rezepte geladen!', fetchedCards.length + ' Rezept-Ideen aus dem Netz passend zu deinem Vorrat gefunden!', '🌐');
+    } catch (err) {
+      showToast('Web-Suche Hinweis', 'Nutze unsere integrierten 20-Minuten-Familienrezepte.', 'ℹ️');
+    } finally {
+      setIsLoadingWebRecipes(false);
+    }
+  };
+
+  // =========================================================
+  // BEWERTUNG ALLER REZEPTE GEGEN DEN AKTUELLEN VORRAT
+  // =========================================================
+  const evaluatedRecipes = useMemo(() => {
+    const combinedSource = [...webRecipes, ...QUICK_FAMILY_RECIPES];
+
+    return combinedSource
+      .map(rec => {
+        const matchedStock = [];
+        let urgentCount = 0;
+
+        (rec.keywords || []).forEach(kw => {
+          const found = safeStock.find(st => String(st.name || '').toLowerCase().includes(kw));
+          if (found && !matchedStock.some(m => m.id === found.id)) {
+            matchedStock.push(found);
+            if (getDaysUntil(found.expiryDate, todayStr) <= 4) {
+              urgentCount++;
+            }
+          }
+        });
+
+        const ingredientStatus = (rec.ingredients || []).map(ingLabel => {
+          const words = String(ingLabel).toLowerCase().split(/[\s/(),&-]+/).filter(w => w.length >= 3);
+          const inPantry = safeStock.find(st =>
+            words.some(w => String(st.name || '').toLowerCase().includes(w)) ||
+            (rec.keywords || []).some(kw => words.includes(kw) && String(st.name || '').toLowerCase().includes(kw))
+          );
+          return {
+            name: ingLabel,
+            inPantry: Boolean(inPantry),
+            pantryItem: inPantry || null
+          };
+        });
+
+        const haveCount = ingredientStatus.filter(i => i.inPantry).length;
+        const totalCount = Math.max(1, ingredientStatus.length);
+        const matchPercent = Math.round((haveCount / totalCount) * 100);
+
         return {
-          name: ingLabel,
-          inPantry: Boolean(inPantry),
-          pantryItem: inPantry || null
+          ...rec,
+          matchedStock,
+          urgentCount,
+          ingredientStatus,
+          haveCount,
+          matchPercent
         };
+      })
+      .filter(rec => {
+        if (recipeFilter === 'express') return rec.prepMinutes <= 20;
+        if (recipeFilter === 'kids') return Boolean(rec.kidFavorite);
+        if (recipeFilter === 'web') return Boolean(rec.isWebRecipe);
+        return true;
+      })
+      .sort((a, b) => {
+        if (a.isWebRecipe !== b.isWebRecipe && recipeFilter === 'web') return a.isWebRecipe ? -1 : 1;
+        return (b.urgentCount * 35 + b.matchPercent) - (a.urgentCount * 35 + a.matchPercent);
       });
+  }, [safeStock, todayStr, webRecipes, recipeFilter]);
 
-      const haveCount = ingredientStatus.filter(i => i.inPantry).length;
-      const matchPercent = Math.round((haveCount / rec.ingredients.length) * 100);
-
-      return {
-        ...rec,
-        matchedStock,
-        urgentCount,
-        ingredientStatus,
-        haveCount,
-        matchPercent
-      };
-    }).sort((a, b) => (b.urgentCount * 30 + b.matchPercent) - (a.urgentCount * 30 + a.matchPercent));
-  }, [safeStock, todayStr]);
-
-  const applyRecipeToMealPlan = (rec) => {
-    const targetMeal = safeMeals.find(m => Number(m.id) === Number(targetMealDayId)) || safeMeals[0];
+  // =========================================================
+  // TAGES-MENÜ UMSETZEN (HAUPTGERICHT + BEILAGE/DESSERT AUS VORRAT)
+  // =========================================================
+  const convertRecipeToDailyMenu = (rec, dayIdOverride = null) => {
+    const targetId = dayIdOverride !== null ? dayIdOverride : targetMealDayId;
+    const targetMeal = safeMeals.find(m => Number(m.id) === Number(targetId)) || safeMeals[0];
     if (!targetMeal) return;
 
-    const newIngredients = rec.ingredientStatus.map(ing => ({
+    // Prüfen, ob im Vorrat noch Obst/Joghurt/Salat für ein komplettes Familien-Tagesmenü liegt
+    const fruitOrDessertInStock = safeStock.find(st =>
+      /apfel|äpfel|banane|obst|beeren|joghurt|quark|pudding|eis|apfelmus/i.test(st.name)
+    );
+    const saladOrVeggieInStock = safeStock.find(st =>
+      /salat|gurke|tomate|karotte|möhre|paprika|rohKost/i.test(st.name)
+    );
+
+    let finalDishTitle = rec.title;
+    const finalIngredients = rec.ingredientStatus.map(ing => ({
       name: ing.name,
       done: ing.inPantry
     }));
 
+    if (includeSideAndDessert) {
+      const extras = [];
+      if (saladOrVeggieInStock) {
+        extras.push('🥗 ' + saladOrVeggieInStock.name);
+        if (!finalIngredients.some(i => i.name.toLowerCase().includes(saladOrVeggieInStock.name.toLowerCase()))) {
+          finalIngredients.push({ name: 'Beilage: ' + saladOrVeggieInStock.name + ' (aus Vorrat)', done: true });
+        }
+      }
+      if (fruitOrDessertInStock) {
+        extras.push('🍨 ' + fruitOrDessertInStock.name);
+        if (!finalIngredients.some(i => i.name.toLowerCase().includes(fruitOrDessertInStock.name.toLowerCase()))) {
+          finalIngredients.push({ name: 'Nachtisch: ' + fruitOrDessertInStock.name + ' (aus Vorrat)', done: true });
+        }
+      }
+      if (extras.length > 0) {
+        finalDishTitle = rec.title + ' • Tages-Menü mit ' + extras.join(' & ');
+      }
+    }
+
     setMealPlan(prev => (Array.isArray(prev) ? prev : []).map(m =>
       Number(m.id) === Number(targetMeal.id)
-        ? { ...m, dish: rec.title, ingredients: newIngredients }
+        ? { ...m, dish: finalDishTitle, ingredients: finalIngredients }
         : m
     ));
 
+    // Fehlende Zutaten auf Wunsch direkt auf die Einkaufsliste setzen
+    const missingItems = rec.ingredientStatus.filter(i => !i.inPantry);
+    if (alsoSendMissingToShopping && missingItems.length > 0 && addShoppingItem) {
+      missingItems.forEach(mi => {
+        addShoppingItem(mi.name + ' (für ' + targetMeal.dayLabel + ')');
+      });
+    }
+
     showToast(
-      'In Essensplan übernommen!',
-      rec.title + ' → ' + targetMeal.dayLabel + ' (' + rec.haveCount + ' Zutaten schon auf Lager!)',
-      '🍲'
+      'Tages-Menü eingetragen!',
+      targetMeal.dayLabel + ': ' + finalDishTitle,
+      '🍽️'
     );
   };
+
+  // Komplette Woche (Mo–So) mit 1 Klick aus dem Vorrat planen
+  const autoPlanEntireWeekFromStock = () => {
+    const topRecipes = evaluatedRecipes.slice(0, 7);
+    if (topRecipes.length === 0) return;
+
+    setMealPlan(prev => (Array.isArray(prev) ? prev : []).map((dayMeal, idx) => {
+      const picked = topRecipes[idx % topRecipes.length];
+      if (!picked) return dayMeal;
+      return {
+        ...dayMeal,
+        dish: picked.title + ' (' + picked.prepMinutes + ' Min.)',
+        ingredients: picked.ingredientStatus.map(ing => ({
+          name: ing.name,
+          done: ing.inPantry
+        }))
+      };
+    }));
+
+    showToast(
+      'Wochenplan erstellt!',
+      'Alle 7 Tage wurden mit schnellen Familiengerichten passend zu eurem Vorrat gefüllt!',
+      '🪄'
+    );
+  };
+
+  // Chefkoch Resteverwertungs-Link mit den bald ablaufenden Vorräten öffnen
+  const chefkochSearchUrl = useMemo(() => {
+    const topNames = (expiringSoonItems.length > 0 ? expiringSoonItems : safeStock)
+      .slice(0, 3)
+      .map(it => String(it.name || '').split(' ')[0])
+      .filter(Boolean)
+      .join(' ');
+    const query = (topNames ? topNames + ' schnell familien' : 'schnelle familienrezepte');
+    return 'https://www.chefkoch.de/rs/s0/' + encodeURIComponent(query) + '/Rezepte.html';
+  }, [expiringSoonItems, safeStock]);
 
   return (
     <div className="p-6 flex flex-col gap-6">
@@ -286,13 +596,13 @@ export default function PantrySection({
       <div className={'p-6 rounded-3xl border shadow-sm flex flex-wrap items-center justify-between gap-4 ' + themeStyles.card}>
         <div>
           <div className="flex items-center gap-3 flex-wrap">
-            <h2 className="text-2xl font-extrabold">🥫 Speisekammer, Vorratslager & Nachhaltigkeit</h2>
+            <h2 className="text-2xl font-extrabold">🥫 Speisekammer, Web-Rezepte & Tages-Menü</h2>
             <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-xs font-extrabold">
               🌱 Nachhaltigkeits-Quote: {trashStats.score}% ({trashStats.consumed} verzehrt / {trashStats.wasted} abgelaufen)
             </span>
           </div>
           <p className={'text-sm font-semibold mt-1 ' + themeStyles.textMuted}>
-            Jedes Produkt wird mit Pflicht-Ablaufdatum erfasst. Abgelaufene Lebensmittel wandern automatisch in den Mülleimer.
+            Jedes Produkt wird mit Pflicht-Ablaufdatum erfasst. Aus deinen Vorräten erstellt die Touchwall schnelle Familien-Tagesmenüs!
           </p>
         </div>
 
@@ -303,9 +613,9 @@ export default function PantrySection({
           >
             <Package className="w-4 h-4" />
             <span>Bestand ({safeStock.length})</span>
-            {expiringSoonCount > 0 && (
+            {expiringSoonItems.length > 0 && (
               <span className="px-2 py-0.5 rounded-full bg-amber-500 text-slate-950 text-[10px] font-black">
-                {expiringSoonCount} läuft bald ab
+                {expiringSoonItems.length} läuft bald ab
               </span>
             )}
           </button>
@@ -314,8 +624,8 @@ export default function PantrySection({
             onClick={() => setActiveSubTab('recipes')}
             className={'px-4 py-2.5 rounded-2xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer ' + (activeSubTab === 'recipes' ? 'tw-active-nav' : 'tw-nav-inactive')}
           >
-            <Sparkles className="w-4 h-4" />
-            <span>Rezept-Vorschläge aus Bestand</span>
+            <ChefHat className="w-4 h-4" />
+            <span>🍽️ Schnelle Rezepte & Tages-Menü</span>
           </button>
 
           <button
@@ -323,7 +633,7 @@ export default function PantrySection({
             className={'px-4 py-2.5 rounded-2xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer ' + (activeSubTab === 'trash' ? 'tw-active-nav' : 'tw-nav-inactive')}
           >
             <Trash2 className="w-4 h-4" />
-            <span>🗑️ Mülleimer & Verlauf ({safeTrash.length})</span>
+            <span>🗑️ Mülleimer ({safeTrash.length})</span>
           </button>
         </div>
       </div>
@@ -338,9 +648,14 @@ export default function PantrySection({
               <span className="text-xs font-black uppercase text-sky-400">
                 ➕ Lebensmittel in Speisekammer einbuchen (Ablaufdatum ist Pflicht!)
               </span>
-              <span className="text-xs font-bold opacity-75">
-                📱 Tipp: Unterwegs auf dem Handy unter „/pocket“ einfach per Kamera-Barcode oder Kassenbon-Foto scannen!
-              </span>
+              <button
+                type="button"
+                onClick={() => setActiveSubTab('recipes')}
+                className="text-xs font-extrabold text-amber-400 hover:underline flex items-center gap-1 cursor-pointer"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Passende 20-Minuten-Familienrezepte zu deinem Bestand anzeigen →</span>
+              </button>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
@@ -349,7 +664,7 @@ export default function PantrySection({
                 required
                 value={itemName}
                 onChange={(e) => setItemName(e.target.value)}
-                placeholder="Produktname (z.B. Frische Vollmilch, Rinderhackfleisch, Basmatireis)..."
+                placeholder="Produktname (z.B. Vollmilch, Hackfleisch, Tortellini, Kartoffeln)..."
                 className={'md:col-span-4 px-4 py-3 rounded-2xl border text-sm font-extrabold ' + themeStyles.input}
               />
 
@@ -419,7 +734,6 @@ export default function PantrySection({
             </div>
           </form>
 
-          {/* LAGERORT-FILTER */}
           <div className="flex flex-wrap items-center gap-2">
             {STORAGE_LOCATIONS.map(loc => (
               <button
@@ -432,12 +746,11 @@ export default function PantrySection({
             ))}
           </div>
 
-          {/* BESTANDS-KACHELN */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {filteredStock.length === 0 ? (
               <div className={'col-span-full p-10 rounded-3xl border text-center space-y-2 ' + themeStyles.card}>
                 <div className="text-3xl">🥫</div>
-                <div className="font-extrabold text-base">Keine Lebensmittel in dieser Ansicht</div>
+                <div className="font-extrabold text-base">Noch keine Lebensmittel in dieser Ansicht</div>
                 <p className={'text-xs ' + themeStyles.textMuted}>
                   Trage oben Produkte mit ihrem Ablaufdatum ein oder scanne deinen Einkauf mit der Smartphone-App!
                 </p>
@@ -539,49 +852,164 @@ export default function PantrySection({
       )}
 
       {/* =========================================================
-          SUB-TAB 2: SMARTE REZEPT-VORSCHLÄGE FÜR DEN ESSENSPLAN
+          SUB-TAB 2: WEB-REZEPTE, SCHNELLE FAMILIENKÜCHE & TAGES-MENÜ
          ========================================================= */}
       {activeSubTab === 'recipes' && (
         <div className="space-y-5">
-          <div className={'p-5 rounded-3xl border flex flex-wrap items-center justify-between gap-4 ' + themeStyles.card}>
-            <div>
-              <h3 className="text-lg font-extrabold flex items-center gap-2">
-                <Sparkles className="w-5 h-5 text-amber-400" />
-                <span>Rezept-Vorschläge passend zu eurer Speisekammer</span>
-              </h3>
-              <p className={'text-xs font-semibold ' + themeStyles.textMuted}>
-                Gerichte mit bald ablaufenden Zutaten aus eurem Bestand werden automatisch ganz oben vorgeschlagen!
-              </p>
+          {/* STEUERUNGS-ZENTRALE FÜR TAGES-MENÜ & WEB-SUCHE */}
+          <div className={'p-5 rounded-3xl border space-y-4 ' + themeStyles.card}>
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <h3 className="text-xl font-extrabold flex items-center gap-2">
+                  <ChefHat className="w-6 h-6 text-amber-400" />
+                  <span>Schnelle Familien-Rezepte & Tages-Menü Planer</span>
+                </h3>
+                <p className={'text-xs font-semibold mt-0.5 ' + themeStyles.textMuted}>
+                  Alle Vorschläge sind in 15–25 Minuten gekocht, familienfreundlich und verbrauchen deine bald ablaufenden Vorräte zuerst!
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={fetchWebRecipesFromStock}
+                  disabled={isLoadingWebRecipes}
+                  className="tw-glow-btn px-4 py-2.5 rounded-2xl text-xs font-black flex items-center gap-2 cursor-pointer"
+                >
+                  <Globe className={'w-4 h-4 ' + (isLoadingWebRecipes ? 'animate-spin' : '')} />
+                  <span>{isLoadingWebRecipes ? 'Suche Rezepte im Netz...' : '🌐 Live-Rezepte aus dem Netz holen'}</span>
+                </button>
+
+                <a
+                  href={chefkochSearchUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="tw-glow-btn px-4 py-2.5 rounded-2xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer no-underline"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  <span>🔍 Chefkoch Reste-Suche</span>
+                </a>
+
+                <button
+                  type="button"
+                  onClick={autoPlanEntireWeekFromStock}
+                  className="tw-glow-btn px-4 py-2.5 rounded-2xl text-xs font-black flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Wand2 className="w-4 h-4" />
+                  <span>🪄 Ganze Woche (Mo–So) aus Vorrat planen</span>
+                </button>
+              </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-extrabold">Ziel-Tag im Essensplan:</span>
-              <select
-                value={targetMealDayId}
-                onChange={(e) => setTargetMealDayId(Number(e.target.value))}
-                className={'px-3.5 py-2 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
-              >
-                {safeMeals.map(m => (
-                  <option key={m.id} value={m.id} className="bg-slate-800 text-white">{m.dayLabel}</option>
-                ))}
-              </select>
+            {/* EINSTELLUNGEN FÜR DIE TAGES-MENÜ-UMWANDLUNG */}
+            <div className={'p-4 rounded-2xl border flex flex-wrap items-center justify-between gap-3 ' + themeStyles.subtle}>
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-xs font-black uppercase text-sky-400">🍽️ Tages-Menü Ziel-Tag:</span>
+                <select
+                  value={targetMealDayId}
+                  onChange={(e) => setTargetMealDayId(Number(e.target.value))}
+                  className={'px-3.5 py-2 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+                >
+                  {safeMeals.map(m => (
+                    <option key={m.id} value={m.id} className="bg-slate-800 text-white">
+                      📅 {m.dayLabel} (aktuell: {m.dish})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-4 text-xs font-bold">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={includeSideAndDessert}
+                    onChange={(e) => setIncludeSideAndDessert(e.target.checked)}
+                    className="w-4 h-4 accent-emerald-500 rounded cursor-pointer"
+                  />
+                  <span>🥗+🍨 Mit Salat/Obst aus Vorrat zum kompletten Tages-Menü ergänzen</span>
+                </label>
+
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={alsoSendMissingToShopping}
+                    onChange={(e) => setAlsoSendMissingToShopping(e.target.checked)}
+                    className="w-4 h-4 accent-amber-500 rounded cursor-pointer"
+                  />
+                  <span>🛒 Fehlende Zutaten automatisch auf Einkaufsliste</span>
+                </label>
+              </div>
+            </div>
+
+            {/* FILTER-LEISTE FÜR ZEIT & KINDER-LIEBLINGE */}
+            <div className="flex flex-wrap items-center gap-2">
+              {[
+                { id: 'all',     label: '⭐ Beste Treffer für deinen Vorrat' },
+                { id: 'express', label: '⚡ Express-Küche (max. 20 Min.)' },
+                { id: 'kids',    label: '👨‍👩‍👧‍👦 Kinder-Lieblinge' },
+                { id: 'web',     label: '🌐 Aus dem Internet geladen (' + webRecipes.length + ')' }
+              ].map(f => (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => {
+                    if (f.id === 'web' && webRecipes.length === 0) {
+                      fetchWebRecipesFromStock();
+                    } else {
+                      setRecipeFilter(f.id);
+                    }
+                  }}
+                  className={'px-3.5 py-1.5 rounded-xl text-xs font-extrabold cursor-pointer ' + (recipeFilter === f.id ? 'tw-active-nav' : 'tw-nav-inactive')}
+                >
+                  {f.label}
+                </button>
+              ))}
             </div>
           </div>
 
+          {/* REZEPT-KACHELN */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-            {recipeSuggestions.map(rec => (
-              <div key={rec.id} className={'p-5 rounded-3xl border-2 flex flex-col justify-between gap-4 ' + themeStyles.card + (rec.urgentCount > 0 ? ' border-amber-400/70' : '')}>
+            {evaluatedRecipes.map(rec => (
+              <div
+                key={rec.id}
+                className={'p-5 rounded-3xl border-2 flex flex-col justify-between gap-4 shadow-sm ' + themeStyles.card + (rec.urgentCount > 0 ? ' border-amber-400/70' : '')}
+              >
                 <div className="space-y-3">
+                  {rec.thumbUrl && (
+                    <div className="w-full h-40 rounded-2xl overflow-hidden relative border border-white/10">
+                      <img src={rec.thumbUrl} alt={rec.title} className="w-full h-full object-cover" />
+                      <span className="absolute top-2.5 right-2.5 px-2.5 py-1 rounded-xl bg-black/75 text-white text-[10px] font-black">
+                        🌐 Live Web-Rezept
+                      </span>
+                    </div>
+                  )}
+
                   <div className="flex items-start justify-between gap-2">
-                    <h4 className="font-extrabold text-lg">{rec.title}</h4>
+                    <div>
+                      <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                        <span className="px-2 py-0.5 rounded-md bg-sky-500/20 text-sky-300 text-[10px] font-black flex items-center gap-1">
+                          <Clock className="w-3 h-3" /> {rec.prepMinutes} Min.
+                        </span>
+                        {rec.kidFavorite && (
+                          <span className="px-2 py-0.5 rounded-md bg-pink-500/20 text-pink-300 text-[10px] font-black">
+                            👨‍👩‍👧‍👦 Familien-Hit
+                          </span>
+                        )}
+                      </div>
+                      <h4 className="font-extrabold text-lg leading-snug">{rec.title}</h4>
+                    </div>
                     <span className={'px-2.5 py-1 rounded-full text-xs font-black shrink-0 ' + (rec.matchPercent >= 50 ? 'bg-emerald-500/20 text-emerald-300' : 'bg-sky-500/20 text-sky-300')}>
-                      {rec.matchPercent}% im Haus
+                      {rec.matchPercent}% da
                     </span>
                   </div>
 
+                  {rec.shortDesc && (
+                    <p className={'text-xs font-semibold ' + themeStyles.textMuted}>{rec.shortDesc}</p>
+                  )}
+
                   {rec.urgentCount > 0 && (
                     <div className="px-3 py-1.5 rounded-xl bg-amber-500/20 border border-amber-400/40 text-amber-300 text-xs font-extrabold">
-                      ⚡ Rettet {rec.urgentCount} bald ablaufende(s) Produkt(e)!
+                      ⚡ Verwertet {rec.urgentCount} bald ablaufende(s) Produkt(e) aus deinem Bestand!
                     </div>
                   )}
 
@@ -590,23 +1018,36 @@ export default function PantrySection({
                       <div key={idx} className={'px-3 py-2 rounded-xl border flex items-center justify-between text-xs font-bold ' + themeStyles.subtle}>
                         <span>{ing.name}</span>
                         {ing.inPantry ? (
-                          <span className="text-emerald-400 font-extrabold">✓ Im Bestand ({ing.pantryItem?.name})</span>
+                          <span className="text-emerald-400 font-extrabold">✓ Auf Vorrat ({ing.pantryItem?.name})</span>
                         ) : (
-                          <span className="text-amber-400 opacity-80">🛒 Fehlt noch</span>
+                          <span className="text-amber-400 opacity-80">🛒 Fehlt</span>
                         )}
                       </div>
                     ))}
                   </div>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => applyRecipeToMealPlan(rec)}
-                  className="tw-glow-btn w-full py-3 rounded-2xl text-xs font-extrabold flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  <Utensils className="w-4 h-4" />
-                  <span>In Essensplan eintragen ({safeMeals.find(m => Number(m.id) === Number(targetMealDayId))?.dayLabel || 'Montag'})</span>
-                </button>
+                <div className="space-y-2 pt-2 border-t border-white/10">
+                  <button
+                    type="button"
+                    onClick={() => convertRecipeToDailyMenu(rec)}
+                    className="tw-glow-btn w-full py-3 rounded-2xl text-xs font-black flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <Utensils className="w-4 h-4" />
+                    <span>🍽️ Als Tages-Menü für {safeMeals.find(m => Number(m.id) === Number(targetMealDayId))?.dayLabel || 'Montag'} setzen</span>
+                  </button>
+
+                  {rec.sourceUrl && (
+                    <a
+                      href={rec.sourceUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="tw-nav-inactive w-full py-2 rounded-xl text-[11px] font-extrabold flex items-center justify-center gap-1.5 no-underline"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" /> Original-Kochanleitung im Browser öffnen
+                    </a>
+                  )}
+                </div>
               </div>
             ))}
           </div>
