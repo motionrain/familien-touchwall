@@ -23,7 +23,7 @@ const FOOD_EMOJI_PICKER = [
   '🌭', '🥩', '🍗', '🥓', '🍔', '🐟', '🥚', '🧀', '🧈', '🥛',
   '🥣', '🥬', '🥒', '🍅', '🫑', '🥕', '🥔', '🧅', '🥦', '🌽',
   '🍄', '🥑', '🍊', '🍎', '🍌', '🍓', '🍋', '🍇', '🍝', '🍚',
-  '🥖', '🥐', '🍕', '🌮', '🥫', '🌾', '🍫', '🍪', '🧃', '🧊'
+  '🥖', '🥐', '🍕', '🌮', '🥫', '🌾', '🍫', '🍪', '🧃', '🐶'
 ];
 
 // Intelligente Emoji-Erkennung (inkl. aller Produkte aus deinem Vorrat)
@@ -32,42 +32,96 @@ export function getFoodEmoji(nameStr, customEmoji = '') {
     return String(customEmoji).trim();
   }
   const n = String(nameStr || '').toLowerCase();
+  if (/hunde|katzen|tierfutter|futter/.test(n)) return '🐶';
   if (/butter|kräuterbutter|meggle|margarine/.test(n)) return '🧈';
   if (/bratwurst|rostbratwurst|leberwurst|wurst|würstchen|wiener|lyoner|aufschnitt|schinken|salami|speck/.test(n)) return '🌭';
   if (/burger|cheeseburger/.test(n)) return '🍔';
   if (/clementine|mandarine|orange|apfelsine|susi/.test(n)) return '🍊';
-  if (/apfel|äpfel|elstar|boskoop|pink lady|rotkohl/.test(n)) return '🍎';
+  if (/apfel|äpfel|elstar|boskoop|pink lady|rotkohl|apfelmus/.test(n)) return '🍎';
   if (/banane/.test(n)) return '🍌';
   if (/erdbeer|himbeer|heidelbeer|blaubeer|beeren|kirsch/.test(n)) return '🍓';
   if (/zitrone|limette/.test(n)) return '🍋';
   if (/salat|eisberg|mâche|mache|feldsalat|kopfsalat|rucola|spinat|kräuter/.test(n)) return '🥬';
   if (/gurke/.test(n)) return '🥒';
-  if (/tomate|passierte/.test(n)) return '🍅';
-  if (/paprika/.test(n)) return '🫑';
+  if (/tomate|passierte|tomatenmark|oro di parma/.test(n)) return '🍅';
+  if (/paprika|chili/.test(n)) return '🫑';
   if (/karotte|möhre/.test(n)) return '🥕';
-  if (/kartoffel|pommes|gnocchi|schupfnudel/.test(n)) return '🥔';
+  if (/kartoffel|kartoffelpüree|pfanni|pommes|gnocchi|schupfnudel/.test(n)) return '🥔';
   if (/zwiebel|knoblauch/.test(n)) return '🧅';
   if (/brokkoli|blumenkohl|spargel/.test(n)) return '🥦';
   if (/mais/.test(n)) return '🌽';
   if (/pilz|champignon/.test(n)) return '🍄';
   if (/avocado/.test(n)) return '🥑';
   if (/käse|frischkäse|philadelphia|scheibenkäse|gouda|mozzarella|parmesan|emmentaler|camembert|feta/.test(n)) return '🧀';
-  if (/milch|vollmilch|schwarzwaldmilch|hafermilch|kakao/.test(n)) return '🥛';
+  if (/milch|vollmilch|schwarzwaldmilch|landfein|hafermilch|kakao/.test(n)) return '🥛';
   if (/schlagsahne|sahne|joghurt|quark|pudding|schmand|creme/.test(n)) return '🥣';
   if (/ei|eier/.test(n)) return '🥚';
   if (/hähnchen|huhn|pute|geflügel|nuggets/.test(n)) return '🍗';
   if (/hackfleisch|rinderhack|rind|steak|fleisch|schnitzel|gulasch/.test(n)) return '🥩';
   if (/fisch|lachs|thunfisch|fischstäbchen|forelle/.test(n)) return '🐟';
   if (/nudel|spaghetti|pasta|penne|tortellini|ravioli|spätzle/.test(n)) return '🍝';
-  if (/reis|spitzenreis|langkorn|basmati|jasmin|milchreis/.test(n)) return '🍚';
-  if (/brot|brötchen|toast|baguette|croissant/.test(n)) return '🥖';
+  if (/reis|spitzenreis|langkorn|onkelz|basmati|jasmin|milchreis/.test(n)) return '🍚';
+  if (/brot|landbrot|mehrkorn|brötchen|toast|baguette|croissant/.test(n)) return '🥖';
   if (/pizza|flammkuchen/.test(n)) return '🍕';
-  if (/wrap|taco|tortilla/.test(n)) return '🌮';
-  if (/senf|thomy|heinz|ketchup|mayo|soße|sauce|dressing|pesto|öl|essig/.test(n)) return '🥫';
+  if (/wrap|taco|tortilla|schär/.test(n)) return '🌮';
+  if (/senf|thomy|heinz|ketchup|mayo|soße|sauce|dressing|pesto|öl|sonnenblumenöl|essig|hengstenberg/.test(n)) return '🥫';
   if (/mehl|zucker|salz|haferflocken|müsli|cornflakes/.test(n)) return '🌾';
   if (/schokolade|nutella|keks|gummibär|chips|eis/.test(n)) return '🍫';
   if (/wasser|saft|cola|limo|bier|wein|kaffee|tee/.test(n)) return '🧃';
   return '🥫';
+}
+
+// =========================================================
+// INTELLIGENTE STÜCKZAHL-REDUZIERUNG BEIM KLICK AUF "VERZEHRT"
+// Unterstützt: "2x", "2pcs", "6.0 pcs", "2pkg", "8x 125g", "5 x 20 g = 100 g", "3 x 50g (150g)"
+// =========================================================
+function decrementItemPieceCount(rawQtyStr) {
+  const clean = String(rawQtyStr || '1x').trim();
+
+  // 1. Mehrfachpackung mit Einzelgewicht: z.B. "5 x 20 g = 100 g", "8x 125g", "3 x 50g (150g)"
+  const multiMatch = clean.match(/^(\d+(?:[.,]\d+)?)\s*([x×])\s*(\d+(?:[.,]\d+)?)\s*(g|ml|kg|l|gr|stk|pcs)(.*)$/i);
+  if (multiMatch) {
+    const currentCount = Math.round(parseFloat(multiMatch[1].replace(',', '.')));
+    const unitWeight = parseFloat(multiMatch[3].replace(',', '.'));
+    const unit = multiMatch[4];
+    const tail = multiMatch[5] || '';
+
+    if (currentCount > 1) {
+      const nextCount = currentCount - 1;
+      const nextTotal = Math.round(nextCount * unitWeight * 100) / 100;
+      if (tail.includes('=')) {
+        return { remaining: nextCount, nextQtyStr: nextCount + ' x ' + unitWeight + ' ' + unit + ' = ' + nextTotal + ' ' + unit };
+      }
+      if (tail.includes('(')) {
+        return { remaining: nextCount, nextQtyStr: nextCount + ' x ' + unitWeight + unit + ' (' + nextTotal + unit + ')' };
+      }
+      return { remaining: nextCount, nextQtyStr: nextCount + 'x ' + unitWeight + unit };
+    }
+    return { remaining: 0, nextQtyStr: '0' };
+  }
+
+  // 2. Stückzahl-Formate: "2x", "2pcs", "6.0 pcs", "10.0 pcs", "2pkg", "4 Stk", "3 Pack"
+  const pieceMatch = clean.match(/^(\d+(?:[.,]\d+)?)\s*(x|pcs|pc|stk|stück|pkg|pack|pck|dosen|dose|flaschen|fl|gläser|glas|becher|rollen|rolle)?$/i);
+  if (pieceMatch) {
+    const val = parseFloat(pieceMatch[1].replace(',', '.'));
+    const rawUnit = pieceMatch[2] || 'x';
+    const hasSpace = /^\d+(?:[.,]\d+)?\s+/.test(clean);
+    const hadDecimalZero = /\.0\b/.test(pieceMatch[1]);
+
+    if (val > 1) {
+      const nextVal = Math.max(1, Math.round(val - 1));
+      const formattedNum = hadDecimalZero ? (nextVal + '.0') : String(nextVal);
+      const sep = hasSpace ? ' ' : '';
+      return {
+        remaining: nextVal,
+        nextQtyStr: formattedNum + sep + rawUnit
+      };
+    }
+    return { remaining: 0, nextQtyStr: '0' };
+  }
+
+  // 3. Reine Gewichts-/Volumenangabe ohne Stückzahl (z.B. "220g", "1000 g", "500 ml") -> Komplett verzehrt
+  return { remaining: 0, nextQtyStr: '0' };
 }
 
 const QUICK_FAMILY_RECIPES = [
@@ -78,58 +132,58 @@ const QUICK_FAMILY_RECIPES = [
     kidFavorite: true,
     category: 'One-Pot & Pasta',
     shortDesc: 'Klassiker für Kinder – in 20 Min. fertig auf dem Tisch.',
-    keywords: ['spaghetti', 'nudeln', 'pasta', 'hackfleisch', 'rinderhack', 'tomaten', 'passierte', 'parmesan', 'möhren', 'karotten'],
-    ingredients: ['Nudeln / Spaghetti', 'Hackfleisch', 'Passierte Tomaten', 'Geriebener Käse / Parmesan']
+    keywords: ['spaghetti', 'nudeln', 'pasta', 'hackfleisch', 'rinderhack', 'tomaten', 'passierte', 'tomatenmark', 'parmesan', 'möhren', 'karotten'],
+    ingredients: ['Nudeln / Spaghetti', 'Hackfleisch', 'Tomatenmark / Passierte Tomaten', 'Parmesan Käse']
   },
   {
     id: 'fam_bratwurst',
-    title: '🌭 Rostbratwurst mit Kräuterbutter, Reis & Salat',
+    title: '🌭 Rostbratwurst mit Kartoffelpüree & Salat',
     prepMinutes: 20,
     kidFavorite: true,
     category: 'Familien-Klassiker',
-    shortDesc: 'Schnelle Pfannen-Rostbratwurst mit Kräuterbutter, Reis/Kartoffeln und frischem Salat.',
-    keywords: ['rostbratwurst', 'bratwurst', 'wurst', 'kräuterbutter', 'salat', 'mâche', 'gurke', 'reis', 'senf'],
-    ingredients: ['Rostbratwurst', 'Kräuterbutter / Senf', 'Salat / Gurke', 'Reis oder Kartoffeln']
+    shortDesc: 'Schnelle Pfannen-Rostbratwurst mit Kräuterbutter, Kartoffelpüree und frischem Salat.',
+    keywords: ['rostbratwurst', 'bratwurst', 'wurst', 'kräuterbutter', 'kartoffelpüree', 'salat', 'eisbergsalat', 'mâche', 'gurke', 'senf'],
+    ingredients: ['Delikatess Rostbratwurst', 'Kartoffelpüree', 'Kräuterbutter / Senf', 'Eisbergsalat / Gurke']
   },
   {
-    id: 'fam_schupfnudeln',
-    title: '🥘 15-Minuten Pfannengericht mit Frischkäse-Sahnesoße',
+    id: 'fam_wraps',
+    title: '🌮 Knusprige Familien-Wraps mit Salat & Käse',
     prepMinutes: 15,
     kidFavorite: true,
     category: 'Express-Pfanne',
-    shortDesc: 'Alles in einer Pfanne mit Schlagsahne & Frischkäse – kaum Abwasch.',
-    keywords: ['schupfnudeln', 'gnocchi', 'nudeln', 'reis', 'schlagsahne', 'sahne', 'frischkäse', 'philadelphia', 'käse'],
-    ingredients: ['Nudeln / Schupfnudeln / Reis', 'Frischkäse Schnittlauch', 'Schlagsahne', 'Gemüse / Salat']
+    shortDesc: 'Schär Wraps gefüllt mit Frischkäse, Scheibenkäse, Eisbergsalat, Gurke und Burger Sauce.',
+    keywords: ['wraps', 'schär', 'scheibenkäse', 'frischkäse', 'philadelphia', 'eisbergsalat', 'gurke', 'burger sauce', 'chili'],
+    ingredients: ['Wraps', 'Frischkäse / Scheibenkäse', 'Eisbergsalat & Gurke', 'Burger Sauce oder Chili sin carne']
   },
   {
     id: 'fam_omelett',
-    title: '🍳 Schnelles Bauern-Rührei / Omelett mit Gurkensalat',
+    title: '🍳 Schnelles Bauern-Rührei mit Landbrot & Gurkensalat',
     prepMinutes: 15,
     kidFavorite: true,
     category: 'Express-Pfanne',
-    shortDesc: 'Frische Eier aus der Pfanne mit Kräuterbutter, Käse und knackigem Gurkensalat.',
-    keywords: ['eier', 'ei', 'kräuterbutter', 'butter', 'frischkäse', 'scheibenkäse', 'gurke', 'salat', 'mâche'],
-    ingredients: ['Frische Eier', 'Kräuterbutter', 'Scheibenkäse / Frischkäse', 'Gurke / Salat']
+    shortDesc: 'Frische Eier aus der Pfanne mit Kräuterbutter, Landbrot und knackigem Gurkensalat.',
+    keywords: ['eier', 'ei', 'landbrot', 'kräuterbutter', 'butter', 'frischkäse', 'scheibenkäse', 'gurke', 'salat'],
+    ingredients: ['Frische Eier', 'Landbrot Mehrkorn', 'Kräuterbutter / Frischkäse', 'Gurke / Salat']
   },
   {
     id: 'fam_pfannkuchen',
-    title: '🥞 Goldene Familien-Pfannkuchen',
+    title: '🥞 Goldene Familien-Pfannkuchen mit Apfelmus',
     prepMinutes: 20,
     kidFavorite: true,
     category: 'Süß & Herzhaft',
-    shortDesc: 'Perfekt für Eier, Milch/Sahne, Obst oder herzhaft mit Käse.',
-    keywords: ['mehl', 'eier', 'ei', 'milch', 'schlagsahne', 'sahne', 'apfel', 'clementinen', 'käse'],
-    ingredients: ['Mehl', 'Frische Eier', 'Milch / Sahne', 'Obst oder Käse']
+    shortDesc: 'Perfekt für Eier, Vollmilch, Äpfel und Apfelmus.',
+    keywords: ['mehl', 'eier', 'ei', 'milch', 'vollmilch', 'apfelmus', 'apfel', 'äpfel', 'elstar'],
+    ingredients: ['Frische Eier', 'Vollmilch', 'Mehl', 'Apfelmus / Äpfel Elstar']
   },
   {
     id: 'fam_wok',
-    title: '🍚 Schnelle Familien-Reis-Pfanne',
+    title: '🍚 Schnelle Familien-Reis-Pfanne mit Chili / Gemüse',
     prepMinutes: 20,
     kidFavorite: true,
     category: 'Pfanne & Wok',
-    shortDesc: 'Langkorn-Spitzenreis mit Ei, Gemüse und cremiger Soße.',
-    keywords: ['reis', 'spitzenreis', 'langkorn', 'eier', 'gurke', 'salat', 'frischkäse', 'sahne', 'hähnchen'],
-    ingredients: ['Langkorn-Spitzenreis', 'Eier', 'Gemüse / Beilagensalat', 'Soße / Frischkäse']
+    shortDesc: 'Langkorn-Reis mit Chili sin carne oder cremiger Frischkäse-Sahne-Soße.',
+    keywords: ['reis', 'langkorn', 'chili', 'eier', 'gurke', 'salat', 'frischkäse', 'schlagsahne'],
+    ingredients: ['Langkorn Reis', 'Chili sin carne oder Eier', 'Frischkäse / Schlagsahne', 'Beilagensalat']
   }
 ];
 
@@ -140,9 +194,9 @@ const DE_TO_EN_INGREDIENT_MAP = [
   { de: ['lachs', 'fisch', 'fischstäbchen'], en: 'salmon', label: 'Lachs / Fisch' },
   { de: ['nudeln', 'spaghetti', 'pasta', 'tortellini'], en: 'pasta', label: 'Nudeln' },
   { de: ['reis', 'spitzenreis', 'langkorn', 'basmatireis'], en: 'rice', label: 'Reis' },
-  { de: ['kartoffel', 'kartoffeln'], en: 'potatoes', label: 'Kartoffeln' },
+  { de: ['kartoffel', 'kartoffeln', 'kartoffelpüree'], en: 'potatoes', label: 'Kartoffeln' },
   { de: ['ei', 'eier'], en: 'egg', label: 'Eier' },
-  { de: ['käse', 'frischkäse', 'scheibenkäse', 'gouda', 'mozzarella'], en: 'cheese', label: 'Käse' },
+  { de: ['käse', 'frischkäse', 'scheibenkäse', 'parmesan', 'gouda', 'mozzarella'], en: 'cheese', label: 'Käse' },
   { de: ['gurke'], en: 'cucumber', label: 'Gurke' }
 ];
 
@@ -182,7 +236,7 @@ export default function PantrySection({
   themeStyles,
   showToast
 }) {
-  const [activeSubTab, setActiveSubTab] = useState('stock'); // 'stock' | 'recipes' | 'trash'
+  const [activeSubTab, setActiveSubTab] = useState('stock');
   const [locationFilter, setLocationFilter] = useState('all');
   const [recipeFilter, setRecipeFilter] = useState('all');
 
@@ -191,7 +245,6 @@ export default function PantrySection({
   const [itemQty, setItemQty] = useState('1x');
   const [itemLocation, setItemLocation] = useState('fridge');
   const [itemExpiry, setItemExpiry] = useState('');
-  const [confirmConsumeId, setConfirmConsumeId] = useState(null);
 
   // Komfort-Bearbeitungs-Modal für ein einzelnes Produkt
   const [editModal, setEditModal] = useState({
@@ -282,7 +335,6 @@ export default function PantrySection({
     });
   };
 
-  // Speichert die Änderungen aus dem Bearbeitungs-Fenster
   const handleAcceptEditModal = (e) => {
     if (e && typeof e.preventDefault === 'function') e.preventDefault();
     if (!editModal.name.trim() || !editModal.expiryDate) {
@@ -306,7 +358,6 @@ export default function PantrySection({
     showToast('Änderungen gespeichert!', editModal.name + ' wurde aktualisiert.', editModal.customEmoji || '✅');
   };
 
-  // Löscht das Produkt direkt aus dem Bearbeitungs-Fenster (in den Mülleimer)
   const handleDeleteFromEditModal = () => {
     const target = safeStock.find(x => x.id === editModal.id);
     if (!target) {
@@ -317,6 +368,28 @@ export default function PantrySection({
     setEditModal({ ...editModal, open: false });
   };
 
+  // =========================================================
+  // "VERZEHRT"-LOGIK: ZÄHLT STÜCKZAHLEN HERUNTER ODER LEGT IN MÜLLEIMER
+  // =========================================================
+  const handleConsumeClick = (item) => {
+    const result = decrementItemPieceCount(item.quantity);
+
+    if (result.remaining > 0) {
+      // Es sind noch Stücke übrig -> Stückzahl um 1 reduzieren!
+      setPantryItems(prev => (Array.isArray(prev) ? prev : []).map(it =>
+        it.id === item.id ? { ...it, quantity: result.nextQtyStr } : it
+      ));
+      showToast(
+        '1 Stück verzehrt!',
+        '„' + item.name + '“ → Restbestand: ' + result.nextQtyStr,
+        getFoodEmoji(item.name, item.customEmoji)
+      );
+    } else {
+      // Alles aufgebraucht -> Produkt in den Mülleimer verschieben
+      MoveItemToTrash(item, 'consumed');
+    }
+  };
+
   const MoveItemToTrash = (item, reasonType) => {
     setPantryItems(prev => (Array.isArray(prev) ? prev : []).filter(x => x.id !== item.id));
     const trashEntry = {
@@ -325,14 +398,13 @@ export default function PantrySection({
       reason: reasonType,
       reasonLabel:
         reasonType === 'consumed'
-          ? '🍽️ Rechtzeitig verzehrt am ' + todayStr
+          ? '🍽️ Komplett verzehrt am ' + todayStr
           : '🗑️ Weggeworfen am ' + todayStr
     };
     setPantryTrash(prev => [trashEntry, ...(Array.isArray(prev) ? prev : [])]);
-    setConfirmConsumeId(null);
 
     if (reasonType === 'consumed') {
-      showToast('Produkt verzehrt!', '„' + item.name + '“ wurde bestätigt und im Verlauf abgelegt.', '🍽️');
+      showToast('Komplett verzehrt!', '„' + item.name + '“ ist aufgebraucht und liegt jetzt im Verlauf.', '🍽️');
     } else {
       showToast('Produkt gelöscht', '„' + item.name + '“ wurde in den Mülleimer verschoben.', '🗑️');
     }
@@ -367,7 +439,7 @@ export default function PantrySection({
 
   const expiringSoonItems = useMemo(() => {
     return safeStock
-      .filter(it => getDaysUntil(it.expiryDate, todayStr) <= 5)
+      .filter(it => getDaysUntil(it.expiryDate, todayStr) <= 7)
       .sort((a, b) => String(a.expiryDate).localeCompare(String(b.expiryDate)));
   }, [safeStock, todayStr]);
 
@@ -462,7 +534,7 @@ export default function PantrySection({
           const found = safeStock.find(st => String(st.name || '').toLowerCase().includes(kw));
           if (found && !matchedStock.some(m => m.id === found.id)) {
             matchedStock.push(found);
-            if (getDaysUntil(found.expiryDate, todayStr) <= 4) {
+            if (getDaysUntil(found.expiryDate, todayStr) <= 7) {
               urgentCount++;
             }
           }
@@ -593,8 +665,52 @@ export default function PantrySection({
     return 'https://www.chefkoch.de/rs/s0/' + encodeURIComponent(query) + '/Rezepte.html';
   }, [expiringSoonItems, safeStock]);
 
+  // CSS für pulsierende MHD-Warnungen (Orange ab 7 Tage, Rot ab 3 Tage) & Hover-Vergrößerung
+  const pantryAnimationStyles = [
+    '@keyframes twPulseOrangeMhd {',
+    '  0%, 100% {',
+    '    border-color: rgba(251, 146, 60, 0.85);',
+    '    box-shadow: 0 0 10px rgba(245, 158, 11, 0.35), inset 0 0 8px rgba(245, 158, 11, 0.12);',
+    '  }',
+    '  50% {',
+    '    border-color: #fbbf24;',
+    '    box-shadow: 0 0 24px rgba(245, 158, 11, 0.85), 0 0 10px rgba(251, 146, 60, 0.7), inset 0 0 16px rgba(245, 158, 11, 0.28);',
+    '  }',
+    '}',
+    '@keyframes twPulseRedMhd {',
+    '  0%, 100% {',
+    '    border-color: rgba(244, 63, 94, 0.9);',
+    '    box-shadow: 0 0 12px rgba(244, 63, 94, 0.45), inset 0 0 10px rgba(244, 63, 94, 0.18);',
+    '  }',
+    '  50% {',
+    '    border-color: #ff2a55;',
+    '    box-shadow: 0 0 28px rgba(244, 63, 94, 0.95), 0 0 14px rgba(239, 68, 68, 0.85), inset 0 0 20px rgba(244, 63, 94, 0.38);',
+    '  }',
+    '}',
+    '.tw-pantry-tile {',
+    '  position: relative;',
+    '  z-index: 1;',
+    '  transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.22s ease, border-color 0.22s ease;',
+    '}',
+    '.tw-pantry-tile:hover {',
+    '  transform: scale(1.065) translateY(-3px);',
+    '  z-index: 30;',
+    '  box-shadow: 0 18px 36px -6px rgba(0, 0, 0, 0.75), 0 0 22px var(--tw-btn-glow, rgba(56, 189, 248, 0.5)) !important;',
+    '}',
+    '.tw-pantry-warn-orange {',
+    '  animation: twPulseOrangeMhd 2.2s infinite ease-in-out;',
+    '  border-width: 2px !important;',
+    '}',
+    '.tw-pantry-urgent-red {',
+    '  animation: twPulseRedMhd 1.35s infinite ease-in-out;',
+    '  border-width: 2px !important;',
+    '}'
+  ].join('\n');
+
   return (
     <div className="p-4 sm:p-5 flex flex-col gap-4">
+      <style>{pantryAnimationStyles}</style>
+
       {/* KOMPAKTER KOPFBEREICH */}
       <div className={'p-4 rounded-3xl border shadow-sm flex flex-wrap items-center justify-between gap-3 ' + themeStyles.card}>
         <div>
@@ -605,19 +721,19 @@ export default function PantrySection({
             </span>
           </div>
           <p className={'text-xs font-semibold mt-0.5 ' + themeStyles.textMuted}>
-            Kompakte Vorrats-Kacheln mit automatischem Emoji-Icon. Klicke auf „✏️ Bearbeiten“, um MHD, Emoji, Name oder Lagerort anzupassen.
+            6 Touch-Kacheln pro Reihe • Stückzahlen zählen beim Klick auf „Verzehrt“ einzeln herunter • Pulsierender Glow ab 7 Tagen (🟠) & 3 Tagen (🔴).
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => setActiveSubTab('stock')}
-            className={'px-3.5 py-2 rounded-2xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer ' + (activeSubTab === 'stock' ? 'tw-active-nav' : 'tw-nav-inactive')}
+            className={'px-4 py-2.5 rounded-2xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer ' + (activeSubTab === 'stock' ? 'tw-active-nav' : 'tw-nav-inactive')}
           >
             <Package className="w-4 h-4" />
             <span>Bestand ({safeStock.length})</span>
             {expiringSoonItems.length > 0 && (
-              <span className="px-1.5 py-0.2 rounded-full bg-amber-500 text-slate-950 text-[10px] font-black">
+              <span className="px-2 py-0.5 rounded-full bg-amber-500 text-slate-950 text-[10px] font-black">
                 {expiringSoonItems.length} läuft bald ab
               </span>
             )}
@@ -625,7 +741,7 @@ export default function PantrySection({
 
           <button
             onClick={() => setActiveSubTab('recipes')}
-            className={'px-3.5 py-2 rounded-2xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer ' + (activeSubTab === 'recipes' ? 'tw-active-nav' : 'tw-nav-inactive')}
+            className={'px-4 py-2.5 rounded-2xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer ' + (activeSubTab === 'recipes' ? 'tw-active-nav' : 'tw-nav-inactive')}
           >
             <ChefHat className="w-4 h-4" />
             <span>🍽️ Schnelle Rezepte & Tages-Menü</span>
@@ -633,7 +749,7 @@ export default function PantrySection({
 
           <button
             onClick={() => setActiveSubTab('trash')}
-            className={'px-3.5 py-2 rounded-2xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer ' + (activeSubTab === 'trash' ? 'tw-active-nav' : 'tw-nav-inactive')}
+            className={'px-4 py-2.5 rounded-2xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer ' + (activeSubTab === 'trash' ? 'tw-active-nav' : 'tw-nav-inactive')}
           >
             <Trash2 className="w-4 h-4" />
             <span>🗑️ Mülleimer ({safeTrash.length})</span>
@@ -645,8 +761,8 @@ export default function PantrySection({
           SUB-TAB 1: BESTAND & SCHNELL-EINGABE
          ========================================================= */}
       {activeSubTab === 'stock' && (
-        <div className="space-y-3.5">
-          <form onSubmit={handleAddProduct} className={'p-3.5 rounded-3xl border space-y-2.5 ' + themeStyles.card}>
+        <div className="space-y-4">
+          <form onSubmit={handleAddProduct} className={'p-4 rounded-3xl border space-y-2.5 ' + themeStyles.card}>
             <div className="flex items-center justify-between flex-wrap gap-2">
               <span className="text-[11px] font-black uppercase text-sky-400">
                 ➕ Lebensmittel in Speisekammer einbuchen (Ablaufdatum ist Pflicht!)
@@ -661,9 +777,9 @@ export default function PantrySection({
               </button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-2">
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5">
               <div className="md:col-span-5 flex items-center gap-2">
-                <span className="w-9 h-9 rounded-xl bg-black/25 border border-white/10 flex items-center justify-center text-lg shrink-0">
+                <span className="w-10 h-10 rounded-xl bg-black/25 border border-white/10 flex items-center justify-center text-xl shrink-0">
                   {getFoodEmoji(itemName)}
                 </span>
                 <input
@@ -672,7 +788,7 @@ export default function PantrySection({
                   value={itemName}
                   onChange={(e) => setItemName(e.target.value)}
                   placeholder="Produktname (z.B. Vollmilch, Kräuterbutter, Eier)..."
-                  className={'w-full px-3 py-2 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+                  className={'w-full px-3.5 py-2.5 rounded-xl border text-xs sm:text-sm font-extrabold ' + themeStyles.input}
                 />
               </div>
 
@@ -680,14 +796,14 @@ export default function PantrySection({
                 type="text"
                 value={itemQty}
                 onChange={(e) => setItemQty(e.target.value)}
-                placeholder="Menge (z.B. 250g, 1x)"
-                className={'md:col-span-2 px-3 py-2 rounded-xl border text-xs font-bold ' + themeStyles.input}
+                placeholder="Menge (z.B. 6.0 pcs, 2x, 250g)"
+                className={'md:col-span-2 px-3.5 py-2.5 rounded-xl border text-xs sm:text-sm font-bold ' + themeStyles.input}
               />
 
               <select
                 value={itemLocation}
                 onChange={(e) => setItemLocation(e.target.value)}
-                className={'md:col-span-2 px-3 py-2 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+                className={'md:col-span-2 px-3 py-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
               >
                 {STORAGE_LOCATIONS.filter(l => l.id !== 'all').map(loc => (
                   <option key={loc.id} value={loc.id} className="bg-slate-800 text-white">{loc.label}</option>
@@ -701,13 +817,13 @@ export default function PantrySection({
                   min={todayStr}
                   value={itemExpiry}
                   onChange={(e) => setItemExpiry(e.target.value)}
-                  className={'w-full px-3 py-2 rounded-xl border-2 text-xs font-black ' + (itemExpiry ? 'border-emerald-500/60 ' : 'border-amber-500/70 ') + themeStyles.input}
+                  className={'w-full px-3 py-2.5 rounded-xl border-2 text-xs font-black ' + (itemExpiry ? 'border-emerald-500/60 ' : 'border-amber-500/70 ') + themeStyles.input}
                 />
               </div>
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex flex-wrap items-center gap-1">
+              <div className="flex flex-wrap items-center gap-1.5">
                 <span className="text-[10px] font-black uppercase text-amber-400 mr-1">
                   ⏳ Schnell-MHD:
                 </span>
@@ -724,7 +840,7 @@ export default function PantrySection({
                     key={b.days}
                     type="button"
                     onClick={() => setQuickExpiryDays(b.days)}
-                    className="tw-glow-btn px-2.5 py-1 rounded-xl text-[11px] font-extrabold cursor-pointer"
+                    className="tw-glow-btn px-3 py-1.5 rounded-xl text-xs font-extrabold cursor-pointer"
                   >
                     {b.label}
                   </button>
@@ -734,21 +850,21 @@ export default function PantrySection({
               <button
                 type="submit"
                 disabled={!itemName.trim() || !itemExpiry}
-                className={'px-4 py-1.5 rounded-xl font-black text-xs flex items-center gap-1.5 ' + (!itemName.trim() || !itemExpiry ? 'opacity-40 cursor-not-allowed bg-slate-700 text-slate-300' : 'tw-glow-btn cursor-pointer')}
+                className={'px-5 py-2 rounded-xl font-black text-xs flex items-center gap-1.5 ' + (!itemName.trim() || !itemExpiry ? 'opacity-40 cursor-not-allowed bg-slate-700 text-slate-300' : 'tw-glow-btn cursor-pointer')}
               >
-                <Plus className="w-3.5 h-3.5 stroke-[3]" />
+                <Plus className="w-4 h-4 stroke-[3]" />
                 <span>{itemExpiry ? 'In Bestand speichern' : '⚠️ Erst Ablaufdatum wählen'}</span>
               </button>
             </div>
           </form>
 
           {/* LAGERORT-FILTER */}
-          <div className="flex flex-wrap items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-2">
             {STORAGE_LOCATIONS.map(loc => (
               <button
                 key={loc.id}
                 onClick={() => setLocationFilter(loc.id)}
-                className={'px-3 py-1.5 rounded-xl text-xs font-extrabold cursor-pointer ' + (locationFilter === loc.id ? 'tw-active-nav' : 'tw-nav-inactive')}
+                className={'px-3.5 py-2 rounded-xl text-xs font-extrabold cursor-pointer ' + (locationFilter === loc.id ? 'tw-active-nav' : 'tw-nav-inactive')}
               >
                 {loc.label}
               </button>
@@ -756,9 +872,11 @@ export default function PantrySection({
           </div>
 
           {/* =========================================================
-              ULTRA-KOMPAKTE PRODUKTKACHELN (6 BIS 7 PRO REIHE!)
+              TOUCH-FREUNDLICHE PRODUKTKACHELN (GENAU 6 PRO REIHE AUF VOLLER BREITE!)
+              + PULSIERENDER GLOW (AB 7 TAGEN ORANGE, AB 3 TAGEN ROT)
+              + HOVER-ZOOM & EINZELSTÜCK-ABZUG BEI "VERZEHRT"
              ========================================================= */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-2.5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3.5 pt-1">
             {filteredStock.length === 0 ? (
               <div className={'col-span-full p-8 rounded-3xl border text-center space-y-1.5 ' + themeStyles.card}>
                 <div className="text-2xl">🥫</div>
@@ -768,35 +886,43 @@ export default function PantrySection({
               filteredStock.map(item => {
                 const daysLeft = getDaysUntil(item.expiryDate, todayStr);
                 const locObj = STORAGE_LOCATIONS.find(l => l.id === item.location) || STORAGE_LOCATIONS[3];
-                const isUrgent = daysLeft <= 3;
-                const isWarning = daysLeft > 3 && daysLeft <= 7;
+                const isUrgentRed = daysLeft <= 3;
+                const isWarningOrange = daysLeft > 3 && daysLeft <= 7;
                 const emojiIcon = getFoodEmoji(item.name, item.customEmoji);
+                const decPreview = decrementItemPieceCount(item.quantity);
+
+                const glowClass = isUrgentRed
+                  ? ' tw-pantry-urgent-red bg-rose-950/25'
+                  : isWarningOrange
+                  ? ' tw-pantry-warn-orange bg-amber-950/20'
+                  : '';
 
                 return (
                   <div
                     key={item.id}
-                    className={'p-2.5 rounded-2xl border flex flex-col justify-between gap-2 shadow-xs transition-all ' +
-                      themeStyles.card +
-                      (isUrgent ? ' border-rose-500/85 ring-1 ring-rose-500/40' : isWarning ? ' border-amber-400/70' : '')}
+                    className={'tw-pantry-tile p-3.5 rounded-2xl border flex flex-col justify-between gap-2.5 shadow-md ' + themeStyles.card + glowClass}
                   >
-                    {/* KOPF DER KOMPAKT-KACHEL: EMOJI + LAGERORT + MENGE + NAME */}
-                    <div className="space-y-1.5">
-                      <div className="flex items-start gap-2">
+                    {/* OBERER BEREICH: GROSSES TOUCH-EMOJI + LAGERORT + STÜCKZAHL + NAME */}
+                    <div className="space-y-2">
+                      <div className="flex items-start gap-2.5">
                         <button
                           type="button"
                           onClick={() => openEditProductModal(item)}
-                          title="Klicken zum Bearbeiten (Emoji, MHD, Lagerort)"
-                          className="w-10 h-10 rounded-xl bg-black/30 border border-white/10 flex items-center justify-center text-2xl shrink-0 shadow-inner cursor-pointer hover:scale-105 transition-transform"
+                          title="Antippen zum Bearbeiten"
+                          className="w-12 h-12 rounded-2xl bg-black/35 border border-white/15 flex items-center justify-center text-2xl shrink-0 shadow-inner cursor-pointer"
                         >
                           {emojiIcon}
                         </button>
 
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center justify-between gap-1">
-                            <span className="text-[9px] font-extrabold opacity-75 truncate">
+                            <span className="text-[10px] font-extrabold opacity-80 truncate">
                               {locObj.short}
                             </span>
-                            <span className="px-1.5 py-0.2 rounded-md bg-black/35 text-[10px] font-black text-amber-300 shrink-0">
+                            <span
+                              onClick={() => openEditProductModal(item)}
+                              className="px-2 py-0.5 rounded-lg bg-black/45 border border-amber-400/30 text-[11px] font-black text-amber-300 shrink-0 cursor-pointer"
+                            >
                               {item.quantity}
                             </span>
                           </div>
@@ -804,83 +930,64 @@ export default function PantrySection({
                           <h3
                             onClick={() => openEditProductModal(item)}
                             title={item.name}
-                            className="font-extrabold text-xs leading-tight line-clamp-2 break-words mt-0.5 cursor-pointer hover:text-sky-300"
+                            className="font-extrabold text-xs sm:text-[13px] leading-snug line-clamp-2 break-words mt-1 cursor-pointer hover:text-sky-300"
                           >
                             {item.name}
                           </h3>
                         </div>
                       </div>
 
-                      {/* KOMPAKTE MHD-LEISTE */}
+                      {/* MHD-STATUSLEISTE MIT WARN-FARBEN */}
                       <div
                         onClick={() => openEditProductModal(item)}
-                        className={'px-2 py-1 rounded-xl border flex items-center justify-between text-[10px] font-extrabold cursor-pointer ' +
-                          (isUrgent
-                            ? 'bg-rose-500/20 border-rose-400/50 text-rose-200'
-                            : isWarning
-                            ? 'bg-amber-500/20 border-amber-400/50 text-amber-200'
+                        className={'px-2.5 py-1.5 rounded-xl border flex items-center justify-between text-[11px] font-extrabold cursor-pointer ' +
+                          (isUrgentRed
+                            ? 'bg-rose-500/30 border-rose-400 text-rose-100'
+                            : isWarningOrange
+                            ? 'bg-amber-500/30 border-amber-400 text-amber-100'
                             : themeStyles.subtle)}
                       >
-                        <span>📅 {item.expiryDate.slice(8, 10)}.{item.expiryDate.slice(5, 7)}.{item.expiryDate.slice(2, 4)}</span>
-                        <span>
-                          {daysLeft <= 0 ? '🔴 Heute!' : daysLeft === 1 ? '🟠 1 Tag' : ('🟢 ' + daysLeft + ' T.')}
+                        <span>📅 MHD: {item.expiryDate.slice(8, 10)}.{item.expiryDate.slice(5, 7)}.{item.expiryDate.slice(2, 4)}</span>
+                        <span className="font-black">
+                          {daysLeft <= 0 ? '🔴 HEUTE!' : daysLeft === 1 ? '🔴 1 Tag' : isUrgentRed ? ('🔴 ' + daysLeft + ' T.') : isWarningOrange ? ('🟠 ' + daysLeft + ' T.') : ('🟢 ' + daysLeft + ' T.')}
                         </span>
                       </div>
                     </div>
 
-                    {/* UNTERE BUTTON-LEISTE DER KACHEL */}
-                    {confirmConsumeId === item.id ? (
-                      <div className="grid grid-cols-2 gap-1">
-                        <button
-                          type="button"
-                          onClick={() => MoveItemToTrash(item, 'consumed')}
-                          className="tw-glow-btn py-1 rounded-xl text-[10px] font-black cursor-pointer"
-                        >
-                          ✓ Verzehrt
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setConfirmConsumeId(null)}
-                          className="tw-nav-inactive py-1 rounded-xl text-[10px] font-bold cursor-pointer"
-                        >
-                          Abbruch
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => setConfirmConsumeId(item.id)}
-                          title="Als verzehrt bestätigen"
-                          className="tw-glow-btn flex-1 py-1 px-1.5 rounded-xl text-[10px] font-extrabold flex items-center justify-center gap-1 cursor-pointer"
-                        >
-                          <CheckCircle2 className="w-3 h-3 shrink-0" />
-                          <span>Verzehrt</span>
-                        </button>
+                    {/* UNTERE TOUCH-AKTIONSLEISTE (GROSSE TREFFFLÄCHEN FÜR DEN FINGER) */}
+                    <div className="flex items-center gap-1.5 pt-0.5">
+                      <button
+                        type="button"
+                        onClick={() => handleConsumeClick(item)}
+                        title={decPreview.remaining > 0 ? ('1 Stück abziehen (Rest: ' + decPreview.nextQtyStr + ')') : 'Komplett verzehrt (in Verlauf legen)'}
+                        className="tw-glow-btn flex-1 min-h-[38px] py-2 px-2.5 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <CheckCircle2 className="w-4 h-4 shrink-0" />
+                        <span>{decPreview.remaining > 0 ? 'Verzehrt (-1)' : 'Verzehrt'}</span>
+                      </button>
 
-                        <button
-                          type="button"
-                          onClick={() => openEditProductModal(item)}
-                          title="Produkt bearbeiten (MHD, Emoji, Name, Lagerort, Löschen)"
-                          className="tw-glow-btn px-2 py-1 rounded-xl text-[10px] font-extrabold flex items-center gap-1 cursor-pointer"
-                        >
-                          <Pencil className="w-3 h-3" />
-                          <span>Edit</span>
-                        </button>
+                      <button
+                        type="button"
+                        onClick={() => openEditProductModal(item)}
+                        title="Produkt bearbeiten (MHD, Emoji, Name, Lagerort, Löschen)"
+                        className="tw-glow-btn min-h-[38px] px-2.5 py-2 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1 cursor-pointer"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                        <span>Edit</span>
+                      </button>
 
-                        <button
-                          type="button"
-                          title="Auf die Einkaufsliste setzen"
-                          onClick={() => {
-                            addShoppingItem(item.name);
-                            showToast('Auf Einkaufsliste', item.name + ' wurde zur Einkaufsliste hinzugefügt.', '🛒');
-                          }}
-                          className="tw-nav-inactive p-1 rounded-xl text-sky-400 cursor-pointer"
-                        >
-                          <ShoppingCart className="w-3 h-3" />
-                        </button>
-                      </div>
-                    )}
+                      <button
+                        type="button"
+                        title="Auf die Einkaufsliste setzen"
+                        onClick={() => {
+                          addShoppingItem(item.name);
+                          showToast('Auf Einkaufsliste', item.name + ' wurde zur Einkaufsliste hinzugefügt.', '🛒');
+                        }}
+                        className="tw-nav-inactive min-h-[38px] px-2.5 py-2 rounded-xl text-sky-400 flex items-center justify-center cursor-pointer"
+                      >
+                        <ShoppingCart className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
                 );
               })
@@ -1114,7 +1221,7 @@ export default function PantrySection({
             )}
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2.5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
             {safeTrash.length === 0 ? (
               <div className={'col-span-full p-8 rounded-3xl border text-center ' + themeStyles.card}>
                 <div className="text-2xl mb-1">🌱</div>
@@ -1126,9 +1233,9 @@ export default function PantrySection({
                 return (
                   <div
                     key={tItem.id}
-                    className={'p-3 rounded-2xl border flex flex-col justify-between gap-2.5 ' + themeStyles.card + (isWasted ? ' border-rose-500/50' : ' border-emerald-500/40')}
+                    className={'tw-pantry-tile p-3.5 rounded-2xl border flex flex-col justify-between gap-2.5 ' + themeStyles.card + (isWasted ? ' border-rose-500/50' : ' border-emerald-500/40')}
                   >
-                    <div className="flex items-start gap-2">
+                    <div className="flex items-start gap-2.5">
                       <span className="text-2xl">{getFoodEmoji(tItem.name, tItem.customEmoji)}</span>
                       <div className="min-w-0 flex-1">
                         <span className={'inline-block px-1.5 py-0.5 rounded-md text-[9px] font-black ' + (isWasted ? 'bg-rose-500/25 text-rose-300' : 'bg-emerald-500/25 text-emerald-300')}>
@@ -1146,17 +1253,17 @@ export default function PantrySection({
                           addShoppingItem(tItem.name);
                           showToast('Auf Einkaufsliste', tItem.name + ' wird nachgekauft.', '🛒');
                         }}
-                        className="tw-glow-btn flex-1 py-1.5 rounded-xl text-[10px] font-extrabold flex items-center justify-center gap-1 cursor-pointer"
+                        className="tw-glow-btn flex-1 py-2 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1 cursor-pointer"
                       >
-                        <ShoppingCart className="w-3 h-3" /> Nachkaufen
+                        <ShoppingCart className="w-3.5 h-3.5" /> Nachkaufen
                       </button>
                       <button
                         type="button"
                         title="Zurück in den Bestand legen"
                         onClick={() => restoreFromTrash(tItem)}
-                        className="tw-nav-inactive px-2.5 py-1.5 rounded-xl text-xs font-bold cursor-pointer"
+                        className="tw-nav-inactive px-3 py-2 rounded-xl text-xs font-bold cursor-pointer"
                       >
-                        <RotateCcw className="w-3 h-3" />
+                        <RotateCcw className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   </div>
@@ -1169,7 +1276,6 @@ export default function PantrySection({
 
       {/* =========================================================
           BEARBEITEN-FENSTER (MODAL) FÜR JEDES PRODUKT
-          (Name, Menge, Emoji-Auswahl, Lagerort, MHD, Löschen & Speichern)
          ========================================================= */}
       {editModal.open && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
@@ -1198,7 +1304,6 @@ export default function PantrySection({
               </button>
             </div>
 
-            {/* 1. NAME & MENGE */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="sm:col-span-2">
                 <label className="block text-[11px] font-black uppercase text-sky-400 mb-1">
@@ -1214,19 +1319,18 @@ export default function PantrySection({
               </div>
               <div>
                 <label className="block text-[11px] font-black uppercase text-amber-400 mb-1">
-                  Menge / Gewicht
+                  Menge / Stückzahl
                 </label>
                 <input
                   type="text"
                   value={editModal.quantity}
                   onChange={(e) => setEditModal({ ...editModal, quantity: e.target.value })}
-                  placeholder="z.B. 250g, 2x"
+                  placeholder="z.B. 6.0 pcs, 2x, 250g"
                   className={'w-full px-3.5 py-2.5 rounded-xl border text-sm font-bold ' + themeStyles.input}
                 />
               </div>
             </div>
 
-            {/* 2. LAGERORT ZUWEISEN */}
             <div>
               <label className="block text-[11px] font-black uppercase text-emerald-400 mb-1.5">
                 Lagerort zuweisen
@@ -1237,7 +1341,7 @@ export default function PantrySection({
                     key={loc.id}
                     type="button"
                     onClick={() => setEditModal({ ...editModal, location: loc.id })}
-                    className={'py-2 px-2.5 rounded-xl text-xs font-extrabold cursor-pointer ' +
+                    className={'py-2.5 px-2.5 rounded-xl text-xs font-extrabold cursor-pointer ' +
                       (editModal.location === loc.id ? 'tw-active-nav' : 'tw-nav-inactive')}
                   >
                     {loc.short}
@@ -1246,7 +1350,6 @@ export default function PantrySection({
               </div>
             </div>
 
-            {/* 3. ABLAUFDATUM (MHD) ÄNDERN */}
             <div className={'p-3.5 rounded-2xl border space-y-2.5 ' + themeStyles.subtle}>
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <label className="text-xs font-black uppercase text-amber-400">
@@ -1280,7 +1383,6 @@ export default function PantrySection({
               />
             </div>
 
-            {/* 4. EMOJI AUSWÄHLEN */}
             <div className={'p-3.5 rounded-2xl border space-y-2 ' + themeStyles.subtle}>
               <div className="flex items-center justify-between">
                 <span className="text-xs font-black uppercase">🎨 Passendes Emoji wählen</span>
@@ -1298,7 +1400,7 @@ export default function PantrySection({
                     key={em}
                     type="button"
                     onClick={() => setEditModal({ ...editModal, customEmoji: em })}
-                    className={'w-8 h-8 rounded-xl border text-base flex items-center justify-center cursor-pointer transition-transform hover:scale-110 ' +
+                    className={'w-9 h-9 rounded-xl border text-lg flex items-center justify-center cursor-pointer transition-transform hover:scale-110 ' +
                       (editModal.customEmoji === em ? 'ring-2 ring-sky-400 bg-sky-500/25' : 'bg-black/25 border-white/10')}
                   >
                     {em}
@@ -1307,7 +1409,6 @@ export default function PantrySection({
               </div>
             </div>
 
-            {/* 5. LÖSCHEN & ÄNDERUNGEN AKZEPTIEREN */}
             <div className="flex items-center justify-between gap-2 pt-2 border-t border-white/10">
               <button
                 type="button"
