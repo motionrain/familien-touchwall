@@ -153,7 +153,7 @@ export default function TouchwallPocketApp() {
     collaborators: []
   });
 
-  // Sync-Refs für app/sync.tsx
+  // Sync-Refs für  app/sync.tsx
   const preservedWallStateRef = useRef({});
   const syncMetaRef = useRef({ deletedPantryIds: {}, deletedTaskIds: {}, deletedEventIds: {} });
   const pendingCalendarOpsRef = useRef({});
