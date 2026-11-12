@@ -17,6 +17,20 @@ import TasksTodoistSection from './TasksTodoistSection';
 import OtherSections from './OtherSections';
 import PantrySection from './PantrySection';
 import QuestSection from './quest';
+import {
+  PUBLIC_CLOUD_BACKEND_URL,
+  hasJsonChanged,
+  loadLocalSyncMeta,
+  saveLocalSyncMeta,
+  mergeSyncMetaMaps,
+  applyPantryStateChangeWithMeta,
+  mergePantryChannelSafe,
+  registerPendingCalendarOp,
+  mergeCalendarEventsSafe,
+  mergeSkillBoardSafe,
+  callCloudApi,
+  SyncCenterModal
+} from './sync';
 
 const {
   formatDateStr,
@@ -39,9 +53,6 @@ const {
   deleteTodoistTask,
   pushTodoistTaskToPhoneNow
 } = Cfg;
-
-// Feste öffentliche Cloud-Server-URL (Niemand muss mehr eine Apps-Script-URL kennen!)
-const PUBLIC_CLOUD_BACKEND_URL = 'https://script.google.com/macros/s/AKfycbzBs3ewHvp78OCIgWQkOQ80vXyKcM6wR5hQSn-WfYPU4puS7Gu0lPCX0KMwkxzeDxoE4g/exec';
 
 function writeAuthSession(accountId, authKey, familyName) {
   try {
@@ -91,15 +102,15 @@ function clearAuthSession() {
 export default function TouchwallApp() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
-  const [authTab, setAuthTab] = useState('login'); // 'login' | 'register'
+  const [authTab, setAuthTab] = useState('login');
   const [accountId, setAccountId] = useState('');
   const [authKey, setAuthKey] = useState('');
   const [familyName, setFamilyName] = useState('Familien-Touchwall');
 
   // Speisekammer, Mülleimer & RPG Skill-Board State
-  const [pantryItems, setPantryItems] = useState([]);
-  const [pantryTrash, setPantryTrash] = useState([]);
-  const [skillBoardData, setSkillBoardData] = useState(null);
+  const [pantryItems, setPantryItemsRaw] = useState([]);
+  const [pantryTrash, setPantryTrashRaw] = useState([]);
+  const [skillBoardData, setSkillBoardDataRaw] = useState(null);
 
   // Formularfelder für Login & Registrierung
   const [formUsername, setFormUsername] = useState('');
@@ -126,23 +137,39 @@ export default function TouchwallApp() {
     projects: [],
     collaborators: []
   });
-  const [syncStatusText, setSyncStatusText] = useState('⚡ Echtzeit-Sync bereit');
+
+  // 4-Kanal Sync-Status & Modal
+  const [syncModalOpen, setSyncModalOpen] = useState(false);
+  const [syncStatusText, setSyncStatusText] = useState('⚡ 4-Kanal Sync aktiv');
   const [lastAutoSyncTime, setLastAutoSyncTime] = useState('');
   const [isSyncing, setIsSyncing] = useState(false);
+  const [channelStatus, setChannelStatus] = useState({
+    calendar: 'Bereit ✓',
+    calendarBusy: false,
+    todoist: 'Bereit ✓',
+    todoistBusy: false,
+    pantry: 'Bereit ✓',
+    pantryBusy: false,
+    skillboard: 'Bereit ✓',
+    skillboardBusy: false
+  });
+
   const [diagResult, setDiagResult] = useState(null);
   const [isTestingDiag, setIsTestingDiag] = useState(false);
-
   const [touchRipples, setTouchRipples] = useState([]);
-
   const [pushPermission, setPushPermission] = useState('default');
   const [activeAlarmBanner, setActiveAlarmBanner] = useState(null);
+
+  // Sync-Schutz-Refs (verhindern Ping-Pong & Überschreiben!)
   const triggeredAlarmsRef = useRef({});
   const isInitialLoadDone = useRef(false);
-  const isApplyingRemoteState = useRef(false);
-  const isMutatingCalendar = useRef(false);
+  const isNetworkSavingRef = useRef(false);
   const lastLocalEditTimeRef = useRef(0);
   const lastThemeChangeRef = useRef(0);
   const autoSaveTimer = useRef(null);
+  const lastSavedPayloadHashRef = useRef('');
+  const syncMetaRef = useRef({ deletedPantryIds: {}, deletedTaskIds: {}, deletedEventIds: {} });
+  const pendingCalendarOpsRef = useRef({});
 
   const [members, setMembers] = useState(DEFAULT_MEMBERS);
   const [events, setEvents] = useState([]);
@@ -171,6 +198,24 @@ export default function TouchwallApp() {
   const showToast = (title, message, icon = '🔔') => {
     setToast({ title, message, icon });
     setTimeout(() => setToast(null), 3800);
+  };
+
+  // Geschützte Setter für Kanal 3 (Speisekammer) & Kanal 4 (Skill Board)
+  const setPantryItems = (updater) => {
+    lastLocalEditTimeRef.current = Date.now();
+    setPantryItemsRaw(prev => applyPantryStateChangeWithMeta(prev, updater, syncMetaRef, false));
+  };
+
+  const setPantryTrash = (updater) => {
+    lastLocalEditTimeRef.current = Date.now();
+    setPantryTrashRaw(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      return Array.isArray(next) ? next : [];
+    });
+  };
+
+  const setSkillBoardData = (nextSb) => {
+    setSkillBoardDataRaw(prev => mergeSkillBoardSafe( nextSb, prev ));
   };
 
   const handleSelectTheme = (nextThemeId) => {
@@ -211,22 +256,14 @@ export default function TouchwallApp() {
     return base.map(n => ({
       ...n,
       items: Array.isArray(n?.items)
-        ? n.items.map(it => (typeof it === 'string' ? { text: it, done: false } : { text: it?.text || '', done: Boolean(it?.done), todoistId: it?.todoistId }))
+        ? n.items.map(it => (typeof it === 'string' ? { text: it, done: false } : { text: it?.text || '', done: Boolean(it?.done), todoistId: it?.todoistId, fromMobile: it?.fromMobile }))
         : []
     }));
   }, [familyNotes]);
 
-  const safeTasks = useMemo(() => {
-    return Array.isArray(familyTasks) ? familyTasks : [];
-  }, [familyTasks]);
-
-  const safePantryItems = useMemo(() => {
-    return Array.isArray(pantryItems) ? pantryItems : [];
-  }, [pantryItems]);
-
-  const safePantryTrash = useMemo(() => {
-    return Array.isArray(pantryTrash) ? pantryTrash : [];
-  }, [pantryTrash]);
+  const safeTasks = useMemo(() => Array.isArray(familyTasks) ? familyTasks : [], [familyTasks]);
+  const safePantryItems = useMemo(() => Array.isArray(pantryItems) ? pantryItems : [], [pantryItems]);
+  const safePantryTrash = useMemo(() => Array.isArray(pantryTrash) ? pantryTrash : [], [pantryTrash]);
 
   const safeSchoolData = useMemo(() => {
     const s = schoolData && typeof schoolData === 'object' ? schoolData : DEFAULT_SCHOOL;
@@ -306,6 +343,7 @@ export default function TouchwallApp() {
   };
 
   useEffect(() => {
+    syncMetaRef.current = loadLocalSyncMeta();
     if (typeof window !== 'undefined' && 'Notification' in window) {
       setPushPermission(Notification.permission);
     }
@@ -423,6 +461,9 @@ export default function TouchwallApp() {
     return () => clearInterval(timer);
   }, [isAuthenticated, safeEvents, safeTasks, safeMembers, todayStr]);
 
+  // =========================================================
+  // KANAL 2: UNABHÄNGIGER TODOIST-SYNC (MIT FINGERABDRUCK-PRÜFUNG!)
+  // =========================================================
   const createAndSelectTodoistProject = async (projectName) => {
     const token = safeTodoistConfig.apiToken.trim();
     if (!token || !projectName?.trim()) return null;
@@ -482,10 +523,11 @@ export default function TouchwallApp() {
 
   const syncWithTodoistNow = async (showFeedback = false, cfgOverride = null) => {
     if (!isAuthenticated) return;
-    if (!showFeedback && Date.now() - lastLocalEditTimeRef.current < 3500) return;
+    if (!showFeedback && (isNetworkSavingRef.current || Date.now() - lastLocalEditTimeRef.current < 6000)) return;
 
     const cfg = cfgOverride || safeTodoistConfig;
     if (!cfg?.apiToken?.trim()) return;
+    setChannelStatus(prev => ({ ...prev, todoistBusy: true }));
     if (showFeedback) setIsSyncing(true);
 
     try {
@@ -504,23 +546,27 @@ export default function TouchwallApp() {
 
       const pulled = await pullFromTodoistTwoWay(activeCfg.apiToken, activeCfg, safeTasks, safeNotes, safeMembers);
       if (pulled) {
-        isApplyingRemoteState.current = true;
-        if (Array.isArray(pulled.tasks)) setFamilyTasks(pulled.tasks);
-        if (Array.isArray(pulled.familyNotes)) {
+        // WICHTIG: Nur State ändern, wenn sich in Todoist wirklich eine Aufgabe verändert hat!
+        if (Array.isArray(pulled.tasks) && hasJsonChanged(safeTasks, pulled.tasks)) {
+          setFamilyTasks(pulled.tasks);
+        }
+        if (Array.isArray(pulled.familyNotes) && hasJsonChanged(safeNotes, pulled.familyNotes)) {
           setFamilyNotes(pulled.familyNotes);
-        } else if (Array.isArray(pulled.shoppingItems)) {
+        } else if (Array.isArray(pulled.shoppingItems) && hasJsonChanged(safeNotes[0]?.items, pulled.shoppingItems)) {
           setFamilyNotes(prev => (Array.isArray(prev) ? prev : DEFAULT_NOTES).map((n, idx) => idx === 0 ? { ...n, items: pulled.shoppingItems } : n));
         }
+
         const now = new Date();
-        const tStr = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0') + ':' + String(now.getSeconds()).padStart(2, '0');
+        const tStr = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
         setLastAutoSyncTime(tStr);
-        setSyncStatusText('⚡ Live-Sync (' + String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0') + ')');
-        setTimeout(() => { isApplyingRemoteState.current = false; }, 200);
+        setChannelStatus(prev => ({ ...prev, todoist: 'Synchron (' + tStr + ') ✓', todoistBusy: false }));
       }
-      if (showFeedback) showToast('Todoist synchron', 'Alle Kacheln & Projekte sind abgeglichen.', '✅');
+      if (showFeedback) showToast('Kanal 2 (Todoist) synchron', 'Aufgaben & Einkaufsliste sind abgeglichen.', '✅');
     } catch (err) {
+      setChannelStatus(prev => ({ ...prev, todoistBusy: false }));
       if (showFeedback) showToast('Todoist-Sync Hinweis', err.message, '⚠️');
     } finally {
+      setChannelStatus(prev => ({ ...prev, todoistBusy: false }));
       if (showFeedback) setIsSyncing(false);
     }
   };
@@ -532,173 +578,153 @@ export default function TouchwallApp() {
     if (!isAuthenticated) return;
     const initTimeout = setTimeout(() => {
       syncTodoistRef.current?.(false);
-    }, 1500);
+    }, 2500);
 
-    const fastInterval = setInterval(() => {
+    // Ruhiger 18-Sekunden-Intervall für Todoist
+    const todoistInterval = setInterval(() => {
       if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
         syncTodoistRef.current?.(false);
       }
-    }, 8000);
-
-    const onFocusOrVisible = () => {
-      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
-        syncTodoistRef.current?.(false);
-      }
-    };
-    window.addEventListener('focus', onFocusOrVisible);
-    document.addEventListener('visibilitychange', onFocusOrVisible);
+    }, 18000);
 
     return () => {
       clearTimeout(initTimeout);
-      clearInterval(fastInterval);
-      window.removeEventListener('focus', onFocusOrVisible);
-      document.removeEventListener('visibilitychange', onFocusOrVisible);
+      clearInterval(todoistInterval);
     };
   }, [isAuthenticated]);
 
+  // =========================================================
+  // KANÄLE 1, 3 & 4: GOOGLE CLOUD SMART-MERGE (KEIN ÜBERSCHREIBEN MEHR!)
+  // =========================================================
   const callGoogleAppsScript = async (targetUrl, method = 'POST', postBody = null) => {
-    const cleanTarget = (targetUrl || PUBLIC_CLOUD_BACKEND_URL).trim();
-    const enrichedBody = postBody ? {
-      ...postBody,
-      accountId: postBody.accountId !== undefined ? postBody.accountId : accountId,
-      authKey: postBody.authKey !== undefined ? postBody.authKey : authKey
-    } : null;
-
-    try {
-      const proxyRes = await fetch('/api/todoist?_t=' + Date.now(), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'gasProxy',
-          gasUrl: cleanTarget,
-          gasMethod: method,
-          gasBody: enrichedBody
-        }),
-        cache: 'no-store'
-      });
-      if (proxyRes.ok) {
-        const proxyData = await proxyRes.json();
-        if (proxyData && !proxyData.notSupported && !proxyData.error) {
-          return proxyData;
-        }
-      }
-    } catch (e) {}
-
-    if (method === 'GET') {
-      const sep = cleanTarget.includes('?') ? '&' : '?';
-      const query = 'action=json&accountId=' + encodeURIComponent(accountId || '') + '&authKey=' + encodeURIComponent(authKey || '') + '&_t=' + Date.now();
-      const res = await fetch(cleanTarget + sep + query, {
-        method: 'GET',
-        redirect: 'follow',
-        cache: 'no-store'
-      });
-      return res.json();
-    } else {
-      const res = await fetch(cleanTarget, {
-        method: 'POST',
-        redirect: 'follow',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(enrichedBody)
-      });
-      return res.json();
-    }
+    return callCloudApi(targetUrl || appsScriptUrl || PUBLIC_CLOUD_BACKEND_URL, method, postBody, accountId, authKey);
   };
 
-  const sendCalendarApiAction = async (bodyData, statusLabel = '⏳ Synchronisiere...') => {
-    if (!accountId || accountId === 'local') return null;
-    const targetUrl = (appsScriptUrl || PUBLIC_CLOUD_BACKEND_URL).trim();
-    if (!targetUrl) return null;
-    isMutatingCalendar.current = true;
-    setIsSyncing(true);
-    setSyncStatusText(statusLabel);
-    try {
-      const json = await callGoogleAppsScript(targetUrl, 'POST', bodyData);
-      if (json?.result && Array.isArray(json.result.events)) {
-        setEvents(json.result.events);
-        try { localStorage.setItem('richter_touchwall_events_cache', JSON.stringify(json.result.events)); } catch (e) {}
-      } else if (bodyData.action !== 'runDiagnostics') {
-        setTimeout(() => pullFromCloud(targetUrl, false), 700);
-      }
-      const now = new Date();
-      setSyncStatusText('⚡ Live-Sync (' + String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0') + ')');
-      return json;
-    } catch (err) {
-      setSyncStatusText('⚠️ Cloud-Sync prüfen');
-      return null;
-    } finally {
-      isMutatingCalendar.current = false;
-      setIsSyncing(false);
-    }
-  };
-
-  const applyBundleData = (bundle) => {
+  const applyBundleData = (bundle, channelsFilter = 'all') => {
     if (!bundle) return;
-    isApplyingRemoteState.current = true;
     const calMap = bundle?.calendarData?.calendars || {};
     const statusMap = bundle?.calendarData?.status || {};
 
     if (bundle?.state) {
       const s = bundle.state;
-      if (s.familyName) setFamilyName(s.familyName);
-      const baseMembers = (Array.isArray(s.members) && s.members.length >= 2) ? s.members : safeMembers;
-      setMembers(baseMembers.map(m => {
-        const cid = calMap[m.id] !== undefined && calMap[m.id] !== '' ? calMap[m.id] : (m.calendarId || '');
-        const st = statusMap[m.id];
-        return { ...m, calendarId: cid, ok: st ? Boolean(st.ok) : true, statusMsg: st?.msg || 'Cloud aktiv ✓' };
-      }));
-      if (Array.isArray(s.mealPlan) && s.mealPlan.length > 0) setMealPlan(s.mealPlan);
-      if (Array.isArray(s.familyNotes) && s.familyNotes.length > 0) setFamilyNotes(s.familyNotes);
-      if (s.schoolData?.dean) setSchoolData(s.schoolData);
-      if (Array.isArray(s.familyTasks)) setFamilyTasks(s.familyTasks);
-      if (Array.isArray(s.pantryItems)) setPantryItems(s.pantryItems);
-      if (Array.isArray(s.pantryTrash)) setPantryTrash(s.pantryTrash);
-      if (s.skillBoardData && typeof s.skillBoardData === 'object') setSkillBoardData(s.skillBoardData);
 
-      const lockedTheme = typeof window !== 'undefined' ? localStorage.getItem('richter_tw_theme_lock') : null;
-      if (!lockedTheme && s.currentTheme && Date.now() - lastThemeChangeRef.current > 20000) {
-        setCurrentTheme(s.currentTheme);
+      // Sync-Metadaten (Lösch-Gedächtnis vom Handy & der Touchwall) zusammenführen
+      if (s.syncMeta) {
+        syncMetaRef.current = mergeSyncMetaMaps(syncMetaRef.current, s.syncMeta);
+        saveLocalSyncMeta(syncMetaRef.current);
       }
 
-      if (s.customLogoUrl) setCustomLogoUrl(s.customLogoUrl);
-      if (s.todoistConfig?.apiToken) setTodoistConfig(prev => ({ ...prev, ...s.todoistConfig }));
+      if (channelsFilter === 'all') {
+        if (s.familyName && s.familyName !== familyName) setFamilyName(s.familyName);
+
+        const baseMembers = (Array.isArray(s.members) && s.members.length >= 2) ? s.members : safeMembers;
+        const nextMembers = baseMembers.map(m => {
+          const cid = calMap[m.id] !== undefined && calMap[m.id] !== '' ? calMap[m.id] : (m.calendarId || '');
+          const st = statusMap[m.id];
+          return { ...m, calendarId: cid, ok: st ? Boolean(st.ok) : true, statusMsg: st?.msg || 'Cloud aktiv ✓' };
+        });
+        if (hasJsonChanged(safeMembers, nextMembers)) setMembers(nextMembers);
+
+        if (Array.isArray(s.mealPlan) && s.mealPlan.length > 0 && hasJsonChanged(safeMeals, s.mealPlan)) {
+          setMealPlan(s.mealPlan);
+        }
+        if (Array.isArray(s.familyNotes) && s.familyNotes.length > 0 && hasJsonChanged(safeNotes, s.familyNotes)) {
+          setFamilyNotes(s.familyNotes);
+        }
+        if (s.schoolData?.dean && hasJsonChanged(safeSchoolData, s.schoolData)) {
+          setSchoolData(s.schoolData);
+        }
+        if (Array.isArray(s.familyTasks) && hasJsonChanged(safeTasks, s.familyTasks)) {
+          setFamilyTasks(s.familyTasks);
+        }
+
+        const lockedTheme = typeof window !== 'undefined' ? localStorage.getItem('richter_tw_theme_lock') : null;
+        if (!lockedTheme && s.currentTheme && Date.now() - lastThemeChangeRef.current > 20000) {
+          setCurrentTheme(s.currentTheme);
+        }
+        if (s.customLogoUrl && s.customLogoUrl !== customLogoUrl) setCustomLogoUrl(s.customLogoUrl);
+        if (s.todoistConfig?.apiToken) setTodoistConfig(prev => ({ ...prev, ...s.todoistConfig }));
+      }
+
+      // KANAL 3: Speisekammer & Handy-Scans per Smart-Merge zusammenführen!
+      if (channelsFilter === 'all' || channelsFilter === 'pantry') {
+        if (Array.isArray(s.pantryItems) || Array.isArray(s.pantryTrash)) {
+          const { mergedStock, mergedTrash } = mergePantryChannelSafe(
+            safePantryItems,
+            s.pantryItems,
+            safePantryTrash,
+            s.pantryTrash,
+            syncMetaRef.current
+          );
+          if (hasJsonChanged(safePantryItems, mergedStock)) setPantryItemsRaw(mergedStock);
+          if (hasJsonChanged(safePantryTrash, mergedTrash)) setPantryTrashRaw(mergedTrash);
+        }
+      }
+
+      // KANAL 4: Skill Board per Max-XP-Merge zusammenführen!
+      if (channelsFilter === 'all' || channelsFilter === 'skillboard') {
+        if (s.skillBoardData && typeof s.skillBoardData === 'object') {
+          setSkillBoardDataRaw(prev => mergeSkillBoardSafe(prev, s.skillBoardData));
+        }
+      }
     }
 
-    if (Array.isArray(bundle?.calendarData?.events)) {
-      setEvents(bundle.calendarData.events);
-      try { localStorage.setItem('richter_touchwall_events_cache', JSON.stringify(bundle.calendarData.events)); } catch (e) {}
+    // KANAL 1: Kalender-Termine mit Hüpf-Schutz (Pending-Guard) zusammenführen!
+    if ((channelsFilter === 'all' || channelsFilter === 'calendar') && Array.isArray(bundle?.calendarData?.events)) {
+      const guardedEvents = mergeCalendarEventsSafe(
+        bundle.calendarData.events,
+        pendingCalendarOpsRef,
+        syncMetaRef.current
+      );
+      if (hasJsonChanged(safeEvents, guardedEvents)) {
+        setEvents(guardedEvents);
+        try { localStorage.setItem('richter_touchwall_events_cache', JSON.stringify(guardedEvents)); } catch (e) {}
+      }
     }
 
-    setTimeout(() => {
-      isApplyingRemoteState.current = false;
-      isInitialLoadDone.current = true;
-    }, 250);
+    isInitialLoadDone.current = true;
   };
 
-  const pullFromCloud = async (urlOverride, showFeedback = true, customAccId = undefined, customAuthKey = undefined) => {
+  const pullFromCloud = async (urlOverride, showFeedback = true, customAccId = undefined, customAuthKey = undefined, channelsFilter = 'all') => {
     const activeAcc = customAccId !== undefined ? customAccId : accountId;
     const activeKey = customAuthKey !== undefined ? customAuthKey : authKey;
     if (!activeAcc || activeAcc === 'local') return false;
-    if ((isMutatingCalendar.current || Date.now() - lastLocalEditTimeRef.current < 8000) && !showFeedback) return false;
+
+    // WICHTIG: Niemals während eines laufenden Speicher-Vorgangs oder kurz nach einer lokalen Eingabe dazwischenfunken!
+    if (!showFeedback && (isNetworkSavingRef.current || Date.now() - lastLocalEditTimeRef.current < 7500)) {
+      return false;
+    }
 
     const targetUrl = (urlOverride !== undefined ? urlOverride : (appsScriptUrl || PUBLIC_CLOUD_BACKEND_URL)).trim();
     if (!targetUrl) return false;
     if (showFeedback) setIsSyncing(true);
+
     try {
-      const bundle = await callGoogleAppsScript(targetUrl, 'POST', {
-        action: 'loadBundle',
-        accountId: activeAcc,
-        authKey: activeKey
-      });
+      const bundle = await callCloudApi(targetUrl, 'POST', { action: 'loadBundle' }, activeAcc, activeKey);
       if (bundle?.ok === false) {
         if (showFeedback) showToast('Hinweis', bundle.error || 'Daten konnten nicht geladen werden.', '⚠️');
         return false;
       }
-      applyBundleData(bundle);
-      if (showFeedback) showToast('Synchronisiert', 'Kalender & Cloud sind aktuell.', '☁️');
+
+      // Nochmals prüfen, ob der Nutzer während der Netzwerk-Ladezeit etwas getippt hat
+      if (!showFeedback && (isNetworkSavingRef.current || Date.now() - lastLocalEditTimeRef.current < 5000)) {
+        return false;
+      }
+
+      applyBundleData(bundle, channelsFilter);
+      const now = new Date();
+      const tStr = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+      setSyncStatusText('⚡ 4-Kanal Sync (' + tStr + ')');
+      setChannelStatus(prev => ({
+        ...prev,
+        calendar: 'Synchron (' + tStr + ') ✓',
+        pantry: 'Synchron (' + tStr + ') ✓',
+        skillboard: 'Synchron (' + tStr + ') ✓'
+      }));
+      if (showFeedback) showToast('Synchronisiert', 'Alle Kanäle sind sauber abgeglichen.', '☁️');
       return true;
     } catch (err) {
       isInitialLoadDone.current = true;
-      isApplyingRemoteState.current = false;
       return false;
     } finally {
       if (showFeedback) setIsSyncing(false);
@@ -707,6 +733,40 @@ export default function TouchwallApp() {
 
   const pullCloudRef = useRef(null);
   pullCloudRef.current = pullFromCloud;
+
+  const sendCalendarApiAction = async (bodyData, statusLabel = '⏳ Synchronisiere Kalender...') => {
+    if (!accountId || accountId === 'local') return null;
+    const targetUrl = (appsScriptUrl || PUBLIC_CLOUD_BACKEND_URL).trim();
+    if (!targetUrl) return null;
+
+    isNetworkSavingRef.current = true;
+    lastLocalEditTimeRef.current = Date.now();
+    setIsSyncing(true);
+    setChannelStatus(prev => ({ ...prev, calendarBusy: true }));
+    setSyncStatusText(statusLabel);
+
+    try {
+      const json = await callGoogleAppsScript(targetUrl, 'POST', bodyData);
+      if (json?.result && Array.isArray(json.result.events)) {
+        const guarded = mergeCalendarEventsSafe(json.result.events, pendingCalendarOpsRef, syncMetaRef.current);
+        setEvents(guarded);
+        try { localStorage.setItem('richter_touchwall_events_cache', JSON.stringify(guarded)); } catch (e) {}
+      }
+      const now = new Date();
+      const tStr = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+      setSyncStatusText('⚡ 4-Kanal Sync (' + tStr + ')');
+      setChannelStatus(prev => ({ ...prev, calendar: 'Synchron (' + tStr + ') ✓', calendarBusy: false }));
+      return json;
+    } catch (err) {
+      setSyncStatusText('⚠️ Cloud-Sync prüfen');
+      setChannelStatus(prev => ({ ...prev, calendarBusy: false }));
+      return null;
+    } finally {
+      lastLocalEditTimeRef.current = Date.now();
+      isNetworkSavingRef.current = false;
+      setIsSyncing(false);
+    }
+  };
 
   useEffect(() => {
     try {
@@ -748,9 +808,9 @@ export default function TouchwallApp() {
           if (Array.isArray(parsedState.familyNotes) && parsedState.familyNotes.length > 0) setFamilyNotes(parsedState.familyNotes);
           if (parsedState.schoolData?.dean) setSchoolData(parsedState.schoolData);
           if (Array.isArray(parsedState.familyTasks)) setFamilyTasks(parsedState.familyTasks);
-          if (Array.isArray(parsedState.pantryItems)) setPantryItems(parsedState.pantryItems);
-          if (Array.isArray(parsedState.pantryTrash)) setPantryTrash(parsedState.pantryTrash);
-          if (parsedState.skillBoardData && typeof parsedState.skillBoardData === 'object') setSkillBoardData(parsedState.skillBoardData);
+          if (Array.isArray(parsedState.pantryItems)) setPantryItemsRaw(parsedState.pantryItems);
+          if (Array.isArray(parsedState.pantryTrash)) setPantryTrashRaw(parsedState.pantryTrash);
+          if (parsedState.skillBoardData && typeof parsedState.skillBoardData === 'object') setSkillBoardDataRaw(parsedState.skillBoardData);
           if (!lockedTheme && parsedState.currentTheme) setCurrentTheme(parsedState.currentTheme);
           if (parsedState.customLogoUrl) setCustomLogoUrl(parsedState.customLogoUrl);
           if (parsedState.todoistConfig && typeof parsedState.todoistConfig === 'object') {
@@ -774,17 +834,21 @@ export default function TouchwallApp() {
     setIsCheckingAuth(false);
   }, []);
 
-    useEffect(() => {
+  // Ruhiger 10-Sekunden Hintergrund-Abruf (Holt Handy-Scans & Kalender-Updates ohne Kollision)
+  useEffect(() => {
     if (!isAuthenticated || !accountId || accountId === 'local') return;
     const calInterval = setInterval(() => {
-      pullCloudRef.current?.(undefined, false);
-    }, 6000);
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        pullCloudRef.current?.(undefined, false);
+      }
+    }, 10000);
     return () => clearInterval(calInterval);
   }, [isAuthenticated, accountId]);
 
+  // Atomarer Cloud-Save mit Vorab-Merge (Überschreibt niemals Handy-Scans!)
   useEffect(() => {
     if (!isAuthenticated) return;
-    const payload = {
+    const localPayload = {
       isConfigured: true,
       familyName,
       members: safeMembers,
@@ -795,25 +859,90 @@ export default function TouchwallApp() {
       pantryItems: safePantryItems,
       pantryTrash: safePantryTrash,
       skillBoardData,
+      syncMeta: syncMetaRef.current,
       currentTheme,
       customLogoUrl,
       todoistConfig: safeTodoistConfig
     };
-    try { localStorage.setItem('richter_touchwall_v6', JSON.stringify(payload)); } catch (e) {}
-    if (!isInitialLoadDone.current || isApplyingRemoteState.current) return;
+
+    try { localStorage.setItem('richter_touchwall_v6', JSON.stringify(localPayload)); } catch (e) {}
+    if (!isInitialLoadDone.current) return;
     if (!accountId || accountId === 'local') return;
+
+    // Prüfen, ob sich überhaupt etwas an den Kerndaten geändert hat
+    const currentHash = JSON.stringify({
+      familyName,
+      members: safeMembers,
+      mealPlan: safeMeals,
+      familyNotes: safeNotes,
+      schoolData: safeSchoolData,
+      familyTasks: safeTasks,
+      pantryItems: safePantryItems,
+      pantryTrash: safePantryTrash,
+      currentTheme,
+      customLogoUrl
+    });
+
+    if (currentHash === lastSavedPayloadHashRef.current) return;
 
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
     autoSaveTimer.current = setTimeout(async () => {
+      isNetworkSavingRef.current = true;
       try {
-        await callGoogleAppsScript(appsScriptUrl || PUBLIC_CLOUD_BACKEND_URL, 'POST', {
-          action: 'saveState',
-          accountId,
-          authKey,
-          payload
+        // Vor dem Speichern kurz mit der Cloud mergen, damit neue Handy-Scans erhalten bleiben!
+        let mergedStock = safePantryItems;
+        let mergedTrash = safePantryTrash;
+        let mergedSkill = skillBoardData;
+
+        try {
+          const fresh = await callCloudApi(appsScriptUrl || PUBLIC_CLOUD_BACKEND_URL, 'POST', { action: 'loadBundle' }, accountId, authKey);
+          if (fresh?.ok && fresh.state) {
+            syncMetaRef.current = mergeSyncMetaMaps(syncMetaRef.current, fresh.state.syncMeta);
+            const pMerged = mergePantryChannelSafe(
+              safePantryItems,
+              fresh.state.pantryItems,
+              safePantryTrash,
+              fresh.state.pantryTrash,
+              syncMetaRef.current
+            );
+            mergedStock = pMerged.mergedStock;
+            mergedTrash = pMerged.mergedTrash;
+            mergedSkill = mergeSkillBoardSafe(skillBoardData, fresh.state.skillBoardData);
+            if (hasJsonChanged(safePantryItems, mergedStock)) setPantryItemsRaw(mergedStock);
+            if (hasJsonChanged(safePantryTrash, mergedTrash)) setPantryTrashRaw(mergedTrash);
+          }
+        } catch (e) {}
+
+        const finalPayload = {
+          ...localPayload,
+          pantryItems: mergedStock,
+          pantryTrash: mergedTrash,
+          skillBoardData: mergedSkill,
+          syncMeta: syncMetaRef.current
+        };
+
+        lastSavedPayloadHashRef.current = JSON.stringify({
+          familyName,
+          members: safeMembers,
+          mealPlan: safeMeals,
+          familyNotes: safeNotes,
+          schoolData: safeSchoolData,
+          familyTasks: safeTasks,
+          pantryItems: mergedStock,
+          pantryTrash: mergedTrash,
+          currentTheme,
+          customLogoUrl
         });
-      } catch (e) {}
-    }, 600);
+
+        await callCloudApi(appsScriptUrl || PUBLIC_CLOUD_BACKEND_URL, 'POST', {
+          action: 'saveState',
+          payload: finalPayload
+        }, accountId, authKey);
+      } catch (e) {} finally {
+        lastLocalEditTimeRef.current = Date.now();
+        isNetworkSavingRef.current = false;
+      }
+    }, 900);
   }, [isAuthenticated, accountId, authKey, familyName, safeMembers, safeMeals, safeNotes, safeSchoolData, safeTasks, safePantryItems, safePantryTrash, currentTheme, customLogoUrl, safeTodoistConfig, appsScriptUrl]);
 
   const handleRegisterSubmit = async (e) => {
@@ -879,12 +1008,12 @@ export default function TouchwallApp() {
 
     setIsLoggingIn(true);
     try {
-      const res = await callGoogleAppsScript(PUBLIC_CLOUD_BACKEND_URL, 'POST', {
+      const res = await callCloudApi(PUBLIC_CLOUD_BACKEND_URL, 'POST', {
         action: 'registerAccount',
         accountId: cleanUser,
         authKey: cleanPass,
         payload: initialPayload
-      });
+      }, cleanUser, cleanPass);
 
       if (!res || res.ok === false) {
         setLoginError(res?.error || 'Registrierung fehlgeschlagen. Bitte anderen Benutzernamen probieren.');
@@ -898,9 +1027,9 @@ export default function TouchwallApp() {
       setMembers(customMembers);
       setEvents([]);
       setFamilyTasks([]);
-      setPantryItems([]);
-      setPantryTrash([]);
-      setSkillBoardData(null);
+      setPantryItemsRaw([]);
+      setPantryTrashRaw([]);
+      setSkillBoardDataRaw(null);
       writeAuthSession(cleanUser, cleanPass, chosenTitle);
       isInitialLoadDone.current = true;
       setIsAuthenticated(true);
@@ -926,11 +1055,11 @@ export default function TouchwallApp() {
 
     setIsLoggingIn(true);
     try {
-      const res = await callGoogleAppsScript(PUBLIC_CLOUD_BACKEND_URL, 'POST', {
+      const res = await callCloudApi(PUBLIC_CLOUD_BACKEND_URL, 'POST', {
         action: 'loginAccount',
         accountId: cleanUser,
         authKey: cleanPass
-      });
+      }, cleanUser, cleanPass);
 
       if (!res || res.ok === false) {
         setLoginError(res?.error || 'Anmeldung fehlgeschlagen. Bitte Benutzername und Passwort prüfen.');
@@ -977,9 +1106,9 @@ export default function TouchwallApp() {
     setMembers(DEFAULT_MEMBERS);
     setEvents([]);
     setFamilyTasks([]);
-    setPantryItems([]);
-    setPantryTrash([]);
-    setSkillBoardData(null);
+    setPantryItemsRaw([]);
+    setPantryTrashRaw([]);
+    setSkillBoardDataRaw(null);
     setFamilyNotes(DEFAULT_NOTES);
     setMealPlan(DEFAULT_MEALS);
     setSchoolData(DEFAULT_SCHOOL);
@@ -1207,6 +1336,7 @@ export default function TouchwallApp() {
         notifyUsers: [memberId],
         fromGoogle: true
       };
+      registerPendingCalendarOp(pendingCalendarOpsRef, 'create', calEv);
       setEvents(prev => [...(Array.isArray(prev) ? prev : []), calEv]);
       await sendCalendarApiAction({ action: 'createEvent', event: calEv }, '📲 Sende Kalender-Wecker...');
     }
@@ -1224,6 +1354,10 @@ export default function TouchwallApp() {
   const deleteTaskItem = async (taskId) => {
     lastLocalEditTimeRef.current = Date.now();
     const target = safeTasks.find(t => t.id === taskId);
+    if (syncMetaRef.current) {
+      syncMetaRef.current.deletedTaskIds[String(taskId)] = Date.now();
+      saveLocalSyncMeta(syncMetaRef.current);
+    }
     setFamilyTasks(prev => (Array.isArray(prev) ? prev : []).filter(t => t.id !== taskId));
     if (target?.todoistId && safeTodoistConfig.apiToken) {
       try { await deleteTodoistTask(safeTodoistConfig.apiToken, target.todoistId); } catch (e) {}
@@ -1250,6 +1384,7 @@ export default function TouchwallApp() {
       notifyUsers: newMember === 'all' ? safeMembers.filter(m => m.id !== 'all').map(m => m.id) : [newMember],
       fromGoogle: true
     };
+    registerPendingCalendarOp(pendingCalendarOpsRef, 'create', copiedNewEv);
     setEvents(prev => [...(Array.isArray(prev) ? prev : []), copiedNewEv]);
     showToast('Termin kopiert & eingefügt!', '„' + copiedNewEv.title + '“ → ' + (targetM ? targetM.name : newMember) + ' (' + newDate + ')', '📋');
     await sendCalendarApiAction({ action: 'createEvent', event: copiedNewEv }, '⏳ Speichere Kopie in Cloud...');
@@ -1287,6 +1422,7 @@ export default function TouchwallApp() {
     if (!eventModal.title.trim()) return;
     if (eventModal.id) {
       const updatedEv = { ...eventModal, title: eventModal.title.trim(), fromGoogle: true };
+      registerPendingCalendarOp(pendingCalendarOpsRef, 'update', updatedEv);
       setEvents(prev => (Array.isArray(prev) ? prev : []).map(item => String(item.id) === String(eventModal.id) ? updatedEv : item));
       setEventModal({ ...eventModal, open: false });
       await sendCalendarApiAction({
@@ -1297,6 +1433,7 @@ export default function TouchwallApp() {
       });
     } else {
       const newEv = { ...eventModal, id: String(Date.now()), title: eventModal.title.trim(), fromGoogle: true };
+      registerPendingCalendarOp(pendingCalendarOpsRef, 'create', newEv);
       setEvents(prev => [...(Array.isArray(prev) ? prev : []), newEv]);
       setEventModal({ ...eventModal, open: false });
       await sendCalendarApiAction({ action: 'createEvent', event: newEv });
@@ -1305,6 +1442,11 @@ export default function TouchwallApp() {
 
   const deleteEventById = async (id) => {
     const targetEv = safeEvents.find(ev => String(ev.id) === String(id));
+    if (targetEv) {
+      registerPendingCalendarOp(pendingCalendarOpsRef, 'delete', targetEv);
+      syncMetaRef.current.deletedEventIds[String(targetEv.id)] = Date.now();
+      saveLocalSyncMeta(syncMetaRef.current);
+    }
     setEvents(prev => (Array.isArray(prev) ? prev : []).filter(ev => String(ev.id) !== String(id)));
     setEventModal({ ...eventModal, open: false });
     if (targetEv) {
@@ -1321,7 +1463,9 @@ export default function TouchwallApp() {
     const newDate = targetDateStr || targetEv.date;
     if (targetEv.member === targetMemberId && targetEv.date === newDate) return;
     const snapshot = { ...targetEv };
-    setEvents(prev => (Array.isArray(prev) ? prev : []).map(ev => String(ev.id) === String(evId) ? { ...ev, member: targetMemberId, date: newDate } : ev));
+    const movedEv = { ...targetEv, member: targetMemberId, date: newDate };
+    registerPendingCalendarOp(pendingCalendarOpsRef, 'move', movedEv);
+    setEvents(prev => (Array.isArray(prev) ? prev : []).map(ev => String(ev.id) === String(evId) ? movedEv : ev));
     await sendCalendarApiAction({
       action: 'moveEvent', eventId: String(snapshot.id),
       oldMember: snapshot.member, targetMember: targetMemberId,
@@ -1345,6 +1489,7 @@ export default function TouchwallApp() {
       pantryItems: safePantryItems,
       pantryTrash: safePantryTrash,
       skillBoardData,
+      syncMeta: syncMetaRef.current,
       currentTheme,
       customLogoUrl,
       todoistConfig: safeTodoistConfig
@@ -1458,9 +1603,9 @@ export default function TouchwallApp() {
         if (Array.isArray(d.familyNotes)) setFamilyNotes(d.familyNotes);
         if (d.schoolData) setSchoolData(d.schoolData);
         if (Array.isArray(d.familyTasks)) setFamilyTasks(d.familyTasks);
-        if (Array.isArray(d.pantryItems)) setPantryItems(d.pantryItems);
-        if (Array.isArray(d.pantryTrash)) setPantryTrash(d.pantryTrash);
-        if (d.skillBoardData && typeof d.skillBoardData === 'object') setSkillBoardData(d.skillBoardData);
+        if (Array.isArray(d.pantryItems)) setPantryItemsRaw(d.pantryItems);
+        if (Array.isArray(d.pantryTrash)) setPantryTrashRaw(d.pantryTrash);
+        if (d.skillBoardData && typeof d.skillBoardData === 'object') setSkillBoardDataRaw(d.skillBoardData);
         showToast('Import erfolgreich', 'Backup inkl. Skill-Board wiederhergestellt.', '🎉');
       } catch (err) {}
     };
@@ -1552,7 +1697,7 @@ export default function TouchwallApp() {
     setSchoolModal,
     mealPlan: safeMeals,
     setMealPlan,
-    pantryItems,
+    pantryItems: safePantryItems,
     setPantryItems,
     setPantryTrash,
     todayStr,
@@ -1971,7 +2116,7 @@ export default function TouchwallApp() {
                 </button>
 
                 <button
-                  onClick={() => { pullFromCloud(undefined, true); syncWithTodoistNow(true); }}
+                  onClick={() => setSyncModalOpen(true)}
                   className="tw-glow-btn inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-extrabold cursor-pointer"
                 >
                   <RefreshCw className={syncIconClass} />
@@ -2125,6 +2270,22 @@ export default function TouchwallApp() {
         </div>
       </div>
 
+      {/* 4-KANAL SYNC-COCKPIT MODAL (AUS app/sync.tsx) */}
+      <SyncCenterModal
+        open={syncModalOpen}
+        onClose={() => setSyncModalOpen(false)}
+        channelStatus={channelStatus}
+        onSyncCalendarOnly={() => pullFromCloud(undefined, true, undefined, undefined, 'calendar')}
+        onSyncTodoistOnly={() => syncWithTodoistNow(true)}
+        onSyncPantryOnly={() => pullFromCloud(undefined, true, undefined, undefined, 'pantry')}
+        onSyncSkillBoardOnly={() => pullFromCloud(undefined, true, undefined, undefined, 'skillboard')}
+        onSyncAllChannels={() => {
+          pullFromCloud(undefined, true, undefined, undefined, 'all');
+          syncWithTodoistNow(true);
+        }}
+        themeStyles={themeStyles}
+      />
+
       {/* MODAL 1: TERMIN ERSTELLEN / BEARBEITEN / KOPIEREN */}
       {eventModal.open && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
@@ -2276,6 +2437,7 @@ export default function TouchwallApp() {
                   notifyUsers: [taskModal.member],
                   fromGoogle: true
                 };
+                registerPendingCalendarOp(pendingCalendarOpsRef, 'create', calEv);
                 setEvents(prev => [...(Array.isArray(prev) ? prev : []), calEv]);
                 await sendCalendarApiAction({ action: 'createEvent', event: calEv });
               }
