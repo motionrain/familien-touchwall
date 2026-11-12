@@ -24,6 +24,7 @@ import {
   saveLocalSyncMeta,
   mergeSyncMetaMaps,
   applyPantryStateChangeWithMeta,
+  applyTrashStateChangeWithMeta,
   mergePantryChannelSafe,
   registerPendingCalendarOp,
   mergeCalendarEventsSafe,
@@ -208,10 +209,7 @@ export default function TouchwallApp() {
 
   const setPantryTrash = (updater) => {
     lastLocalEditTimeRef.current = Date.now();
-    setPantryTrashRaw(prev => {
-      const next = typeof updater === 'function' ? updater(prev) : updater;
-      return Array.isArray(next) ? next : [];
-    });
+    setPantryTrashRaw(prev => applyTrashStateChangeWithMeta(prev, updater, syncMetaRef));
   };
 
   const setSkillBoardData = (nextSb) => {
