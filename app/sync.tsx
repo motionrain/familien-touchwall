@@ -2,10 +2,9 @@
 /* eslint-disable react/no-unescaped-entities */
 'use client';
 
-import React, { useState } from 'react';
+import React from 'react';
 import {
-  RefreshCw, Cloud, Calendar, CheckSquare, Package,
-  Sparkles, CheckCircle2, X, ShieldCheck
+  RefreshCw, X, ShieldCheck
 } from 'lucide-react';
 
 export const PUBLIC_CLOUD_BACKEND_URL =
@@ -20,23 +19,24 @@ export function hasJsonChanged(a, b) {
   }
 }
 
-// Lädt und speichert das lokale Lösch-Gedächtnis (Tombstones), damit gelöschte Elemente nie wieder auftauchen
+// Lädt und speichert das lokale Lösch-Gedächtnis (Tombstones) inkl. Mülleimer-Gedächtnis (deletedTrashIds)
 export function loadLocalSyncMeta() {
   try {
     if (typeof localStorage === 'undefined') {
-      return { deletedPantryIds: {}, deletedTaskIds: {}, deletedEventIds: {} };
+      return { deletedPantryIds: {}, deletedTrashIds: {}, deletedTaskIds: {}, deletedEventIds: {} };
     }
     const raw = localStorage.getItem('richter_tw_sync_meta_v1');
     if (raw) {
       const parsed = JSON.parse(raw);
       return {
         deletedPantryIds: parsed.deletedPantryIds || {},
+        deletedTrashIds: parsed.deletedTrashIds || {},
         deletedTaskIds: parsed.deletedTaskIds || {},
         deletedEventIds: parsed.deletedEventIds || {}
       };
     }
   } catch (e) {}
-  return { deletedPantryIds: {}, deletedTaskIds: {}, deletedEventIds: {} };
+  return { deletedPantryIds: {}, deletedTrashIds: {}, deletedTaskIds: {}, deletedEventIds: {} };
 }
 
 export function saveLocalSyncMeta(meta) {
@@ -63,14 +63,14 @@ export function mergeSyncMetaMaps(metaA, metaB) {
 
   return {
     deletedPantryIds: mergeSubMap(a.deletedPantryIds, b.deletedPantryIds),
+    deletedTrashIds: mergeSubMap(a.deletedTrashIds, b.deletedTrashIds),
     deletedTaskIds: mergeSubMap(a.deletedTaskIds, b.deletedTaskIds),
     deletedEventIds: mergeSubMap(a.deletedEventIds, b.deletedEventIds)
   };
 }
 
 // ============================================================================
-// KANAL 3: SPEISEKAMMER & PRODUKTSCAN SMART-MERGE
-// Verhindert, dass Handy-Scans oder Mengen-Änderungen ("Verzehrt -1") verschwinden
+// KANAL 3A: SPEISEKAMMER-BESTAND SMART-MERGE
 // ============================================================================
 export function applyPantryStateChangeWithMeta(prevList, nextListOrUpdater, syncMetaRef, isFromMobile = false) {
   const prev = Array.isArray(prevList) ? prevList : [];
@@ -91,6 +91,10 @@ export function applyPantryStateChangeWithMeta(prevList, nextListOrUpdater, sync
     const old = prevMap.get(idStr);
 
     if (!old) {
+      // Falls ein Produkt neu oder wiederhergestellt ist, aus der Löschliste entfernen
+      if (syncMetaRef?.current?.deletedPantryIds?.[idStr]) {
+        delete syncMetaRef.current.deletedPantryIds[idStr];
+      }
       return {
         ...it,
         updatedAt: it.updatedAt || now,
@@ -103,6 +107,7 @@ export function applyPantryStateChangeWithMeta(prevList, nextListOrUpdater, sync
       old.name !== it.name ||
       old.expiryDate !== it.expiryDate ||
       old.location !== it.location ||
+      old.category !== it.category ||
       old.customEmoji !== it.customEmoji;
 
     if (changed) {
@@ -111,8 +116,9 @@ export function applyPantryStateChangeWithMeta(prevList, nextListOrUpdater, sync
     return { ...it, updatedAt: old.updatedAt || it.updatedAt || 1 };
   });
 
-  // Alle Produkte, die aus dem Bestand entfernt wurden, als gelöscht/verzehrt merken!
+  // Alle Produkte, die aus dem Bestand entfernt wurden, als gelöscht/verzehrt merken
   if (syncMetaRef && syncMetaRef.current) {
+    if (!syncMetaRef.current.deletedPantryIds) syncMetaRef.current.deletedPantryIds = {};
     let metaChanged = false;
     prev.forEach(oldIt => {
       if (oldIt && oldIt.id && !nextIds.has(String(oldIt.id))) {
@@ -126,29 +132,89 @@ export function applyPantryStateChangeWithMeta(prevList, nextListOrUpdater, sync
   return stampedNext;
 }
 
-export function mergePantryChannelSafe(localStock, remoteStock, localTrash, remoteTrash, syncMeta) {
-  const delMap = syncMeta?.deletedPantryIds || {};
+// ============================================================================
+// KANAL 3B: MÜLLEIMER SMART-MERGE (VERHINDERT WIEDERAUFTAUCHEN GELÖSCHTER ITEMS!)
+// Merkt sich geleerte oder wiederhergestellte Mülleimer-Einträge in deletedTrashIds
+// ============================================================================
+export function applyTrashStateChangeWithMeta(prevTrash, nextTrashOrUpdater, syncMetaRef) {
+  const prev = Array.isArray(prevTrash) ? prevTrash : [];
+  const nextRaw = typeof nextTrashOrUpdater === 'function' ? nextTrashOrUpdater(prev) : nextTrashOrUpdater;
+  const next = Array.isArray(nextRaw) ? nextRaw : [];
+  const now = Date.now();
 
-  // 1. Mülleimer zusammenführen
+  const prevMap = new Map();
+  prev.forEach(it => {
+    if (it && it.id) prevMap.set(String(it.id), it);
+  });
+
+  const nextIds = new Set();
+  const stampedNext = next.map(it => {
+    if (!it || !it.id) return it;
+    const idStr = String(it.id);
+    nextIds.add(idStr);
+    const old = prevMap.get(idStr);
+
+    if (!old) {
+      // Neu in den Mülleimer gelegt -> evtl. alten Lösch-Vermerk löschen
+      if (syncMetaRef?.current?.deletedTrashIds?.[idStr]) {
+        delete syncMetaRef.current.deletedTrashIds[idStr];
+      }
+      return { ...it, trashedTimestamp: it.trashedTimestamp || now };
+    }
+    return { ...it, trashedTimestamp: old.trashedTimestamp || it.trashedTimestamp || 1 };
+  });
+
+  // Alles, was aus dem Mülleimer gelöscht oder wiederhergestellt wurde, in deletedTrashIds sperren!
+  if (syncMetaRef && syncMetaRef.current) {
+    if (!syncMetaRef.current.deletedTrashIds) syncMetaRef.current.deletedTrashIds = {};
+    let metaChanged = false;
+    prev.forEach(oldIt => {
+      if (oldIt && oldIt.id && !nextIds.has(String(oldIt.id))) {
+        syncMetaRef.current.deletedTrashIds[String(oldIt.id)] = now;
+        metaChanged = true;
+      }
+    });
+    if (metaChanged) saveLocalSyncMeta(syncMetaRef.current);
+  }
+
+  return stampedNext;
+}
+
+export function mergePantryChannelSafe(localStock, remoteStock, localTrash, remoteTrash, syncMeta) {
+  const delStockMap = syncMeta?.deletedPantryIds || {};
+  const delTrashMap = syncMeta?.deletedTrashIds || {};
+
+  // 1. Mülleimer zusammenführen (Ignoriert geleerte oder wiederhergestellte Einträge!)
   const trashMap = new Map();
-  (Array.isArray(remoteTrash) ? remoteTrash : []).forEach(it => {
-    if (it && it.id) trashMap.set(String(it.id), it);
-  });
-  (Array.isArray(localTrash) ? localTrash : []).forEach(it => {
-    if (it && it.id) trashMap.set(String(it.id), it);
-  });
+  const addOrUpdateTrash = (it) => {
+    if (!it || !it.id) return;
+    const idStr = String(it.id);
+    const itemTrashTs = Number(it.trashedTimestamp) || 1;
+    const delTrashTs = Number(delTrashMap[idStr]) || 0;
+
+    // Wenn im Mülleimer gelöscht oder in den Bestand zurückgeholt -> NICHT wiederherstellen!
+    if (delTrashTs >= itemTrashTs) return;
+
+    const existing = trashMap.get(idStr);
+    if (!existing || itemTrashTs >= (Number(existing.trashedTimestamp) || 1)) {
+      trashMap.set(idStr, it);
+    }
+  };
+
+  (Array.isArray(remoteTrash) ? remoteTrash : []).forEach(addOrUpdateTrash);
+  (Array.isArray(localTrash) ? localTrash : []).forEach(addOrUpdateTrash);
+
   const mergedTrash = Array.from(trashMap.values());
   const trashIds = new Set(mergedTrash.map(it => String(it.id)));
 
-  // 2. Bestand zusammenführen (Neuerer Zeitstempel gewinnt; Gelöschtes/Verzehrtes bleibt draußen)
+  // 2. Bestand zusammenführen (Neuerer Zeitstempel gewinnt; Gelöschtes bleibt draußen)
   const stockMap = new Map();
   const addOrUpdateStock = (item) => {
     if (!item || !item.id) return;
     const idStr = String(item.id);
     const itemTs = Number(item.updatedAt) || 1;
-    const delTs = Number(delMap[idStr]) || 0;
+    const delTs = Number(delStockMap[idStr]) || 0;
 
-    // Wenn im Mülleimer oder nach dem Erstellen gelöscht -> nicht wiederherstellen!
     if (trashIds.has(idStr) && delTs >= itemTs) return;
     if (delTs > itemTs) return;
 
@@ -175,12 +241,11 @@ export function mergePantryChannelSafe(localStock, remoteStock, localTrash, remo
 
 // ============================================================================
 // KANAL 1: KALENDER SMART-GUARD (VERHINDERT DAS HÜPFEN VON TERMINEN)
-// Merkt sich lokale Termin-Änderungen für 40 Sekunden, bis Google fertig ist
 // ============================================================================
 export function registerPendingCalendarOp(pendingOpsRef, opType, eventObj) {
   if (!pendingOpsRef?.current || !eventObj?.id) return;
   pendingOpsRef.current[String(eventObj.id)] = {
-    op: opType, // 'create' | 'update' | 'move' | 'delete'
+    op: opType,
     event: { ...eventObj },
     ts: Date.now()
   };
@@ -192,7 +257,6 @@ export function mergeCalendarEventsSafe(serverEvents, pendingOpsRef, syncMeta) {
   const ops = pendingOpsRef?.current || {};
   const delEventsMap = syncMeta?.deletedEventIds || {};
 
-  // Alte Pending-Einträge (> 40 Sek.) aufräumen
   Object.keys(ops).forEach(id => {
     if (now - ops[id].ts > 40000) {
       delete ops[id];
@@ -207,14 +271,12 @@ export function mergeCalendarEventsSafe(serverEvents, pendingOpsRef, syncMeta) {
     if (ops[idStr]?.op === 'delete') return;
 
     if (ops[idStr] && (ops[idStr].op === 'update' || ops[idStr].op === 'move')) {
-      // Lokale Verschiebung/Änderung hat Vorrang, bis die 40s um sind
       resultMap.set(idStr, { ...ev, ...ops[idStr].event });
     } else {
       resultMap.set(idStr, ev);
     }
   });
 
-  // Neu angelegte Termine, die Google noch nicht im Feed hat, festhalten
   Object.keys(ops).forEach(idStr => {
     const entry = ops[idStr];
     if (entry.op === 'create' && !resultMap.has(idStr)) {
@@ -262,7 +324,7 @@ export function mergeSkillBoardSafe(localSb, remoteSb) {
   const remUpdated = Number(remoteSb.updatedAt) || 0;
 
   return {
-    activePlayerId: locUpdated >= remUpdated ? (localSb.activePlayerId || remoteSb.activePlayerId) : (remoteSb.activePlayerId || localSb.activePlayerId),
+    activePlayerId: locUpdated >= remUpdated ? (localSb.activePlayerId ?? remoteSb.activePlayerId) : (remoteSb.activePlayerId ?? localSb.activePlayerId),
     playersData: mergedPlayers,
     customRanks: (locUpdated >= remUpdated ? localSb.customRanks : remoteSb.customRanks) || localSb.customRanks || remoteSb.customRanks,
     updatedAt: Math.max(locUpdated, remUpdated)
@@ -330,7 +392,6 @@ export async function callCloudApi(targetUrl, method = 'POST', postBody = null, 
 
 // ============================================================================
 // VISUELLES 4-KANAL SYNC-COCKPIT (FÜR DIE TOUCHWALL)
-// Erlaubt das getrennte Überwachen & Steuern aller 4 Kanäle
 // ============================================================================
 export function SyncCenterModal({
   open,
@@ -365,7 +426,7 @@ export function SyncCenterModal({
     {
       id: 'pantry',
       title: '🥫 Kanal 3: Produktscan & Speisekammer',
-      desc: 'Smart-Merge nach Produkt-ID, Zeitstempel & Lösch-Liste zwischen Handy-Scanner und Touchwall.',
+      desc: 'Smart-Merge nach Produkt-ID, Zeitstempel & Lösch-Gedächtnis (für Bestand & Mülleimer).',
       status: channelStatus?.pantry || 'Bereit ✓',
       busy: Boolean(channelStatus?.pantryBusy),
       onSync: onSyncPantryOnly
