@@ -14,9 +14,9 @@ import { formatDateStr, addDays } from './touchwallConfig';
 
 const STORAGE_LOCATIONS = [
   { id: 'all',     label: '🏠 Alle Lagerorte',         short: '🏠 Alle' },
-  { id: 'fridge',  label: '🧊 Kühlschrank',            short: '🧊 Kühlschrank' },
-  { id: 'freezer', label: '❄️ Gefrierschrank',         short: '❄️ Gefrierer' },
-  { id: 'pantry',  label: '🗄️ Vorratslager / Keller',  short: '🗄️ Vorrat' },
+  { id: 'fridge',  label: '🧊 Kühlschrank',            short: '🧊 Kühl.' },
+  { id: 'freezer', label: '❄️ Gefrierschrank',         short: '❄️ TK' },
+  { id: 'pantry',  label: '🗄️ Vorratslager / Keller',  short: '🗄️ Keller' },
   { id: 'kitchen', label: '🍎 Küche / Vorratsschrank', short: '🍎 Küche' }
 ];
 
@@ -39,7 +39,7 @@ export const FOOD_CATEGORIES = [
   {
     id: 'grains',
     icon: '🌾',
-    title: 'Getreide, Getreideprodukte und Kartoffeln',
+    title: 'Getreide, Getreideprodukte & Kartoffeln',
     desc: 'Brot, Nudeln, Reis, Getreideflocken und Kartoffeln als Kohlenhydratquellen.'
   },
   {
@@ -58,7 +58,7 @@ export const FOOD_CATEGORIES = [
     id: 'oils_fats',
     icon: '🧈',
     title: 'Öle und Fette (inkl. Würzmittel)',
-    desc: 'Pflanzliche Öle und tierische Fette (wie Butter/Kräuterbutter) sowie Essig, Senf und Soßen.'
+    desc: 'Pflanzliche Öle und tierische Fette (wie Butter) sowie Essig, Senf und Soßen.'
   },
   {
     id: 'sweets_snacks',
@@ -75,7 +75,6 @@ const FOOD_EMOJI_PICKER = [
   '🥖', '🥐', '🍕', '🌮', '🥫', '🌾', '🍫', '🍪', '🧃', '🐶'
 ];
 
-// Automatische Erkennung der passenden Lebensmittel-Kategorie anhand des Produktnamens
 export function detectFoodCategory(nameStr, customCategory = '') {
   if (customCategory && FOOD_CATEGORIES.some(c => c.id === customCategory)) {
     return customCategory;
@@ -147,9 +146,6 @@ export function getFoodEmoji(nameStr, customEmoji = '') {
   return '🥫';
 }
 
-// =========================================================
-// INTELLIGENTE STÜCKZAHL-REDUZIERUNG BEIM KLICK AUF "VERZEHRT"
-// =========================================================
 function decrementItemPieceCount(rawQtyStr) {
   const clean = String(rawQtyStr || '1x').trim();
 
@@ -309,7 +305,7 @@ export default function PantrySection({
   showToast
 }) {
   const [activeSubTab, setActiveSubTab] = useState('stock');
-  const [viewMode, setViewMode] = useState('table'); // 'table' (Kategorien-Tabelle) | 'cards' (6er-Kacheln)
+  const [viewMode, setViewMode] = useState('table'); // 'table' | 'cards'
   const [locationFilter, setLocationFilter] = useState('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [recipeFilter, setRecipeFilter] = useState('all');
@@ -321,7 +317,7 @@ export default function PantrySection({
   const [itemCategory, setItemCategory] = useState('auto');
   const [itemExpiry, setItemExpiry] = useState('');
 
-  // Komfort-Bearbeitungs-Modal für ein einzelnes Produkt
+  // Komfort-Bearbeitungs-Modal
   const [editModal, setEditModal] = useState({
     open: false,
     id: null,
@@ -521,7 +517,6 @@ export default function PantrySection({
       .sort((a, b) => String(a.expiryDate || '9999').localeCompare(String(b.expiryDate || '9999')));
   }, [safeStock, locationFilter, categoryFilter]);
 
-  // Gruppierung nach den 7 Lebensmittel-Kategorien
   const groupedByCategory = useMemo(() => {
     return FOOD_CATEGORIES.map(cat => {
       const items = filteredStock.filter(it => it.resolvedCategory === cat.id);
@@ -760,91 +755,88 @@ export default function PantrySection({
     return 'https://www.chefkoch.de/rs/s0/' + encodeURIComponent(query) + '/Rezepte.html';
   }, [expiringSoonItems, safeStock]);
 
-  // CSS für pulsierende MHD-Warnungen (Orange ab 7 Tage, Rot ab 3 Tage) & Hover-Vergrößerung
+  // REINER GLOW-EFFEKT BEIM HOVER (KEIN ZOOM / KEIN SCALE -> KEINE SCROLLBALKEN!)
   const pantryAnimationStyles = [
     '@keyframes twPulseOrangeMhd {',
     '  0%, 100% {',
     '    border-color: rgba(251, 146, 60, 0.85);',
-    '    box-shadow: 0 0 10px rgba(245, 158, 11, 0.35), inset 0 0 8px rgba(245, 158, 11, 0.12);',
+    '    box-shadow: inset 0 0 8px rgba(245, 158, 11, 0.2), 0 0 8px rgba(245, 158, 11, 0.3);',
     '  }',
     '  50% {',
     '    border-color: #fbbf24;',
-    '    box-shadow: 0 0 24px rgba(245, 158, 11, 0.85), 0 0 10px rgba(251, 146, 60, 0.7), inset 0 0 16px rgba(245, 158, 11, 0.28);',
+    '    box-shadow: inset 0 0 16px rgba(245, 158, 11, 0.4), 0 0 18px rgba(245, 158, 11, 0.75);',
     '  }',
     '}',
     '@keyframes twPulseRedMhd {',
     '  0%, 100% {',
     '    border-color: rgba(244, 63, 94, 0.9);',
-    '    box-shadow: 0 0 12px rgba(244, 63, 94, 0.45), inset 0 0 10px rgba(244, 63, 94, 0.18);',
+    '    box-shadow: inset 0 0 10px rgba(244, 63, 94, 0.25), 0 0 10px rgba(244, 63, 94, 0.4);',
     '  }',
     '  50% {',
     '    border-color: #ff2a55;',
-    '    box-shadow: 0 0 28px rgba(244, 63, 94, 0.95), 0 0 14px rgba(239, 68, 68, 0.85), inset 0 0 20px rgba(244, 63, 94, 0.38);',
+    '    box-shadow: inset 0 0 20px rgba(244, 63, 94, 0.5), 0 0 22px rgba(244, 63, 94, 0.9);',
     '  }',
     '}',
     '.tw-pantry-tile {',
-    '  position: relative;',
-    '  z-index: 1;',
-    '  transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.22s ease, border-color 0.22s ease;',
+    '  transition: box-shadow 0.18s ease, border-color 0.18s ease, background-color 0.18s ease;',
     '}',
     '.tw-pantry-tile:hover {',
-    '  transform: scale(1.065) translateY(-3px);',
-    '  z-index: 30;',
-    '  box-shadow: 0 18px 36px -6px rgba(0, 0, 0, 0.75), 0 0 22px var(--tw-btn-glow, rgba(56, 189, 248, 0.5)) !important;',
+    '  border-color: var(--tw-btn-border, #38bdf8) !important;',
+    '  box-shadow: 0 0 16px var(--tw-btn-glow, rgba(56, 189, 248, 0.65)), inset 0 0 12px rgba(56, 189, 248, 0.18) !important;',
     '}',
     '.tw-pantry-row {',
-    '  transition: transform 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease;',
+    '  transition: box-shadow 0.16s ease, background-color 0.16s ease, border-color 0.16s ease;',
     '}',
     '.tw-pantry-row:hover {',
-    '  transform: scale(1.012);',
-    '  z-index: 20;',
-    '  background-color: rgba(56, 189, 248, 0.1) !important;',
+    '  background-color: rgba(56, 189, 248, 0.12) !important;',
+    '  border-color: var(--tw-btn-border, #38bdf8) !important;',
+    '  box-shadow: 0 0 14px var(--tw-btn-glow, rgba(56, 189, 248, 0.55)), inset 0 0 10px rgba(56, 189, 248, 0.2) !important;',
     '}',
     '.tw-pantry-warn-orange {',
     '  animation: twPulseOrangeMhd 2.2s infinite ease-in-out;',
-    '  border-width: 2px !important;',
+    '  border-color: rgba(251, 146, 60, 0.85) !important;',
     '}',
     '.tw-pantry-urgent-red {',
     '  animation: twPulseRedMhd 1.35s infinite ease-in-out;',
-    '  border-width: 2px !important;',
+    '  border-color: rgba(244, 63, 94, 0.9) !important;',
     '}'
   ].join('\n');
 
   return (
-    <div className="p-4 sm:p-5 flex flex-col gap-4">
+    <div className="p-3.5 sm:p-4 flex flex-col gap-3.5 overflow-x-hidden">
       <style>{pantryAnimationStyles}</style>
 
       {/* KOMPAKTER KOPFBEREICH */}
-      <div className={'p-4 rounded-3xl border shadow-sm flex flex-wrap items-center justify-between gap-3 ' + themeStyles.card}>
+      <div className={'p-3.5 sm:p-4 rounded-3xl border shadow-sm flex flex-wrap items-center justify-between gap-2.5 ' + themeStyles.card}>
         <div>
           <div className="flex items-center gap-2.5 flex-wrap">
-            <h2 className="text-xl sm:text-2xl font-extrabold">🥫 Speisekammer nach Lebensmittel-Kategorien</h2>
-            <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-xs font-extrabold">
+            <h2 className="text-lg sm:text-xl font-extrabold">🥫 Speisekammer nach Lebensmittel-Kategorien</h2>
+            <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-[11px] font-extrabold">
               🌱 Nachhaltigkeit: {trashStats.score}% ({trashStats.consumed} verzehrt / {trashStats.wasted} abgelaufen)
             </span>
           </div>
-          <p className={'text-xs font-semibold mt-0.5 ' + themeStyles.textMuted}>
-            Übersichtlich geordnet in 7 Ernährungsgruppen • Einzelstück-Abzug bei „Verzehrt (-1)“ • Pulsierender Glow ab 7 Tagen (🟠) & 3 Tagen (🔴).
+          <p className={'text-[11px] font-semibold mt-0.5 ' + themeStyles.textMuted}>
+            2 Lebensmittel-Kategorien nebeneinander • Reiner Hover-Glow ohne Scrollbalken • Einzelstück-Abzug bei „Verzehrt (-1)“.
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
           <button
             onClick={() => setActiveSubTab('stock')}
-            className={'px-4 py-2.5 rounded-2xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer ' + (activeSubTab === 'stock' ? 'tw-active-nav' : 'tw-nav-inactive')}
+            className={'px-3.5 py-2 rounded-2xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer ' + (activeSubTab === 'stock' ? 'tw-active-nav' : 'tw-nav-inactive')}
           >
             <Package className="w-4 h-4" />
             <span>Bestand ({safeStock.length})</span>
             {expiringSoonItems.length > 0 && (
-              <span className="px-2 py-0.5 rounded-full bg-amber-500 text-slate-950 text-[10px] font-black">
-                {expiringSoonItems.length} läuft bald ab
+              <span className="px-1.5 py-0.2 rounded-full bg-amber-500 text-slate-950 text-[10px] font-black">
+                {expiringSoonItems.length} bald fällig
               </span>
             )}
           </button>
 
           <button
             onClick={() => setActiveSubTab('recipes')}
-            className={'px-4 py-2.5 rounded-2xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer ' + (activeSubTab === 'recipes' ? 'tw-active-nav' : 'tw-nav-inactive')}
+            className={'px-3.5 py-2 rounded-2xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer ' + (activeSubTab === 'recipes' ? 'tw-active-nav' : 'tw-nav-inactive')}
           >
             <ChefHat className="w-4 h-4" />
             <span>🍽️ Schnelle Rezepte & Tages-Menü</span>
@@ -852,7 +844,7 @@ export default function PantrySection({
 
           <button
             onClick={() => setActiveSubTab('trash')}
-            className={'px-4 py-2.5 rounded-2xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer ' + (activeSubTab === 'trash' ? 'tw-active-nav' : 'tw-nav-inactive')}
+            className={'px-3.5 py-2 rounded-2xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer ' + (activeSubTab === 'trash' ? 'tw-active-nav' : 'tw-nav-inactive')}
           >
             <Trash2 className="w-4 h-4" />
             <span>🗑️ Mülleimer ({safeTrash.length})</span>
@@ -861,29 +853,29 @@ export default function PantrySection({
       </div>
 
       {/* =========================================================
-          SUB-TAB 1: BESTAND NACH 7 LEBENSMITTEL-KATEGORIEN
+          SUB-TAB 1: SCHLANKER BESTAND (2 KATEGORIEN NEBENEINANDER)
          ========================================================= */}
       {activeSubTab === 'stock' && (
-        <div className="space-y-4">
-          {/* EINGABE-FORMULAR INKL. AUTOMATISCHER ODER MANUELLER KATEGORIE */}
-          <form onSubmit={handleAddProduct} className={'p-4 rounded-3xl border space-y-2.5 ' + themeStyles.card}>
+        <div className="space-y-3">
+          {/* KOMPAKTES EINGABE-FORMULAR */}
+          <form onSubmit={handleAddProduct} className={'p-3 rounded-3xl border space-y-2 ' + themeStyles.card}>
             <div className="flex items-center justify-between flex-wrap gap-2">
-              <span className="text-[11px] font-black uppercase text-sky-400">
-                ➕ Lebensmittel in Speisekammer einbuchen (Kategorie wird automatisch erkannt!)
+              <span className="text-[10px] font-black uppercase text-sky-400">
+                ➕ Lebensmittel einbuchen (Kategorie wird automatisch erkannt!)
               </span>
               <button
                 type="button"
                 onClick={() => setActiveSubTab('recipes')}
-                className="text-xs font-extrabold text-amber-400 hover:underline flex items-center gap-1 cursor-pointer"
+                className="text-[11px] font-extrabold text-amber-400 hover:underline flex items-center gap-1 cursor-pointer"
               >
                 <Sparkles className="w-3.5 h-3.5" />
-                <span>Passende 20-Minuten-Familienrezepte zum Bestand anzeigen →</span>
+                <span>Passende 20-Minuten-Familienrezepte →</span>
               </button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5">
-              <div className="md:col-span-4 flex items-center gap-2">
-                <span className="w-10 h-10 rounded-xl bg-black/25 border border-white/10 flex items-center justify-center text-xl shrink-0">
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-2">
+              <div className="md:col-span-4 flex items-center gap-1.5">
+                <span className="w-9 h-9 rounded-xl bg-black/25 border border-white/10 flex items-center justify-center text-lg shrink-0">
                   {getFoodEmoji(itemName)}
                 </span>
                 <input
@@ -892,7 +884,7 @@ export default function PantrySection({
                   value={itemName}
                   onChange={(e) => setItemName(e.target.value)}
                   placeholder="Produktname (z.B. Vollmilch, Eier, Äpfel)..."
-                  className={'w-full px-3.5 py-2.5 rounded-xl border text-xs sm:text-sm font-extrabold ' + themeStyles.input}
+                  className={'w-full px-3 py-2 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
                 />
               </div>
 
@@ -901,16 +893,16 @@ export default function PantrySection({
                 value={itemQty}
                 onChange={(e) => setItemQty(e.target.value)}
                 placeholder="Menge (z.B. 6.0 pcs, 2x)"
-                className={'md:col-span-2 px-3 py-2.5 rounded-xl border text-xs font-bold ' + themeStyles.input}
+                className={'md:col-span-2 px-2.5 py-2 rounded-xl border text-xs font-bold ' + themeStyles.input}
               />
 
               <select
                 value={itemCategory}
                 onChange={(e) => setItemCategory(e.target.value)}
-                className={'md:col-span-2 px-3 py-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+                className={'md:col-span-2 px-2.5 py-2 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
               >
                 <option value="auto" className="bg-slate-800 text-amber-300">
-                  ✨ Kategorie: Automatisch ({FOOD_CATEGORIES.find(c => c.id === detectFoodCategory(itemName))?.title.split(',')[0]})
+                  ✨ Auto ({FOOD_CATEGORIES.find(c => c.id === detectFoodCategory(itemName))?.title.split(',')[0]})
                 </option>
                 {FOOD_CATEGORIES.map(cat => (
                   <option key={cat.id} value={cat.id} className="bg-slate-800 text-white">
@@ -922,44 +914,44 @@ export default function PantrySection({
               <select
                 value={itemLocation}
                 onChange={(e) => setItemLocation(e.target.value)}
-                className={'md:col-span-2 px-3 py-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+                className={'md:col-span-2 px-2.5 py-2 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
               >
                 {STORAGE_LOCATIONS.filter(l => l.id !== 'all').map(loc => (
                   <option key={loc.id} value={loc.id} className="bg-slate-800 text-white">{loc.label}</option>
                 ))}
               </select>
 
-              <div className="md:col-span-2 flex items-center gap-2">
+              <div className="md:col-span-2 flex items-center gap-1.5">
                 <input
                   type="date"
                   required
                   min={todayStr}
                   value={itemExpiry}
                   onChange={(e) => setItemExpiry(e.target.value)}
-                  className={'w-full px-3 py-2.5 rounded-xl border-2 text-xs font-black ' + (itemExpiry ? 'border-emerald-500/60 ' : 'border-amber-500/70 ') + themeStyles.input}
+                  className={'w-full px-2.5 py-2 rounded-xl border-2 text-xs font-black ' + (itemExpiry ? 'border-emerald-500/60 ' : 'border-amber-500/70 ') + themeStyles.input}
                 />
               </div>
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex flex-wrap items-center gap-1.5">
+              <div className="flex flex-wrap items-center gap-1">
                 <span className="text-[10px] font-black uppercase text-amber-400 mr-1">
                   ⏳ Schnell-MHD:
                 </span>
                 {[
-                  { label: '+3 Tage',   days: 3 },
-                  { label: '+5 Tage',   days: 5 },
-                  { label: '+1 Woche',  days: 7 },
-                  { label: '+2 Wochen', days: 14 },
-                  { label: '+1 Monat',  days: 30 },
-                  { label: '+3 Monate', days: 90 },
-                  { label: '+1 Jahr',   days: 365 }
+                  { label: '+3 T.',   days: 3 },
+                  { label: '+5 T.',   days: 5 },
+                  { label: '+1 Wo.',  days: 7 },
+                  { label: '+2 Wo.',  days: 14 },
+                  { label: '+1 Mon.', days: 30 },
+                  { label: '+3 Mon.', days: 90 },
+                  { label: '+1 Jahr', days: 365 }
                 ].map(b => (
                   <button
                     key={b.days}
                     type="button"
                     onClick={() => setQuickExpiryDays(b.days)}
-                    className="tw-glow-btn px-3 py-1.5 rounded-xl text-xs font-extrabold cursor-pointer"
+                    className="tw-glow-btn px-2.5 py-1 rounded-lg text-[11px] font-extrabold cursor-pointer"
                   >
                     {b.label}
                   </button>
@@ -969,56 +961,54 @@ export default function PantrySection({
               <button
                 type="submit"
                 disabled={!itemName.trim() || !itemExpiry}
-                className={'px-5 py-2 rounded-xl font-black text-xs flex items-center gap-1.5 ' + (!itemName.trim() || !itemExpiry ? 'opacity-40 cursor-not-allowed bg-slate-700 text-slate-300' : 'tw-glow-btn cursor-pointer')}
+                className={'px-4 py-1.5 rounded-xl font-black text-xs flex items-center gap-1.5 ' + (!itemName.trim() || !itemExpiry ? 'opacity-40 cursor-not-allowed bg-slate-700 text-slate-300' : 'tw-glow-btn cursor-pointer')}
               >
-                <Plus className="w-4 h-4 stroke-[3]" />
-                <span>{itemExpiry ? 'In Bestand speichern' : '⚠️ Erst Ablaufdatum wählen'}</span>
+                <Plus className="w-3.5 h-3.5 stroke-[3]" />
+                <span>{itemExpiry ? 'Speichern' : '⚠️ Erst MHD wählen'}</span>
               </button>
             </div>
           </form>
 
-          {/* FILTERLEISTEN: LAGERORT + LEBENSMITTEL-KATEGORIE + ANSICHTS-UMSCHALTER (TABELLE / 6ER-KACHELN) */}
-          <div className={'p-3.5 rounded-3xl border space-y-2.5 ' + themeStyles.card}>
+          {/* FILTERLEISTEN: LAGERORT + KATEGORIE + ANSICHTS-UMSCHALTER */}
+          <div className={'p-2.5 sm:p-3 rounded-3xl border space-y-2 ' + themeStyles.card}>
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex flex-wrap items-center gap-1.5">
+              <div className="flex flex-wrap items-center gap-1">
                 {STORAGE_LOCATIONS.map(loc => (
                   <button
                     key={loc.id}
                     onClick={() => setLocationFilter(loc.id)}
-                    className={'px-3 py-1.5 rounded-xl text-xs font-extrabold cursor-pointer ' + (locationFilter === loc.id ? 'tw-active-nav' : 'tw-nav-inactive')}
+                    className={'px-2.5 py-1 rounded-xl text-[11px] font-extrabold cursor-pointer ' + (locationFilter === loc.id ? 'tw-active-nav' : 'tw-nav-inactive')}
                   >
                     {loc.label}
                   </button>
                 ))}
               </div>
 
-              {/* UMSCHALTER: TABELLE vs. 6ER-KACHELN */}
-              <div className="flex items-center gap-1.5 p-1 rounded-2xl bg-black/25 border border-white/10">
+              <div className="flex items-center gap-1 p-1 rounded-xl bg-black/25 border border-white/10">
                 <button
                   type="button"
                   onClick={() => setViewMode('table')}
-                  className={'px-3.5 py-1.5 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer ' + (viewMode === 'table' ? 'tw-active-nav' : 'opacity-75')}
+                  className={'px-3 py-1 rounded-lg text-[11px] font-black flex items-center gap-1 cursor-pointer ' + (viewMode === 'table' ? 'tw-active-nav' : 'opacity-75')}
                 >
-                  <TableIcon className="w-3.5 h-3.5" />
-                  <span>📋 Kategorien-Tabelle</span>
+                  <TableIcon className="w-3 h-3" />
+                  <span>📋 2er-Tabellen</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setViewMode('cards')}
-                  className={'px-3.5 py-1.5 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer ' + (viewMode === 'cards' ? 'tw-active-nav' : 'opacity-75')}
+                  className={'px-3 py-1 rounded-lg text-[11px] font-black flex items-center gap-1 cursor-pointer ' + (viewMode === 'cards' ? 'tw-active-nav' : 'opacity-75')}
                 >
-                  <LayoutGrid className="w-3.5 h-3.5" />
-                  <span>🔲 6er-Kacheln</span>
+                  <LayoutGrid className="w-3 h-3" />
+                  <span>🔲 Kompakt-Kacheln</span>
                 </button>
               </div>
             </div>
 
-            {/* KATEGORIEN-SCHNELLFILTER (ALLE 7 GRUPPEN MIT ANZAHL) */}
-            <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-white/10">
+            <div className="flex flex-wrap items-center gap-1 pt-1.5 border-t border-white/10">
               <button
                 type="button"
                 onClick={() => setCategoryFilter('all')}
-                className={'px-3 py-1.5 rounded-xl text-xs font-extrabold cursor-pointer ' + (categoryFilter === 'all' ? 'tw-active-nav' : 'tw-nav-inactive')}
+                className={'px-2.5 py-1 rounded-xl text-[11px] font-extrabold cursor-pointer ' + (categoryFilter === 'all' ? 'tw-active-nav' : 'tw-nav-inactive')}
               >
                 🍱 Alle 7 Kategorien ({safeStock.length})
               </button>
@@ -1030,11 +1020,11 @@ export default function PantrySection({
                     type="button"
                     onClick={() => setCategoryFilter(categoryFilter === cat.id ? 'all' : cat.id)}
                     title={cat.desc}
-                    className={'px-3 py-1.5 rounded-xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer ' + (categoryFilter === cat.id ? 'tw-active-nav' : 'tw-nav-inactive')}
+                    className={'px-2.5 py-1 rounded-xl text-[11px] font-extrabold flex items-center gap-1 cursor-pointer ' + (categoryFilter === cat.id ? 'tw-active-nav' : 'tw-nav-inactive')}
                   >
                     <span>{cat.icon}</span>
                     <span>{cat.title.split(',')[0]}</span>
-                    <span className="px-1.5 py-0.2 rounded-full bg-black/35 text-[10px] font-black text-amber-300">
+                    <span className="px-1.5 py-0.2 rounded-full bg-black/35 text-[9px] font-black text-amber-300">
                       {count}
                     </span>
                   </button>
@@ -1044,294 +1034,225 @@ export default function PantrySection({
           </div>
 
           {/* =========================================================
-              ANSICHT A: ÜBERSICHTLICHE TABELLE NACH LEBENSMITTEL-KATEGORIEN
+              HAUPT-ANSICHT: 2 LEBENSMITTEL-KATEGORIEN NEBENEINANDER
+              (SCHLANKE PRODUKTZEILEN & REINER GLOW OHNE SCROLLBALKEN!)
              ========================================================= */}
           {groupedByCategory.length === 0 ? (
-            <div className={'p-10 rounded-3xl border text-center space-y-1.5 ' + themeStyles.card}>
-              <div className="text-3xl">🥫</div>
-              <div className="font-extrabold text-base">Keine Lebensmittel in dieser Auswahl</div>
-              <p className={'text-xs ' + themeStyles.textMuted}>
-                Wähle oben „Alle Lagerorte“ / „Alle 7 Kategorien“ oder buche ein neues Produkt ein.
-              </p>
+            <div className={'p-8 rounded-3xl border text-center space-y-1 ' + themeStyles.card}>
+              <div className="text-2xl">🥫</div>
+              <div className="font-extrabold text-sm">Keine Lebensmittel in dieser Auswahl</div>
             </div>
-          ) : viewMode === 'table' ? (
-            <div className="space-y-5">
+          ) : (
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-3.5 items-start">
               {groupedByCategory.map(group => (
                 <div
                   key={group.id}
-                  className={'rounded-3xl border-2 overflow-hidden shadow-md ' + themeStyles.card + ' ' + themeStyles.divider}
+                  className={'rounded-3xl border overflow-hidden shadow-md flex flex-col ' + themeStyles.card + ' ' + themeStyles.divider}
                 >
-                  {/* KATEGORIE-KOPFZEILE MIT BESCHREIBUNG */}
-                  <div className={'px-5 py-3.5 border-b flex flex-wrap items-center justify-between gap-2 ' + themeStyles.banner + ' ' + themeStyles.divider}>
-                    <div className="flex items-center gap-3">
-                      <span className="w-10 h-10 rounded-2xl bg-black/30 border border-white/15 flex items-center justify-center text-2xl shrink-0">
+                  {/* SCHLANKE KATEGORIE-KOPFZEILE */}
+                  <div className={'px-3.5 py-2.5 border-b flex items-center justify-between gap-2 ' + themeStyles.banner + ' ' + themeStyles.divider}>
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <span className="w-8 h-8 rounded-xl bg-black/30 border border-white/15 flex items-center justify-center text-lg shrink-0">
                         {group.icon}
                       </span>
-                      <div>
+                      <div className="min-w-0">
                         <div className="flex items-center gap-2">
-                          <h3 className="font-black text-base sm:text-lg">{group.title}</h3>
-                          <span className="px-2.5 py-0.5 rounded-full bg-sky-500/25 text-sky-300 border border-sky-400/30 text-xs font-black">
-                            {group.items.length} Produkt{group.items.length === 1 ? '' : 'e'}
+                          <h3 className="font-black text-sm truncate">{group.title}</h3>
+                          <span className="px-2 py-0.2 rounded-full bg-sky-500/25 text-sky-300 border border-sky-400/30 text-[10px] font-black shrink-0">
+                            {group.items.length}
                           </span>
                         </div>
-                        <p className={'text-xs font-semibold ' + themeStyles.textMuted}>{group.desc}</p>
+                        <p className={'text-[10px] font-semibold truncate ' + themeStyles.textMuted}>{group.desc}</p>
                       </div>
                     </div>
                   </div>
 
-                  {/* STRUKTURIERTE LEBENSMITTEL-TABELLE */}
-                  <div className="overflow-x-auto">
-                    <table className="w-full border-collapse text-left">
-                      <thead>
-                        <tr className={'text-[11px] uppercase font-black tracking-wider border-b ' + themeStyles.subtle + ' ' + themeStyles.divider}>
-                          <th className="py-2.5 px-4 w-[38%]">Produkt</th>
-                          <th className="py-2.5 px-3 w-[16%]">Lagerort</th>
-                          <th className="py-2.5 px-3 w-[14%]">Menge / Stück</th>
-                          <th className="py-2.5 px-3 w-[16%]">Ablaufdatum (MHD)</th>
-                          <th className="py-2.5 px-4 text-right w-[16%]">Aktionen</th>
-                        </tr>
-                      </thead>
-                      <tbody className={'divide-y ' + themeStyles.divider}>
-                        {group.items.map(item => {
-                          const daysLeft = getDaysUntil(item.expiryDate, todayStr);
-                          const locObj = STORAGE_LOCATIONS.find(l => l.id === item.location) || STORAGE_LOCATIONS[3];
-                          const isUrgentRed = daysLeft <= 3;
-                          const isWarningOrange = daysLeft > 3 && daysLeft <= 7;
-                          const emojiIcon = getFoodEmoji(item.name, item.customEmoji);
-                          const decPreview = decrementItemPieceCount(item.quantity);
+                  {viewMode === 'table' ? (
+                    /* ANSICHT A: SCHLANKE TABELLEN-ZEILEN (OHNE SCROLLBALKEN) */
+                    <div className="p-2 space-y-1">
+                      {/* Spalten-Kopf */}
+                      <div className="grid grid-cols-12 items-center gap-1.5 px-2.5 py-1 text-[9px] font-black uppercase tracking-wider opacity-60">
+                        <div className="col-span-5">Produkt</div>
+                        <div className="col-span-2 text-center">Ort & Menge</div>
+                        <div className="col-span-2 text-center">MHD</div>
+                        <div className="col-span-3 text-right">Aktion</div>
+                      </div>
 
-                          const rowGlowClass = isUrgentRed
-                            ? ' tw-pantry-urgent-red bg-rose-950/30'
-                            : isWarningOrange
-                            ? ' tw-pantry-warn-orange bg-amber-950/25'
-                            : '';
+                      {group.items.map(item => {
+                        const daysLeft = getDaysUntil(item.expiryDate, todayStr);
+                        const locObj = STORAGE_LOCATIONS.find(l => l.id === item.location) || STORAGE_LOCATIONS[3];
+                        const isUrgentRed = daysLeft <= 3;
+                        const isWarningOrange = daysLeft > 3 && daysLeft <= 7;
+                        const emojiIcon = getFoodEmoji(item.name, item.customEmoji);
+                        const decPreview = decrementItemPieceCount(item.quantity);
 
-                          return (
-                            <tr
-                              key={item.id}
-                              className={'tw-pantry-row ' + rowGlowClass}
+                        const rowGlowClass = isUrgentRed
+                          ? ' tw-pantry-urgent-red bg-rose-950/30'
+                          : isWarningOrange
+                          ? ' tw-pantry-warn-orange bg-amber-950/25'
+                          : themeStyles.subtle;
+
+                        return (
+                          <div
+                            key={item.id}
+                            className={'tw-pantry-row grid grid-cols-12 items-center gap-1.5 px-2.5 py-1.5 rounded-xl border ' + rowGlowClass}
+                          >
+                            {/* SPALTE 1 (5/12): EMOJI + PRODUKTNAME */}
+                            <div
+                              onClick={() => openEditProductModal(item)}
+                              className="col-span-5 flex items-center gap-2 min-w-0 cursor-pointer"
                             >
-                              {/* SPALTE 1: EMOJI + PRODUKTNAME */}
-                              <td className="py-2.5 px-4">
-                                <div className="flex items-center gap-3">
-                                  <button
-                                    type="button"
-                                    onClick={() => openEditProductModal(item)}
-                                    className="w-10 h-10 rounded-xl bg-black/35 border border-white/15 flex items-center justify-center text-xl shrink-0 cursor-pointer"
-                                  >
-                                    {emojiIcon}
-                                  </button>
-                                  <span
-                                    onClick={() => openEditProductModal(item)}
-                                    className="font-extrabold text-sm cursor-pointer hover:text-sky-300 break-words"
-                                  >
-                                    {item.name}
-                                  </span>
-                                </div>
-                              </td>
+                              <span className="w-7 h-7 rounded-lg bg-black/35 border border-white/10 flex items-center justify-center text-base shrink-0">
+                                {emojiIcon}
+                              </span>
+                              <span
+                                title={item.name}
+                                className="font-extrabold text-xs leading-tight truncate hover:text-sky-300"
+                              >
+                                {item.name}
+                              </span>
+                            </div>
 
-                              {/* SPALTE 2: LAGERORT */}
-                              <td className="py-2.5 px-3">
-                                <span
-                                  onClick={() => openEditProductModal(item)}
-                                  className={'inline-flex items-center px-2.5 py-1 rounded-xl border text-xs font-extrabold cursor-pointer ' + themeStyles.subtle}
-                                >
-                                  {locObj.short}
-                                </span>
-                              </td>
+                            {/* SPALTE 2 (2/12): LAGERORT + MENGE */}
+                            <div
+                              onClick={() => openEditProductModal(item)}
+                              className="col-span-2 flex flex-col items-center justify-center cursor-pointer min-w-0"
+                            >
+                              <span className="px-1.5 py-0.2 rounded bg-black/40 border border-amber-400/30 text-[10px] font-black text-amber-300 truncate max-w-full">
+                                {item.quantity}
+                              </span>
+                              <span className="text-[9px] font-bold opacity-70 truncate max-w-full">
+                                {locObj.short}
+                              </span>
+                            </div>
 
-                              {/* SPALTE 3: MENGE / STÜCKZAHL */}
-                              <td className="py-2.5 px-3">
-                                <span
-                                  onClick={() => openEditProductModal(item)}
-                                  className="inline-flex items-center px-3 py-1 rounded-xl bg-black/40 border border-amber-400/35 text-xs font-black text-amber-300 cursor-pointer"
-                                >
-                                  {item.quantity}
-                                </span>
-                              </td>
+                            {/* SPALTE 3 (2/12): KOMPAKTES MHD */}
+                            <div
+                              onClick={() => openEditProductModal(item)}
+                              className="col-span-2 flex flex-col items-center justify-center cursor-pointer"
+                            >
+                              <span className="text-[10px] font-extrabold">
+                                {item.expiryDate.slice(8, 10)}.{item.expiryDate.slice(5, 7)}.{item.expiryDate.slice(2, 4)}
+                              </span>
+                              <span className={'text-[9px] font-black ' + (isUrgentRed ? 'text-rose-300' : isWarningOrange ? 'text-amber-300' : 'text-emerald-400')}>
+                                {daysLeft <= 0 ? '🔴 Heute!' : daysLeft === 1 ? '🔴 1 Tag' : (daysLeft + ' T.')}
+                              </span>
+                            </div>
 
-                              {/* SPALTE 4: MHD & RESTTAGE */}
-                              <td className="py-2.5 px-3">
-                                <div
-                                  onClick={() => openEditProductModal(item)}
-                                  className={'inline-flex items-center gap-2 px-3 py-1 rounded-xl border text-xs font-extrabold cursor-pointer ' +
-                                    (isUrgentRed
-                                      ? 'bg-rose-500/30 border-rose-400 text-rose-100'
-                                      : isWarningOrange
-                                      ? 'bg-amber-500/30 border-amber-400 text-amber-100'
-                                      : themeStyles.subtle)}
-                                >
-                                  <span>📅 {item.expiryDate.slice(8, 10)}.{item.expiryDate.slice(5, 7)}.{item.expiryDate.slice(0, 4)}</span>
-                                  <span className="font-black">
-                                    ({daysLeft <= 0 ? '🔴 HEUTE!' : daysLeft === 1 ? '🔴 1 Tag' : isUrgentRed ? ('🔴 ' + daysLeft + ' T.') : isWarningOrange ? ('🟠 ' + daysLeft + ' T.') : ('🟢 ' + daysLeft + ' T.')})
-                                  </span>
-                                </div>
-                              </td>
+                            {/* SPALTE 4 (3/12): SCHLANKE TOUCH-BUTTONS */}
+                            <div className="col-span-3 flex items-center justify-end gap-1">
+                              <button
+                                type="button"
+                                onClick={() => handleConsumeClick(item)}
+                                title={decPreview.remaining > 0 ? ('1 Stück abziehen (Rest: ' + decPreview.nextQtyStr + ')') : 'Komplett verzehrt'}
+                                className="tw-glow-btn px-2 py-1.5 rounded-lg text-[10px] font-black flex items-center gap-1 cursor-pointer shrink-0"
+                              >
+                                <CheckCircle2 className="w-3 h-3 shrink-0" />
+                                <span>{decPreview.remaining > 0 ? '-1' : 'Weg'}</span>
+                              </button>
 
-                              {/* SPALTE 5: TOUCH-AKTIONEN */}
-                              <td className="py-2.5 px-4 text-right">
-                                <div className="inline-flex items-center justify-end gap-1.5">
-                                  <button
-                                    type="button"
-                                    onClick={() => handleConsumeClick(item)}
-                                    className="tw-glow-btn min-h-[36px] px-3 py-1.5 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer"
-                                  >
-                                    <CheckCircle2 className="w-4 h-4 shrink-0" />
-                                    <span>{decPreview.remaining > 0 ? 'Verzehrt (-1)' : 'Verzehrt'}</span>
-                                  </button>
-
-                                  <button
-                                    type="button"
-                                    onClick={() => openEditProductModal(item)}
-                                    className="tw-glow-btn min-h-[36px] px-2.5 py-1.5 rounded-xl text-xs font-extrabold flex items-center gap-1 cursor-pointer"
-                                  >
-                                    <Pencil className="w-3.5 h-3.5" />
-                                    <span>Edit</span>
-                                  </button>
-
-                                  <button
-                                    type="button"
-                                    title="Auf die Einkaufsliste setzen"
-                                    onClick={() => {
-                                      addShoppingItem(item.name);
-                                      showToast('Auf Einkaufsliste', item.name + ' wurde zur Einkaufsliste hinzugefügt.', '🛒');
-                                    }}
-                                    className="tw-nav-inactive min-h-[36px] px-2.5 py-1.5 rounded-xl text-sky-400 flex items-center justify-center cursor-pointer"
-                                  >
-                                    <ShoppingCart className="w-4 h-4" />
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            /* =========================================================
-               ANSICHT B: 6ER-KACHELN GRUPPIERT NACH LEBENSMITTEL-KATEGORIEN
-               ========================================================= */
-            <div className="space-y-6">
-              {groupedByCategory.map(group => (
-                <div key={group.id} className="space-y-2.5">
-                  <div className={'px-4 py-2.5 rounded-2xl border flex items-center justify-between ' + themeStyles.card}>
-                    <div className="flex items-center gap-2.5">
-                      <span className="text-xl">{group.icon}</span>
-                      <span className="font-black text-sm sm:text-base">{group.title}</span>
-                      <span className="text-xs opacity-70 hidden md:inline">• {group.desc}</span>
-                    </div>
-                    <span className="px-2.5 py-0.5 rounded-full bg-sky-500/20 text-sky-300 text-xs font-black">
-                      {group.items.length}
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3.5">
-                    {group.items.map(item => {
-                      const daysLeft = getDaysUntil(item.expiryDate, todayStr);
-                      const locObj = STORAGE_LOCATIONS.find(l => l.id === item.location) || STORAGE_LOCATIONS[3];
-                      const isUrgentRed = daysLeft <= 3;
-                      const isWarningOrange = daysLeft > 3 && daysLeft <= 7;
-                      const emojiIcon = getFoodEmoji(item.name, item.customEmoji);
-                      const decPreview = decrementItemPieceCount(item.quantity);
-
-                      const glowClass = isUrgentRed
-                        ? ' tw-pantry-urgent-red bg-rose-950/25'
-                        : isWarningOrange
-                        ? ' tw-pantry-warn-orange bg-amber-950/20'
-                        : '';
-
-                      return (
-                        <div
-                          key={item.id}
-                          className={'tw-pantry-tile p-3.5 rounded-2xl border flex flex-col justify-between gap-2.5 shadow-md ' + themeStyles.card + glowClass}
-                        >
-                          <div className="space-y-2">
-                            <div className="flex items-start gap-2.5">
                               <button
                                 type="button"
                                 onClick={() => openEditProductModal(item)}
-                                className="w-12 h-12 rounded-2xl bg-black/35 border border-white/15 flex items-center justify-center text-2xl shrink-0 shadow-inner cursor-pointer"
+                                title="Produkt bearbeiten"
+                                className="tw-nav-inactive p-1.5 rounded-lg text-sky-300 cursor-pointer shrink-0"
+                              >
+                                <Pencil className="w-3 h-3" />
+                              </button>
+
+                              <button
+                                type="button"
+                                title="Auf die Einkaufsliste setzen"
+                                onClick={() => {
+                                  addShoppingItem(item.name);
+                                  showToast('Auf Einkaufsliste', item.name + ' wurde zur Einkaufsliste hinzugefügt.', '🛒');
+                                }}
+                                className="tw-nav-inactive p-1.5 rounded-lg text-amber-300 cursor-pointer shrink-0"
+                              >
+                                <ShoppingCart className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    /* ANSICHT B: SCHLANKE KOMPAKT-KACHELN INNERHALB DER 2ER-KATEGORIEBOXEN */
+                    <div className="p-2.5 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                      {group.items.map(item => {
+                        const daysLeft = getDaysUntil(item.expiryDate, todayStr);
+                        const locObj = STORAGE_LOCATIONS.find(l => l.id === item.location) || STORAGE_LOCATIONS[3];
+                        const isUrgentRed = daysLeft <= 3;
+                        const isWarningOrange = daysLeft > 3 && daysLeft <= 7;
+                        const emojiIcon = getFoodEmoji(item.name, item.customEmoji);
+                        const decPreview = decrementItemPieceCount(item.quantity);
+
+                        const glowClass = isUrgentRed
+                          ? ' tw-pantry-urgent-red bg-rose-950/25'
+                          : isWarningOrange
+                          ? ' tw-pantry-warn-orange bg-amber-950/20'
+                          : themeStyles.subtle;
+
+                        return (
+                          <div
+                            key={item.id}
+                            className={'tw-pantry-tile p-2.5 rounded-2xl border flex flex-col justify-between gap-2 ' + glowClass}
+                          >
+                            <div className="flex items-start gap-2">
+                              <button
+                                type="button"
+                                onClick={() => openEditProductModal(item)}
+                                className="w-9 h-9 rounded-xl bg-black/35 border border-white/10 flex items-center justify-center text-lg shrink-0 cursor-pointer"
                               >
                                 {emojiIcon}
                               </button>
-
                               <div className="min-w-0 flex-1">
                                 <div className="flex items-center justify-between gap-1">
-                                  <span className="text-[10px] font-extrabold opacity-80 truncate">
-                                    {locObj.short}
-                                  </span>
-                                  <span
-                                    onClick={() => openEditProductModal(item)}
-                                    className="px-2 py-0.5 rounded-lg bg-black/45 border border-amber-400/30 text-[11px] font-black text-amber-300 shrink-0 cursor-pointer"
-                                  >
+                                  <span className="text-[9px] font-bold opacity-75 truncate">{locObj.short}</span>
+                                  <span className="px-1.5 py-0.2 rounded bg-black/40 text-[10px] font-black text-amber-300 shrink-0">
                                     {item.quantity}
                                   </span>
                                 </div>
-
-                                <h3
+                                <h4
                                   onClick={() => openEditProductModal(item)}
                                   title={item.name}
-                                  className="font-extrabold text-xs sm:text-[13px] leading-snug line-clamp-2 break-words mt-1 cursor-pointer hover:text-sky-300"
+                                  className="font-extrabold text-xs leading-tight truncate mt-0.5 cursor-pointer hover:text-sky-300"
                                 >
                                   {item.name}
-                                </h3>
+                                </h4>
                               </div>
                             </div>
 
-                            <div
-                              onClick={() => openEditProductModal(item)}
-                              className={'px-2.5 py-1.5 rounded-xl border flex items-center justify-between text-[11px] font-extrabold cursor-pointer ' +
-                                (isUrgentRed
-                                  ? 'bg-rose-500/30 border-rose-400 text-rose-100'
-                                  : isWarningOrange
-                                  ? 'bg-amber-500/30 border-amber-400 text-amber-100'
-                                  : themeStyles.subtle)}
-                            >
-                              <span>📅 MHD: {item.expiryDate.slice(8, 10)}.{item.expiryDate.slice(5, 7)}.{item.expiryDate.slice(2, 4)}</span>
-                              <span className="font-black">
-                                {daysLeft <= 0 ? '🔴 HEUTE!' : daysLeft === 1 ? '🔴 1 Tag' : isUrgentRed ? ('🔴 ' + daysLeft + ' T.') : isWarningOrange ? ('🟠 ' + daysLeft + ' T.') : ('🟢 ' + daysLeft + ' T.')}
+                            <div className="flex items-center justify-between gap-1 pt-1 border-t border-white/10">
+                              <span
+                                onClick={() => openEditProductModal(item)}
+                                className={'text-[10px] font-black cursor-pointer ' + (isUrgentRed ? 'text-rose-300' : isWarningOrange ? 'text-amber-300' : 'opacity-80')}
+                              >
+                                📅 {item.expiryDate.slice(8, 10)}.{item.expiryDate.slice(5, 7)}. ({daysLeft}T)
                               </span>
+
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => handleConsumeClick(item)}
+                                  className="tw-glow-btn px-2 py-1 rounded-lg text-[10px] font-black cursor-pointer"
+                                >
+                                  {decPreview.remaining > 0 ? '🍽️ -1' : '🍽️ Weg'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => openEditProductModal(item)}
+                                  className="tw-nav-inactive p-1 rounded-lg text-sky-300 cursor-pointer"
+                                >
+                                  <Pencil className="w-3 h-3" />
+                                </button>
+                              </div>
                             </div>
                           </div>
-
-                          <div className="flex items-center gap-1.5 pt-0.5">
-                            <button
-                              type="button"
-                              onClick={() => handleConsumeClick(item)}
-                              className="tw-glow-btn flex-1 min-h-[38px] py-2 px-2.5 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer"
-                            >
-                              <CheckCircle2 className="w-4 h-4 shrink-0" />
-                              <span>{decPreview.remaining > 0 ? 'Verzehrt (-1)' : 'Verzehrt'}</span>
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => openEditProductModal(item)}
-                              className="tw-glow-btn min-h-[38px] px-2.5 py-2 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1 cursor-pointer"
-                            >
-                              <Pencil className="w-3.5 h-3.5" />
-                              <span>Edit</span>
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => {
-                                addShoppingItem(item.name);
-                                showToast('Auf Einkaufsliste', item.name + ' wurde zur Einkaufsliste hinzugefügt.', '🛒');
-                              }}
-                              className="tw-nav-inactive min-h-[38px] px-2.5 py-2 rounded-xl text-sky-400 flex items-center justify-center cursor-pointer"
-                            >
-                              <ShoppingCart className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -1343,35 +1264,35 @@ export default function PantrySection({
           SUB-TAB 2: WEB-REZEPTE, SCHNELLE FAMILIENKÜCHE & TAGES-MENÜ
          ========================================================= */}
       {activeSubTab === 'recipes' && (
-        <div className="space-y-5">
-          <div className={'p-5 rounded-3xl border space-y-4 ' + themeStyles.card}>
-            <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="space-y-4">
+          <div className={'p-4 rounded-3xl border space-y-3.5 ' + themeStyles.card}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h3 className="text-xl font-extrabold flex items-center gap-2">
-                  <ChefHat className="w-6 h-6 text-amber-400" />
+                <h3 className="text-lg font-extrabold flex items-center gap-2">
+                  <ChefHat className="w-5 h-5 text-amber-400" />
                   <span>Schnelle Familien-Rezepte & Tages-Menü Planer</span>
                 </h3>
-                <p className={'text-xs font-semibold mt-0.5 ' + themeStyles.textMuted}>
-                  Alle Vorschläge sind in 15–25 Minuten gekocht, familienfreundlich und verbrauchen deine bald ablaufenden Vorräte zuerst!
+                <p className={'text-xs font-semibold ' + themeStyles.textMuted}>
+                  Alle Vorschläge sind in 15–25 Minuten gekocht und verbrauchen bald ablaufende Vorräte zuerst!
                 </p>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2.5">
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   onClick={fetchWebRecipesFromStock}
                   disabled={isLoadingWebRecipes}
-                  className="tw-glow-btn px-4 py-2.5 rounded-2xl text-xs font-black flex items-center gap-2 cursor-pointer"
+                  className="tw-glow-btn px-3.5 py-2 rounded-2xl text-xs font-black flex items-center gap-1.5 cursor-pointer"
                 >
                   <Globe className={'w-4 h-4 ' + (isLoadingWebRecipes ? 'animate-spin' : '')} />
-                  <span>{isLoadingWebRecipes ? 'Suche Rezepte im Netz...' : '🌐 Live-Rezepte aus dem Netz holen'}</span>
+                  <span>{isLoadingWebRecipes ? 'Suche...' : '🌐 Live-Rezepte laden'}</span>
                 </button>
 
                 <a
                   href={chefkochSearchUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="tw-glow-btn px-4 py-2.5 rounded-2xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer no-underline"
+                  className="tw-glow-btn px-3.5 py-2 rounded-2xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer no-underline"
                 >
                   <ExternalLink className="w-4 h-4" />
                   <span>🔍 Chefkoch Reste-Suche</span>
@@ -1380,21 +1301,21 @@ export default function PantrySection({
                 <button
                   type="button"
                   onClick={autoPlanEntireWeekFromStock}
-                  className="tw-glow-btn px-4 py-2.5 rounded-2xl text-xs font-black flex items-center gap-1.5 cursor-pointer"
+                  className="tw-glow-btn px-3.5 py-2 rounded-2xl text-xs font-black flex items-center gap-1.5 cursor-pointer"
                 >
                   <Wand2 className="w-4 h-4" />
-                  <span>🪄 Ganze Woche (Mo–So) aus Vorrat planen</span>
+                  <span>🪄 Ganze Woche planen</span>
                 </button>
               </div>
             </div>
 
-            <div className={'p-4 rounded-2xl border flex flex-wrap items-center justify-between gap-3 ' + themeStyles.subtle}>
-              <div className="flex flex-wrap items-center gap-3">
-                <span className="text-xs font-black uppercase text-sky-400">🍽️ Tages-Menü Ziel-Tag:</span>
+            <div className={'p-3 rounded-2xl border flex flex-wrap items-center justify-between gap-3 ' + themeStyles.subtle}>
+              <div className="flex flex-wrap items-center gap-2.5">
+                <span className="text-xs font-black uppercase text-sky-400">🍽️ Ziel-Tag:</span>
                 <select
                   value={targetMealDayId}
                   onChange={(e) => setTargetMealDayId(Number(e.target.value))}
-                  className={'px-3.5 py-2 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+                  className={'px-3 py-1.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
                 >
                   {safeMeals.map(m => (
                     <option key={m.id} value={m.id} className="bg-slate-800 text-white">
@@ -1412,7 +1333,7 @@ export default function PantrySection({
                     onChange={(e) => setIncludeSideAndDessert(e.target.checked)}
                     className="w-4 h-4 accent-emerald-500 rounded cursor-pointer"
                   />
-                  <span>🥗+🍊 Mit Salat/Obst aus Vorrat zum kompletten Tages-Menü ergänzen</span>
+                  <span>🥗+🍊 Mit Salat/Obst aus Vorrat zum Tages-Menü ergänzen</span>
                 </label>
 
                 <label className="flex items-center gap-2 cursor-pointer">
@@ -1422,17 +1343,17 @@ export default function PantrySection({
                     onChange={(e) => setAlsoSendMissingToShopping(e.target.checked)}
                     className="w-4 h-4 accent-amber-500 rounded cursor-pointer"
                   />
-                  <span>🛒 Fehlende Zutaten automatisch auf Einkaufsliste</span>
+                  <span>🛒 Fehlendes auf Einkaufsliste</span>
                 </label>
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-1.5">
               {[
-                { id: 'all',     label: '⭐ Beste Treffer für deinen Vorrat' },
-                { id: 'express', label: '⚡ Express-Küche (max. 20 Min.)' },
+                { id: 'all',     label: '⭐ Beste Treffer' },
+                { id: 'express', label: '⚡ Express (max. 20 Min.)' },
                 { id: 'kids',    label: '👨‍👩‍👧‍👦 Kinder-Lieblinge' },
-                { id: 'web',     label: '🌐 Aus dem Internet geladen (' + webRecipes.length + ')' }
+                { id: 'web',     label: '🌐 Web-Rezepte (' + webRecipes.length + ')' }
               ].map(f => (
                 <button
                   key={f.id}
@@ -1444,7 +1365,7 @@ export default function PantrySection({
                       setRecipeFilter(f.id);
                     }
                   }}
-                  className={'px-3.5 py-1.5 rounded-xl text-xs font-extrabold cursor-pointer ' + (recipeFilter === f.id ? 'tw-active-nav' : 'tw-nav-inactive')}
+                  className={'px-3 py-1.5 rounded-xl text-xs font-extrabold cursor-pointer ' + (recipeFilter === f.id ? 'tw-active-nav' : 'tw-nav-inactive')}
                 >
                   {f.label}
                 </button>
@@ -1452,17 +1373,17 @@ export default function PantrySection({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {evaluatedRecipes.map(rec => (
               <div
                 key={rec.id}
-                className={'p-5 rounded-3xl border-2 flex flex-col justify-between gap-4 shadow-sm ' + themeStyles.card + (rec.urgentCount > 0 ? ' border-amber-400/70' : '')}
+                className={'tw-pantry-tile p-4 rounded-3xl border flex flex-col justify-between gap-3.5 shadow-sm ' + themeStyles.card + (rec.urgentCount > 0 ? ' border-amber-400/70' : '')}
               >
-                <div className="space-y-3">
+                <div className="space-y-2.5">
                   {rec.thumbUrl && (
-                    <div className="w-full h-40 rounded-2xl overflow-hidden relative border border-white/10">
+                    <div className="w-full h-36 rounded-2xl overflow-hidden relative border border-white/10">
                       <img src={rec.thumbUrl} alt={rec.title} className="w-full h-full object-cover" />
-                      <span className="absolute top-2.5 right-2.5 px-2.5 py-1 rounded-xl bg-black/75 text-white text-[10px] font-black">
+                      <span className="absolute top-2 right-2 px-2 py-0.5 rounded-lg bg-black/75 text-white text-[10px] font-black">
                         🌐 Live Web-Rezept
                       </span>
                     </div>
@@ -1480,9 +1401,9 @@ export default function PantrySection({
                           </span>
                         )}
                       </div>
-                      <h4 className="font-extrabold text-lg leading-snug">{rec.title}</h4>
+                      <h4 className="font-extrabold text-base leading-snug">{rec.title}</h4>
                     </div>
-                    <span className={'px-2.5 py-1 rounded-full text-xs font-black shrink-0 ' + (rec.matchPercent >= 50 ? 'bg-emerald-500/20 text-emerald-300' : 'bg-sky-500/20 text-sky-300')}>
+                    <span className={'px-2.5 py-0.5 rounded-full text-xs font-black shrink-0 ' + (rec.matchPercent >= 50 ? 'bg-emerald-500/20 text-emerald-300' : 'bg-sky-500/20 text-sky-300')}>
                       {rec.matchPercent}% da
                     </span>
                   </div>
@@ -1491,18 +1412,12 @@ export default function PantrySection({
                     <p className={'text-xs font-semibold ' + themeStyles.textMuted}>{rec.shortDesc}</p>
                   )}
 
-                  {rec.urgentCount > 0 && (
-                    <div className="px-3 py-1.5 rounded-xl bg-amber-500/20 border border-amber-400/40 text-amber-300 text-xs font-extrabold">
-                      ⚡ Verwertet {rec.urgentCount} bald ablaufende(s) Produkt(e) aus deinem Bestand!
-                    </div>
-                  )}
-
-                  <div className="space-y-1.5">
+                  <div className="space-y-1">
                     {rec.ingredientStatus.map((ing, idx) => (
-                      <div key={idx} className={'px-3 py-2 rounded-xl border flex items-center justify-between text-xs font-bold ' + themeStyles.subtle}>
+                      <div key={idx} className={'px-2.5 py-1.5 rounded-xl border flex items-center justify-between text-xs font-bold ' + themeStyles.subtle}>
                         <span>{ing.name}</span>
                         {ing.inPantry ? (
-                          <span className="text-emerald-400 font-extrabold">✓ Auf Vorrat ({ing.pantryItem?.name})</span>
+                          <span className="text-emerald-400 font-extrabold">✓ Da ({ing.pantryItem?.name})</span>
                         ) : (
                           <span className="text-amber-400 opacity-80">🛒 Fehlt</span>
                         )}
@@ -1511,26 +1426,15 @@ export default function PantrySection({
                   </div>
                 </div>
 
-                <div className="space-y-2 pt-2 border-t border-white/10">
+                <div className="space-y-1.5 pt-2 border-t border-white/10">
                   <button
                     type="button"
                     onClick={() => convertRecipeToDailyMenu(rec)}
-                    className="tw-glow-btn w-full py-3 rounded-2xl text-xs font-black flex items-center justify-center gap-2 cursor-pointer"
+                    className="tw-glow-btn w-full py-2.5 rounded-2xl text-xs font-black flex items-center justify-center gap-2 cursor-pointer"
                   >
                     <Utensils className="w-4 h-4" />
-                    <span>🍽️ Als Tages-Menü für {safeMeals.find(m => Number(m.id) === Number(targetMealDayId))?.dayLabel || 'Montag'} setzen</span>
+                    <span>🍽️ Als Tages-Menü für {safeMeals.find(m => Number(m.id) === Number(targetMealDayId))?.dayLabel || 'Montag'}</span>
                   </button>
-
-                  {rec.sourceUrl && (
-                    <a
-                      href={rec.sourceUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="tw-nav-inactive w-full py-2 rounded-xl text-[11px] font-extrabold flex items-center justify-center gap-1.5 no-underline"
-                    >
-                      <ExternalLink className="w-3.5 h-3.5" /> Original-Kochanleitung öffnen
-                    </a>
-                  )}
                 </div>
               </div>
             ))}
@@ -1542,10 +1446,10 @@ export default function PantrySection({
           SUB-TAB 3: KOMPAKTER MÜLLEIMER & VERLAUF
          ========================================================= */}
       {activeSubTab === 'trash' && (
-        <div className="space-y-4">
-          <div className={'p-4 rounded-3xl border flex flex-wrap items-center justify-between gap-4 ' + themeStyles.card}>
+        <div className="space-y-3.5">
+          <div className={'p-3.5 rounded-3xl border flex flex-wrap items-center justify-between gap-3 ' + themeStyles.card}>
             <div>
-              <h3 className="text-lg font-extrabold">🗑️ Mülleimer & Verbrauchs-Übersicht</h3>
+              <h3 className="text-base font-extrabold">🗑️ Mülleimer & Verbrauchs-Übersicht</h3>
               <p className={'text-xs font-semibold ' + themeStyles.textMuted}>
                 Übersicht über verzehrte und abgelaufene Lebensmittel für eine nachhaltige Einkaufsplanung.
               </p>
@@ -1557,14 +1461,14 @@ export default function PantrySection({
                   setPantryTrash([]);
                   showToast('Mülleimer geleert', 'Alle Einträge wurden entfernt.', '🗑️');
                 }}
-                className="px-4 py-2 rounded-xl bg-rose-600 text-white text-xs font-extrabold cursor-pointer"
+                className="px-3.5 py-2 rounded-xl bg-rose-600 text-white text-xs font-extrabold cursor-pointer"
               >
                 🗑️ Mülleimer komplett leeren
               </button>
             )}
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-2.5">
             {safeTrash.length === 0 ? (
               <div className={'col-span-full p-8 rounded-3xl border text-center ' + themeStyles.card}>
                 <div className="text-2xl mb-1">🌱</div>
@@ -1576,10 +1480,10 @@ export default function PantrySection({
                 return (
                   <div
                     key={tItem.id}
-                    className={'tw-pantry-tile p-3.5 rounded-2xl border flex flex-col justify-between gap-2.5 ' + themeStyles.card + (isWasted ? ' border-rose-500/50' : ' border-emerald-500/40')}
+                    className={'tw-pantry-tile p-3 rounded-2xl border flex flex-col justify-between gap-2 ' + themeStyles.card + (isWasted ? ' border-rose-500/50' : ' border-emerald-500/40')}
                   >
-                    <div className="flex items-start gap-2.5">
-                      <span className="text-2xl">{getFoodEmoji(tItem.name, tItem.customEmoji)}</span>
+                    <div className="flex items-start gap-2">
+                      <span className="text-xl">{getFoodEmoji(tItem.name, tItem.customEmoji)}</span>
                       <div className="min-w-0 flex-1">
                         <span className={'inline-block px-1.5 py-0.5 rounded-md text-[9px] font-black ' + (isWasted ? 'bg-rose-500/25 text-rose-300' : 'bg-emerald-500/25 text-emerald-300')}>
                           {tItem.reasonLabel}
@@ -1596,17 +1500,17 @@ export default function PantrySection({
                           addShoppingItem(tItem.name);
                           showToast('Auf Einkaufsliste', tItem.name + ' wird nachgekauft.', '🛒');
                         }}
-                        className="tw-glow-btn flex-1 py-2 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1 cursor-pointer"
+                        className="tw-glow-btn flex-1 py-1.5 rounded-xl text-[11px] font-extrabold flex items-center justify-center gap-1 cursor-pointer"
                       >
-                        <ShoppingCart className="w-3.5 h-3.5" /> Nachkaufen
+                        <ShoppingCart className="w-3 h-3" /> Nachkaufen
                       </button>
                       <button
                         type="button"
                         title="Zurück in den Bestand legen"
                         onClick={() => restoreFromTrash(tItem)}
-                        className="tw-nav-inactive px-3 py-2 rounded-xl text-xs font-bold cursor-pointer"
+                        className="tw-nav-inactive px-2.5 py-1.5 rounded-xl text-xs font-bold cursor-pointer"
                       >
-                        <RotateCcw className="w-3.5 h-3.5" />
+                        <RotateCcw className="w-3 h-3" />
                       </button>
                     </div>
                   </div>
@@ -1674,7 +1578,6 @@ export default function PantrySection({
               </div>
             </div>
 
-            {/* LEBENSMITTEL-KATEGORIE WÄHLEN */}
             <div>
               <label className="block text-[11px] font-black uppercase text-purple-300 mb-1">
                 Lebensmittel-Kategorie
@@ -1692,7 +1595,6 @@ export default function PantrySection({
               </select>
             </div>
 
-            {/* LAGERORT WÄHLEN */}
             <div>
               <label className="block text-[11px] font-black uppercase text-emerald-400 mb-1.5">
                 Lagerort zuweisen
@@ -1712,7 +1614,6 @@ export default function PantrySection({
               </div>
             </div>
 
-            {/* ABLAUFDATUM (MHD) */}
             <div className={'p-3.5 rounded-2xl border space-y-2.5 ' + themeStyles.subtle}>
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <label className="text-xs font-black uppercase text-amber-400">
@@ -1746,7 +1647,6 @@ export default function PantrySection({
               />
             </div>
 
-            {/* EMOJI WÄHLEN */}
             <div className={'p-3.5 rounded-2xl border space-y-2 ' + themeStyles.subtle}>
               <div className="flex items-center justify-between">
                 <span className="text-xs font-black uppercase">🎨 Passendes Emoji wählen</span>
@@ -1764,7 +1664,7 @@ export default function PantrySection({
                     key={em}
                     type="button"
                     onClick={() => setEditModal({ ...editModal, customEmoji: em })}
-                    className={'w-9 h-9 rounded-xl border text-lg flex items-center justify-center cursor-pointer transition-transform hover:scale-110 ' +
+                    className={'w-9 h-9 rounded-xl border text-lg flex items-center justify-center cursor-pointer ' +
                       (editModal.customEmoji === em ? 'ring-2 ring-sky-400 bg-sky-500/25' : 'bg-black/25 border-white/10')}
                   >
                     {em}
