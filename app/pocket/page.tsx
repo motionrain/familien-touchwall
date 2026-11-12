@@ -24,20 +24,45 @@ import {
   callCloudApi
 } from '../sync';
 
+const FOOD_CATEGORIES = [
+  { id: 'drinks',         icon: '🧃', title: 'Getränke' },
+  { id: 'produce',        icon: '🥦', title: 'Obst & Gemüse' },
+  { id: 'grains',         icon: '🌾', title: 'Getreide & Kartoffeln' },
+  { id: 'dairy',          icon: '🧀', title: 'Milchprodukte & Käse' },
+  { id: 'meat_fish_eggs', icon: '🥩', title: 'Fleisch, Fisch, Wurst & Eier' },
+  { id: 'oils_fats',      icon: '🧈', title: 'Öle, Fette & Würzmittel' },
+  { id: 'sweets_snacks',  icon: '🍫', title: 'Süßwaren & Sonstiges' }
+];
+
+function detectFoodCategory(nameStr, customCategory = '') {
+  if (customCategory && FOOD_CATEGORIES.some(c => c.id === customCategory)) {
+    return customCategory;
+  }
+  const n = String(nameStr || '').toLowerCase();
+  if (/wasser|mineralwasser|kaffee|espresso|tee|saft|apfelsaft|orangensaft|schorle|cola|limo|getränk|sirup|kakao|bier|wein/.test(n)) return 'drinks';
+  if (/butter|kräuterbutter|meggle|margarine|öl|sonnenblumenöl|olivenöl|rapsöl|kokosöl|fett|schmalz|essig|hengstenberg|senf|thomy|ketchup|mayo|mayonnaise|dressing|burger sauce|heinz|soße|sauce|pesto/.test(n)) return 'oils_fats';
+  if (/milch|vollmilch|schwarzwaldmilch|landfein|joghurt|quark|käse|frischkäse|philadelphia|scheibenkäse|gouda|mozzarella|parmesan|emmentaler|camembert|feta|schlagsahne|sahne|schmand|creme fraiche|mascarpone|ayran|kefir/.test(n)) return 'dairy';
+  if (/fleisch|hackfleisch|rinderhack|rind|schwein|hähnchen|huhn|pute|geflügel|schnitzel|steak|gulasch|wurst|bratwurst|rostbratwurst|leberwurst|würstchen|wiener|lyoner|salami|schinken|speck|aufschnitt|fisch|lachs|thunfisch|fischstäbchen|forelle|garnele|ei|eier/.test(n)) return 'meat_fish_eggs';
+  if (/brot|landbrot|mehrkorn|brötchen|toast|baguette|croissant|nudel|spaghetti|pasta|penne|rigatoni|tortellini|ravioli|spätzle|reis|spitzenreis|langkorn|basmati|jasmin|milchreis|getreide|haferflocken|müsli|cornflakes|mehl|grieß|stärke|wraps|wrap|tortilla|taco|schär|kartoffel|kartoffelpüree|pfanni|gnocchi|schupfnudel|pommes|knödel/.test(n)) return 'grains';
+  if (/obst|apfel|äpfel|elstar|apfelmus|banane|clementine|mandarine|orange|susi|beere|erdbeer|himbeer|heidelbeer|traube|birne|zitrone|limette|kiwi|mango|ananas|melone|gemüse|salat|eisberg|mâche|mache|feldsalat|rucola|spinat|gurke|tomate|tomatenmark|passierte|oro di parma|paprika|karotte|möhre|zwiebel|knoblauch|brokkoli|blumenkohl|spargel|stangenspargel|rotkohl|kraut|pilz|champignon|avocado|mais|erbse|bohne|linse|kichererbse|chili sin carne|gefro/.test(n)) return 'produce';
+  return 'sweets_snacks';
+}
+
 function getFoodEmoji(nameStr) {
   const n = String(nameStr || '').toLowerCase();
-  if (/bratwurst|wurst|würstchen|wiener|lyoner|aufschnitt|schinken|salami|speck/.test(n)) return '🌭';
+  if (/hunde|katzen|tierfutter|futter/.test(n)) return '🐶';
+  if (/bratwurst|rostbratwurst|leberwurst|wurst|würstchen|wiener|lyoner|aufschnitt|schinken|salami|speck/.test(n)) return '🌭';
   if (/clementine|mandarine|orange|apfelsine/.test(n)) return '🍊';
-  if (/apfel|äpfel|elstar|boskoop|pink lady|rotkohl/.test(n)) return '🍎';
+  if (/apfel|äpfel|elstar|boskoop|pink lady|rotkohl|apfelmus/.test(n)) return '🍎';
   if (/banane/.test(n)) return '🍌';
   if (/erdbeer|himbeer|heidelbeer|blaubeer|beeren|kirsch/.test(n)) return '🍓';
   if (/zitrone|limette/.test(n)) return '🍋';
-  if (/salat|eisberg|kopfsalat|rucola|feldsalat|spinat|dressing|kräuter/.test(n)) return '🥬';
+  if (/salat|eisberg|mâche|mache|kopfsalat|rucola|feldsalat|spinat|dressing|kräuter/.test(n)) return '🥬';
   if (/gurke/.test(n)) return '🥒';
-  if (/tomate|passierte/.test(n)) return '🍅';
-  if (/paprika/.test(n)) return '🫑';
+  if (/tomate|passierte|tomatenmark/.test(n)) return '🍅';
+  if (/paprika|chili/.test(n)) return '🫑';
   if (/karotte|möhre/.test(n)) return '🥕';
-  if (/kartoffel|pommes|gnocchi|schupfnudel/.test(n)) return '🥔';
+  if (/kartoffel|kartoffelpüree|pfanni|pommes|gnocchi|schupfnudel/.test(n)) return '🥔';
   if (/zwiebel|knoblauch/.test(n)) return '🧅';
   if (/brokkoli|blumenkohl|spargel/.test(n)) return '🥦';
   if (/mais/.test(n)) return '🌽';
@@ -45,22 +70,56 @@ function getFoodEmoji(nameStr) {
   if (/avocado/.test(n)) return '🥑';
   if (/käse|frischkäse|philadelphia|scheibenkäse|gouda|mozzarella|parmesan|emmentaler|camembert|feta/.test(n)) return '🧀';
   if (/milch|vollmilch|hafermilch|kakao/.test(n)) return '🥛';
-  if (/butter|margarine/.test(n)) return '🧈';
-  if (/joghurt|quark|pudding|schmand|sahne|creme/.test(n)) return '🥣';
+  if (/butter|kräuterbutter|meggle|margarine/.test(n)) return '🧈';
+  if (/joghurt|quark|pudding|schmand|sahne|schlagsahne|creme/.test(n)) return '🥣';
   if (/ei|eier/.test(n)) return '🥚';
   if (/hähnchen|huhn|pute|geflügel|nuggets/.test(n)) return '🍗';
   if (/hackfleisch|rinderhack|rind|steak|fleisch|schnitzel|gulasch/.test(n)) return '🥩';
   if (/fisch|lachs|thunfisch|fischstäbchen|forelle/.test(n)) return '🐟';
   if (/nudel|spaghetti|pasta|penne|tortellini|ravioli|spätzle/.test(n)) return '🍝';
-  if (/reis|basmati|jasmin|milchreis/.test(n)) return '🍚';
-  if (/brot|brötchen|toast|baguette|croissant/.test(n)) return '🥖';
+  if (/reis|spitzenreis|langkorn|basmati|jasmin|milchreis/.test(n)) return '🍚';
+  if (/brot|landbrot|brötchen|toast|baguette|croissant/.test(n)) return '🥖';
   if (/pizza|flammkuchen/.test(n)) return '🍕';
-  if (/wrap|taco|tortilla/.test(n)) return '🌮';
-  if (/senf|thomy|ketchup|mayo|soße|sauce|pesto|öl|essig/.test(n)) return '🥫';
+  if (/wrap|taco|tortilla|schär/.test(n)) return '🌮';
+  if (/senf|thomy|heinz|ketchup|mayo|soße|sauce|pesto|öl|essig/.test(n)) return '🥫';
   if (/mehl|zucker|salz|haferflocken|müsli|cornflakes/.test(n)) return '🌾';
   if (/schokolade|nutella|keks|gummibär|chips|eis/.test(n)) return '🍫';
   if (/wasser|saft|cola|limo|bier|wein|kaffee|tee/.test(n)) return '🧃';
   return '🥫';
+}
+
+function decrementItemPieceCount(rawQtyStr) {
+  const clean = String(rawQtyStr || '1x').trim();
+  const multiMatch = clean.match(/^(\d+(?:[.,]\d+)?)\s*([x×])\s*(\d+(?:[.,]\d+)?)\s*(g|ml|kg|l|gr|stk|pcs)(.*)$/i);
+  if (multiMatch) {
+    const currentCount = Math.round(parseFloat(multiMatch[1].replace(',', '.')));
+    const unitWeight = parseFloat(multiMatch[3].replace(',', '.'));
+    const unit = multiMatch[4];
+    const tail = multiMatch[5] || '';
+    if (currentCount > 1) {
+      const nextCount = currentCount - 1;
+      const nextTotal = Math.round(nextCount * unitWeight * 100) / 100;
+      if (tail.includes('=')) return { remaining: nextCount, nextQtyStr: nextCount + ' x ' + unitWeight + ' ' + unit + ' = ' + nextTotal + ' ' + unit };
+      if (tail.includes('(')) return { remaining: nextCount, nextQtyStr: nextCount + ' x ' + unitWeight + unit + ' (' + nextTotal + unit + ')' };
+      return { remaining: nextCount, nextQtyStr: nextCount + 'x ' + unitWeight + unit };
+    }
+    return { remaining: 0, nextQtyStr: '0' };
+  }
+
+  const pieceMatch = clean.match(/^(\d+(?:[.,]\d+)?)\s*(x|pcs|pc|stk|stück|pkg|pack|pck|dosen|dose|flaschen|fl|gläser|glas|becher|rollen|rolle)?$/i);
+  if (pieceMatch) {
+    const val = parseFloat(pieceMatch[1].replace(',', '.'));
+    const rawUnit = pieceMatch[2] || 'x';
+    const hasSpace = /^\d+(?:[.,]\d+)?\s+/.test(clean);
+    const hadDecimalZero = /\.0\b/.test(pieceMatch[1]);
+    if (val > 1) {
+      const nextVal = Math.max(1, Math.round(val - 1));
+      const formattedNum = hadDecimalZero ? (nextVal + '.0') : String(nextVal);
+      return { remaining: nextVal, nextQtyStr: formattedNum + (hasSpace ? ' ' : '') + rawUnit };
+    }
+    return { remaining: 0, nextQtyStr: '0' };
+  }
+  return { remaining: 0, nextQtyStr: '0' };
 }
 
 const {
@@ -153,20 +212,21 @@ export default function TouchwallPocketApp() {
     collaborators: []
   });
 
-  // Sync-Refs für  app/sync.tsx
+  // Sync-Refs für app/sync.tsx
   const preservedWallStateRef = useRef({});
   const syncMetaRef = useRef({ deletedPantryIds: {}, deletedTaskIds: {}, deletedEventIds: {} });
   const pendingCalendarOpsRef = useRef({});
   const isNetworkSavingRef = useRef(false);
   const lastLocalEditRef = useRef(0);
 
-  // Scanner-State
+  // Scanner-State inkl. Lebensmittel-Kategorie
   const [scannerMode, setScannerMode] = useState('barcode');
   const [cameraActive, setCameraActive] = useState(false);
   const [scannedBarcode, setScannedBarcode] = useState('');
   const [scanName, setScanName] = useState('');
   const [scanQty, setScanQty] = useState('1x');
   const [scanLocation, setScanLocation] = useState('kitchen');
+  const [scanCategory, setScanCategory] = useState('auto');
   const [scanExpiry, setScanExpiry] = useState('');
   const [scanImageUrl, setScanImageUrl] = useState('');
   const [isLookingUpProduct, setIsLookingUpProduct] = useState(false);
@@ -260,12 +320,12 @@ export default function TouchwallPocketApp() {
     '  background: linear-gradient(135deg, color-mix(in srgb, var(--tw-btn-from) 28%, var(--tw-btn-rest-base)) 0%, color-mix(in srgb, var(--tw-btn-to) 28%, var(--tw-btn-rest-base)) 100%) !important;',
     '  color: var(--tw-btn-rest-text) !important;',
     '  border: 1px solid color-mix(in srgb, var(--tw-btn-border) 38%, transparent) !important;',
-    '  transition: transform 0.16s ease, box-shadow 0.16s ease, background 0.16s ease !important;',
+    '  transition: box-shadow 0.16s ease, background 0.16s ease !important;',
     '}',
     '.tw-nav-inactive {',
     '  background: linear-gradient(135deg, color-mix(in srgb, var(--tw-btn-from) 12%, var(--tw-btn-rest-base)) 0%, color-mix(in srgb, var(--tw-btn-to) 12%, var(--tw-btn-rest-base)) 100%);',
     '  border: 1px solid rgba(255, 255, 255, 0.14);',
-    '  transition: transform 0.16s ease, background 0.16s ease;',
+    '  transition: background 0.16s ease;',
     '}',
     '.tw-active-nav {',
     '  background: linear-gradient(135deg, var(--tw-btn-from) 0%, var(--tw-btn-to) 100%) !important;',
@@ -278,9 +338,6 @@ export default function TouchwallPocketApp() {
     '  color: #ffffff !important;',
     '  border-color: var(--tw-btn-border) !important;',
     '  box-shadow: 0 6px 18px -2px var(--tw-btn-glow) !important;',
-    '}',
-    'button:active {',
-    '  transform: scale(0.95);',
     '}'
   ].join('\n');
 
@@ -782,6 +839,7 @@ export default function TouchwallPocketApp() {
         name: txt,
         quantity: '1x',
         location: 'fridge',
+        category: detectFoodCategory(txt),
         expiryDate: defaultExp,
         selected: true
       }));
@@ -795,7 +853,7 @@ export default function TouchwallPocketApp() {
     }
   };
 
-  // Speichert das gescannte Produkt mit updatedAt & fromMobile: true
+  // Speichert das gescannte Produkt inkl. erkannter Lebensmittel-Kategorie
   const saveProductDirectly = async (nameVal, barcodeVal, qtyVal, locVal, expVal, imgVal) => {
     if (!nameVal || !expVal) {
       showToast('Fehlende Angabe', 'Bitte Produktname und MHD prüfen.', '⚠️');
@@ -803,12 +861,15 @@ export default function TouchwallPocketApp() {
     }
     const now = Date.now();
     lastLocalEditRef.current = now;
+    const resolvedCategory = scanCategory === 'auto' ? detectFoodCategory(nameVal) : scanCategory;
+
     const newItem = {
       id: 'p_' + now + '_' + Math.floor(Math.random() * 1000),
       name: nameVal,
       barcode: barcodeVal || '',
       quantity: qtyVal || '1x',
       location: locVal || 'kitchen',
+      category: resolvedCategory,
       expiryDate: expVal,
       imageUrl: imgVal || '',
       addedAt: todayStr,
@@ -821,6 +882,7 @@ export default function TouchwallPocketApp() {
 
     setScanName('');
     setScannedBarcode('');
+    setScanCategory('auto');
     setScanExpiry('');
     setScanImageUrl('');
     setDetectedMhdCandidate('');
@@ -851,6 +913,7 @@ export default function TouchwallPocketApp() {
       name: it.name.trim(),
       quantity: it.quantity || '1x',
       location: it.location || 'fridge',
+      category: detectFoodCategory(it.name, it.category),
       expiryDate: it.expiryDate,
       imageUrl: '',
       addedAt: todayStr,
@@ -865,9 +928,22 @@ export default function TouchwallPocketApp() {
     showToast('Kassenbon übertragen!', newEntries.length + ' Produkte an Touchwall gesendet.', '🎉');
   };
 
+  // Unterstützt Einzelstück-Abzug (-1) auch direkt auf dem Smartphone!
   const handleConsumeFromPocket = async (item) => {
     const now = Date.now();
     lastLocalEditRef.current = now;
+    const dec = decrementItemPieceCount(item.quantity);
+
+    if (dec.remaining > 0) {
+      const nextStock = safeStock.map(x =>
+        x.id === item.id ? { ...x, quantity: dec.nextQtyStr, updatedAt: now, fromMobile: true } : x
+      );
+      setPantryItems(nextStock);
+      await saveStateToCloud({ pantryItems: nextStock });
+      showToast('1 Stück verzehrt!', item.name + ' → Rest: ' + dec.nextQtyStr, getFoodEmoji(item.name));
+      return;
+    }
+
     syncMetaRef.current.deletedPantryIds[String(item.id)] = now;
     saveLocalSyncMeta(syncMetaRef.current);
 
@@ -879,7 +955,7 @@ export default function TouchwallPocketApp() {
     setPantryItems(nextStock);
     setPantryTrash(nextTrash);
     await saveStateToCloud({ pantryItems: nextStock, pantryTrash: nextTrash });
-    showToast('Verzehrt!', item.name + ' wurde ausgebucht.', '🍽️');
+    showToast('Komplett verzehrt!', item.name + ' wurde ausgebucht.', '🍽️');
   };
 
   const handleCreateMobileEvent = async (e) => {
@@ -1186,6 +1262,10 @@ export default function TouchwallPocketApp() {
   const openShop = shopItems.map((it, idx) => ({ ...it, origIdx: idx })).filter(it => !it.done);
   const doneShop = shopItems.map((it, idx) => ({ ...it, origIdx: idx })).filter(it => it.done);
 
+  const detectedScanCatObj = FOOD_CATEGORIES.find(
+    c => c.id === (scanCategory === 'auto' ? detectFoodCategory(scanName) : scanCategory)
+  ) || FOOD_CATEGORIES[1];
+
   return (
     <div
       style={{
@@ -1200,7 +1280,7 @@ export default function TouchwallPocketApp() {
     >
       <style>{pocketStyles}</style>
 
-      {/* FESTER HEADER MIT CLOUD-VERBINDUNGS-ANZEIGE */}
+      {/* FESTER HEADER */}
       <header className={'shrink-0 z-30 px-3.5 pt-2.5 pb-2 border-b shadow-md ' + themeStyles.header}>
         <div className="flex items-center justify-between gap-2 mb-2">
           <div className="flex items-center gap-2 min-w-0">
@@ -1268,7 +1348,7 @@ export default function TouchwallPocketApp() {
       </header>
 
       {/* HAUPT-SCROLLBEREICH */}
-      <main className={'flex-1 overflow-y-auto px-3.5 pt-3.5 pb-6 ' + themeStyles.viewport}>
+      <main className={'flex-1 overflow-y-auto overflow-x-hidden px-3.5 pt-3.5 pb-6 ' + themeStyles.viewport}>
         <div className="max-w-lg w-full mx-auto space-y-3.5">
 
           {/* TAB 1: KALENDER */}
@@ -1654,7 +1734,7 @@ export default function TouchwallPocketApp() {
             </div>
           )}
 
-          {/* TAB 3: KAMERA-SCANNER */}
+          {/* TAB 3: KAMERA-SCANNER INKL. KATEGORIE-ERKENNUNG */}
           {activeTab === 'scanner' && (
             <div className="space-y-3.5">
               <div className="grid grid-cols-2 gap-2 p-1.5 rounded-2xl bg-black/30 border border-white/10">
@@ -1677,11 +1757,11 @@ export default function TouchwallPocketApp() {
               </div>
 
               {scannerMode === 'barcode' ? (
-                <div className={'p-4 rounded-3xl border space-y-3.5 shadow-md ' + themeStyles.card}>
+                <div className={'p-4 rounded-3xl border space-y-3 shadow-md ' + themeStyles.card}>
                   <div className="flex items-center justify-between">
                     <div>
                       <h2 className="font-black text-base">📷 Produkt & MHD Scanner</h2>
-                      <p className="text-[11px] opacity-75">Synchronisiert direkt über Kanal 3 (sync.tsx) mit der Touchwall</p>
+                      <p className="text-[11px] opacity-75">Ordnet Scans automatisch in die 7 Lebensmittel-Kategorien ein</p>
                     </div>
                     {!cameraActive ? (
                       <button
@@ -1814,27 +1894,30 @@ export default function TouchwallPocketApp() {
                     </button>
                   </div>
 
-                  <form onSubmit={handleSaveScannedProduct} className="space-y-3 pt-2 border-t border-white/10">
+                  <form onSubmit={handleSaveScannedProduct} className="space-y-2.5 pt-2 border-t border-white/10">
                     <div className="flex items-center gap-2">
                       <span className="w-10 h-10 rounded-xl bg-black/25 flex items-center justify-center text-xl shrink-0">
                         {getFoodEmoji(scanName)}
                       </span>
-                      <input
-                        type="text"
-                        required
-                        value={scanName}
-                        onChange={(e) => setScanName(e.target.value)}
-                        placeholder="Produktname (z.B. Gefro Salatdressing, Apfel Rotkohl)..."
-                        className={'w-full px-3.5 py-2.5 rounded-2xl border text-sm font-extrabold ' + themeStyles.input}
-                      />
+                      <div className="flex-1 min-w-0">
+                        <input
+                          type="text"
+                          required
+                          value={scanName}
+                          onChange={(e) => setScanName(e.target.value)}
+                          placeholder="Produktname (z.B. Gefro Salatdressing, Apfel Rotkohl)..."
+                          className={'w-full px-3.5 py-2 rounded-2xl border text-sm font-extrabold ' + themeStyles.input}
+                        />
+                      </div>
                     </div>
 
+                    {/* MENGE + LAGERORT + AUTOMATISCHE LEBENSMITTEL-KATEGORIE */}
                     <div className="grid grid-cols-2 gap-2">
                       <input
                         type="text"
                         value={scanQty}
                         onChange={(e) => setScanQty(e.target.value)}
-                        placeholder="Menge (z.B. 500g, 1x)"
+                        placeholder="Menge (z.B. 500g, 2x)"
                         className={'w-full px-3 py-2 rounded-xl border text-xs font-bold ' + themeStyles.input}
                       />
                       <select
@@ -1848,6 +1931,21 @@ export default function TouchwallPocketApp() {
                         <option value="pantry" className="bg-slate-800 text-white">🗄️ Vorratslager</option>
                       </select>
                     </div>
+
+                    <select
+                      value={scanCategory}
+                      onChange={(e) => setScanCategory(e.target.value)}
+                      className={'w-full px-3 py-2 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+                    >
+                      <option value="auto" className="bg-slate-800 text-amber-300">
+                        ✨ Erkannte Kategorie: {detectedScanCatObj.icon} {detectedScanCatObj.title}
+                      </option>
+                      {FOOD_CATEGORIES.map(cat => (
+                        <option key={cat.id} value={cat.id} className="bg-slate-800 text-white">
+                          {cat.icon} {cat.title}
+                        </option>
+                      ))}
+                    </select>
 
                     <div className="p-3 rounded-2xl bg-amber-500/15 border border-amber-400/50 space-y-2">
                       <div className="flex items-center justify-between">
@@ -1894,7 +1992,7 @@ export default function TouchwallPocketApp() {
                           setScanExpiry(e.target.value);
                           setDetectedMhdCandidate(e.target.value);
                         }}
-                        className={'w-full px-3.5 py-2.5 rounded-xl border text-xs font-black ' + themeStyles.input}
+                        className={'w-full px-3.5 py-2 rounded-xl border text-xs font-black ' + themeStyles.input}
                       />
                     </div>
 
@@ -1981,9 +2079,9 @@ export default function TouchwallPocketApp() {
                 </div>
               )}
 
-              {/* KOMPAKTE BESTANDS-LISTE */}
-              <div className={'p-3.5 rounded-3xl border space-y-2 ' + themeStyles.card}>
-                <div className="flex items-center justify-between">
+              {/* SCHLANKE BESTANDS-LISTE AUF DEM HANDY */}
+              <div className={'p-3 rounded-3xl border space-y-1.5 ' + themeStyles.card}>
+                <div className="flex items-center justify-between pb-1">
                   <span className="font-extrabold text-xs uppercase text-sky-400">
                     🥫 Aktueller Vorrat ({safeStock.length})
                   </span>
@@ -1992,69 +2090,78 @@ export default function TouchwallPocketApp() {
                     onClick={() => syncAllNow(true)}
                     className="text-[11px] font-extrabold text-emerald-400 flex items-center gap-1"
                   >
-                    <RefreshCw className={'w-3 h-3 ' + (isSyncing ? 'animate-spin' : '')} /> Jetzt abgleichen
+                    <RefreshCw className={'w-3 h-3 ' + (isSyncing ? 'animate-spin' : '')} /> Abgleichen
                   </button>
                 </div>
-                <div className="grid grid-cols-1 gap-2">
-                  {safeStock.slice(0, 12).map(item => (
-                    <div key={item.id} className={'p-2.5 rounded-2xl border flex items-center justify-between gap-2 ' + themeStyles.subtle}>
-                      <div className="flex items-center gap-2 min-w-0 flex-1">
-                        <span className="text-xl shrink-0">{getFoodEmoji(item.name)}</span>
-                        <div className="min-w-0 flex-1">
-                          <div className="font-extrabold text-xs truncate">{item.name}</div>
-                          <div className="text-[10px] text-amber-400 font-bold">
-                            {item.quantity} • MHD: {item.expiryDate.slice(8, 10)}.{item.expiryDate.slice(5, 7)}.{item.expiryDate.slice(2, 4)}
+
+                <div className="space-y-1.5">
+                  {safeStock.slice(0, 15).map(item => {
+                    const catObj = FOOD_CATEGORIES.find(c => c.id === detectFoodCategory(item.name, item.category)) || FOOD_CATEGORIES[1];
+                    const decPreview = decrementItemPieceCount(item.quantity);
+
+                    return (
+                      <div key={item.id} className={'px-2.5 py-2 rounded-xl border flex items-center justify-between gap-2 ' + themeStyles.subtle}>
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <span className="text-lg shrink-0">{getFoodEmoji(item.name)}</span>
+                          <div className="min-w-0 flex-1">
+                            <div className="font-extrabold text-xs truncate">{item.name}</div>
+                            <div className="text-[10px] text-amber-400 font-bold flex items-center gap-1.5">
+                              <span>{item.quantity}</span>
+                              <span>•</span>
+                              <span>MHD: {item.expiryDate.slice(8, 10)}.{item.expiryDate.slice(5, 7)}.{item.expiryDate.slice(2, 4)}</span>
+                              <span className="text-sky-300 opacity-85 truncate">• {catObj.icon} {catObj.title.split(' ')[0]}</span>
+                            </div>
                           </div>
                         </div>
-                      </div>
 
-                      {editingStockId === item.id ? (
-                        <div className="flex items-center gap-1">
-                          <input
-                            type="text"
-                            value={editStockQty}
-                            onChange={(e) => setEditStockQty(e.target.value)}
-                            className={'w-16 px-2 py-1 rounded-lg border text-xs font-bold ' + themeStyles.input}
-                          />
-                          <button
-                            onClick={async () => {
-                              const now = Date.now();
-                              lastLocalEditRef.current = now;
-                              const nextStock = safeStock.map(x =>
-                                x.id === item.id
-                                  ? { ...x, quantity: editStockQty || '1x', updatedAt: now, fromMobile: true }
-                                  : x
-                              );
-                              setPantryItems(nextStock);
-                              setEditingStockId(null);
-                              await saveStateToCloud({ pantryItems: nextStock });
-                            }}
-                            className="tw-glow-btn p-1.5 rounded-lg"
-                          >
-                            <Check className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-1 shrink-0">
-                          <button
-                            onClick={() => {
-                              setEditingStockId(item.id);
-                              setEditStockQty(item.quantity);
-                            }}
-                            className="tw-nav-inactive p-1.5 rounded-xl text-sky-300"
-                          >
-                            <Pencil className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => handleConsumeFromPocket(item)}
-                            className="tw-glow-btn px-2.5 py-1.5 rounded-xl text-[10px] font-black"
-                          >
-                            🍽️ Weg
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  ))}
+                        {editingStockId === item.id ? (
+                          <div className="flex items-center gap-1">
+                            <input
+                              type="text"
+                              value={editStockQty}
+                              onChange={(e) => setEditStockQty(e.target.value)}
+                              className={'w-16 px-2 py-1 rounded-lg border text-xs font-bold ' + themeStyles.input}
+                            />
+                            <button
+                              onClick={async () => {
+                                const now = Date.now();
+                                lastLocalEditRef.current = now;
+                                const nextStock = safeStock.map(x =>
+                                  x.id === item.id
+                                    ? { ...x, quantity: editStockQty || '1x', updatedAt: now, fromMobile: true }
+                                    : x
+                                );
+                                setPantryItems(nextStock);
+                                setEditingStockId(null);
+                                await saveStateToCloud({ pantryItems: nextStock });
+                              }}
+                              className="tw-glow-btn p-1.5 rounded-lg"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              onClick={() => {
+                                setEditingStockId(item.id);
+                                setEditStockQty(item.quantity);
+                              }}
+                              className="tw-nav-inactive p-1.5 rounded-lg text-sky-300"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleConsumeFromPocket(item)}
+                              className="tw-glow-btn px-2 py-1.5 rounded-lg text-[10px] font-black"
+                            >
+                              {decPreview.remaining > 0 ? '🍽️ -1' : '🍽️ Weg'}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             </div>
