@@ -774,11 +774,11 @@ export default function TouchwallApp() {
     setIsCheckingAuth(false);
   }, []);
 
-  useEffect(() => {
+    useEffect(() => {
     if (!isAuthenticated || !accountId || accountId === 'local') return;
     const calInterval = setInterval(() => {
       pullCloudRef.current?.(undefined, false);
-    }, 30000);
+    }, 6000);
     return () => clearInterval(calInterval);
   }, [isAuthenticated, accountId]);
 
@@ -814,7 +814,7 @@ export default function TouchwallApp() {
         });
       } catch (e) {}
     }, 600);
-  }, [isAuthenticated, accountId, authKey, familyName, safeMembers, safeMeals, safeNotes, safeSchoolData, safeTasks, safePantryItems, safePantryTrash, skillBoardData, currentTheme, customLogoUrl, safeTodoistConfig, appsScriptUrl]);
+  }, [isAuthenticated, accountId, authKey, familyName, safeMembers, safeMeals, safeNotes, safeSchoolData, safeTasks, safePantryItems, safePantryTrash, currentTheme, customLogoUrl, safeTodoistConfig, appsScriptUrl]);
 
   const handleRegisterSubmit = async (e) => {
     if (e && typeof e.preventDefault === 'function') e.preventDefault();
