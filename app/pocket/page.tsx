@@ -7,7 +7,8 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Calendar, CheckSquare, ShoppingCart, Camera,
   Plus, RefreshCw, Smartphone, LogOut, Send, Trash2,
-  X, ScanLine, FileText, ChevronLeft, ChevronRight, Pencil, Check, Cloud
+  X, ScanLine, FileText, ChevronLeft, ChevronRight, Pencil, Check, Cloud,
+  BellRing,Zap, ZoomIn
 } from 'lucide-react';
 
 import * as Cfg from '../touchwallConfig';
@@ -34,15 +35,23 @@ const FOOD_CATEGORIES = [
   { id: 'sweets_snacks',  icon: '🍫', title: 'Süßwaren & Sonstiges' }
 ];
 
+const STORAGE_PILLS = [
+  { id: 'kitchen', label: '🍎 Küche' },
+  { id: 'fridge',  label: '🧊 Kühl.' },
+  { id: 'freezer', label: '❄️ TK' },
+  { id: 'pantry',  label: '🗄️ Vorrat' }
+];
+
 function detectFoodCategory(nameStr, customCategory = '') {
   if (customCategory && FOOD_CATEGORIES.some(c => c.id === customCategory)) {
     return customCategory;
   }
   const n = String(nameStr || '').toLowerCase();
-  if (/wasser|mineralwasser|kaffee|espresso|tee|saft|apfelsaft|orangensaft|schorle|cola|limo|getränk|sirup|kakao|bier|wein/.test(n)) return 'drinks';
   if (/butter|kräuterbutter|meggle|margarine|öl|sonnenblumenöl|olivenöl|rapsöl|kokosöl|fett|schmalz|essig|hengstenberg|senf|thomy|ketchup|mayo|mayonnaise|dressing|burger sauce|heinz|soße|sauce|pesto/.test(n)) return 'oils_fats';
+  if (/schokolade|choco|schoko|nutella|keks|cookie|gummibär|chips|flips|eis|bonbon|praline/.test(n)) return 'sweets_snacks';
+  if (/wasser|mineralwasser|kaffee|espresso|tee|saft|apfelsaft|orangensaft|schorle|cola|limo|getränk|sirup|kakao|\bbier\b|\bwein\b/.test(n)) return 'drinks';
   if (/milch|vollmilch|schwarzwaldmilch|landfein|joghurt|quark|käse|frischkäse|philadelphia|scheibenkäse|gouda|mozzarella|parmesan|emmentaler|camembert|feta|schlagsahne|sahne|schmand|creme fraiche|mascarpone|ayran|kefir/.test(n)) return 'dairy';
-  if (/fleisch|hackfleisch|rinderhack|rind|schwein|hähnchen|huhn|pute|geflügel|schnitzel|steak|gulasch|wurst|bratwurst|rostbratwurst|leberwurst|würstchen|wiener|lyoner|salami|schinken|speck|aufschnitt|fisch|lachs|thunfisch|fischstäbchen|forelle|garnele|ei|eier/.test(n)) return 'meat_fish_eggs';
+  if (/fleisch|hackfleisch|rinderhack|rind|schwein|hähnchen|huhn|pute|geflügel|schnitzel|steak|gulasch|wurst|bratwurst|rostbratwurst|leberwurst|würstchen|wiener|lyoner|salami|schinken|speck|aufschnitt|fisch|lachs|thunfisch|fischstäbchen|forelle|garnele|\bei\b|eier/.test(n)) return 'meat_fish_eggs';
   if (/brot|landbrot|mehrkorn|brötchen|toast|baguette|croissant|nudel|spaghetti|pasta|penne|rigatoni|tortellini|ravioli|spätzle|reis|spitzenreis|langkorn|basmati|jasmin|milchreis|getreide|haferflocken|müsli|cornflakes|mehl|grieß|stärke|wraps|wrap|tortilla|taco|schär|kartoffel|kartoffelpüree|pfanni|gnocchi|schupfnudel|pommes|knödel/.test(n)) return 'grains';
   if (/obst|apfel|äpfel|elstar|apfelmus|banane|clementine|mandarine|orange|susi|beere|erdbeer|himbeer|heidelbeer|traube|birne|zitrone|limette|kiwi|mango|ananas|melone|gemüse|salat|eisberg|mâche|mache|feldsalat|rucola|spinat|gurke|tomate|tomatenmark|passierte|oro di parma|paprika|karotte|möhre|zwiebel|knoblauch|brokkoli|blumenkohl|spargel|stangenspargel|rotkohl|kraut|pilz|champignon|avocado|mais|erbse|bohne|linse|kichererbse|chili sin carne|gefro/.test(n)) return 'produce';
   return 'sweets_snacks';
@@ -72,7 +81,7 @@ function getFoodEmoji(nameStr) {
   if (/milch|vollmilch|hafermilch|kakao/.test(n)) return '🥛';
   if (/butter|kräuterbutter|meggle|margarine/.test(n)) return '🧈';
   if (/joghurt|quark|pudding|schmand|sahne|schlagsahne|creme/.test(n)) return '🥣';
-  if (/ei|eier/.test(n)) return '🥚';
+  if (/\bei\b|eier/.test(n)) return '🥚';
   if (/hähnchen|huhn|pute|geflügel|nuggets/.test(n)) return '🍗';
   if (/hackfleisch|rinderhack|rind|steak|fleisch|schnitzel|gulasch/.test(n)) return '🥩';
   if (/fisch|lachs|thunfisch|fischstäbchen|forelle/.test(n)) return '🐟';
@@ -83,9 +92,21 @@ function getFoodEmoji(nameStr) {
   if (/wrap|taco|tortilla|schär/.test(n)) return '🌮';
   if (/senf|thomy|heinz|ketchup|mayo|soße|sauce|pesto|öl|essig/.test(n)) return '🥫';
   if (/mehl|zucker|salz|haferflocken|müsli|cornflakes/.test(n)) return '🌾';
-  if (/schokolade|nutella|keks|gummibär|chips|eis/.test(n)) return '🍫';
+  if (/schokolade|choco|schoko|nutella|keks|gummibär|chips|eis/.test(n)) return '🍫';
   if (/wasser|saft|cola|limo|bier|wein|kaffee|tee/.test(n)) return '🧃';
   return '🥫';
+}
+
+function stepMobileQty(rawQtyStr, delta) {
+  const clean = String(rawQtyStr || '1x').trim();
+  const match = clean.match(/^(\d+(?:[.,]\d+)?)\s*(.*)$/);
+  if (!match) return delta > 0 ? '2x' : '1x';
+  const val = parseFloat(match[1].replace(',', '.'));
+  const unit = (match[2] || 'x').trim();
+  const uLower = unit.toLowerCase();
+  const step = (uLower === 'g' || uLower === 'ml') ? (val >= 200 ? 50 : 25) : 1;
+  const nextVal = Math.max(step, Math.round((val + delta * step) * 100) / 100);
+  return nextVal + (unit ? (uLower === 'x' ? 'x' : ' ' + unit) : 'x');
 }
 
 function decrementItemPieceCount(rawQtyStr) {
@@ -120,6 +141,43 @@ function decrementItemPieceCount(rawQtyStr) {
     return { remaining: 0, nextQtyStr: '0' };
   }
   return { remaining: 0, nextQtyStr: '0' };
+}
+
+// Akustischer Signalton für Scan-Treffer & Einkaufslisten-Push
+function playMobileBeep(type = 'scan') {
+  try {
+    if (typeof window === 'undefined') return;
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const now = ctx.currentTime;
+
+    if (type === 'shopping') {
+      [587.33, 880].forEach((freq, idx) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(freq, now + idx * 0.12);
+        gain.gain.setValueAtTime(0.22, now + idx * 0.12);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.12 + 0.28);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now + idx * 0.12);
+        osc.stop(now + idx * 0.12 + 0.3);
+      });
+    } else {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(1046.5, now);
+      gain.gain.setValueAtTime(0.12, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.11);
+    }
+  } catch (e) {}
 }
 
 const {
@@ -212,16 +270,22 @@ export default function TouchwallPocketApp() {
     collaborators: []
   });
 
+  // Benachrichtigungs-Status für Einkaufsliste
+  const [notifPermission, setNotifPermission] = useState('default');
+  const knownShoppingTextsRef = useRef(null);
+
   // Sync-Refs für app/sync.tsx
   const preservedWallStateRef = useRef({});
-  const syncMetaRef = useRef({ deletedPantryIds: {}, deletedTaskIds: {}, deletedEventIds: {} });
+  const syncMetaRef = useRef({ deletedPantryIds: {}, deletedTrashIds: {}, deletedTaskIds: {}, deletedEventIds: {} });
   const pendingCalendarOpsRef = useRef({});
   const isNetworkSavingRef = useRef(false);
   const lastLocalEditRef = useRef(0);
 
-  // Scanner-State inkl. Lebensmittel-Kategorie
+  // Scanner-State inkl. Taschenlampe, 2x-Lupe & Schnell-OCR-Worker
   const [scannerMode, setScannerMode] = useState('barcode');
   const [cameraActive, setCameraActive] = useState(false);
+  const [torchOn, setTorchOn] = useState(false);
+  const [zoomActive, setZoomActive] = useState(false);
   const [scannedBarcode, setScannedBarcode] = useState('');
   const [scanName, setScanName] = useState('');
   const [scanQty, setScanQty] = useState('1x');
@@ -245,6 +309,7 @@ export default function TouchwallPocketApp() {
   const streamRef = useRef(null);
   const scanLoopRef = useRef(null);
   const mhdAutoLoopRef = useRef(null);
+  const ocrWorkerRef = useRef(null);
   const lastScannedCodeRef = useRef('');
   const lastScanTimeRef = useRef(0);
   const isReadingMhdRef = useRef(false);
@@ -264,7 +329,7 @@ export default function TouchwallPocketApp() {
 
   const showToast = (title, msg, icon = '📲') => {
     setToast({ title, msg, icon });
-    setTimeout(() => setToast(null), 3200);
+    setTimeout(() => setToast(null), 3500);
   };
 
   const themeStyles = useMemo(() => buildThemeStyles(currentTheme), [currentTheme]);
@@ -285,6 +350,73 @@ export default function TouchwallPocketApp() {
   const safeNotes = useMemo(() => Array.isArray(familyNotes) && familyNotes.length > 0 ? familyNotes : DEFAULT_NOTES, [familyNotes]);
   const safeStock = useMemo(() => Array.isArray(pantryItems) ? pantryItems : [], [pantryItems]);
   const safeTrash = useMemo(() => Array.isArray(pantryTrash) ? pantryTrash : [], [pantryTrash]);
+
+  // =========================================================
+  // HANDY-BENACHRICHTIGUNG BEI NEUEN ARTIKELN AUF DER EINKAUFSLISTE
+  // =========================================================
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      setNotifPermission(Notification.permission);
+    }
+  }, []);
+
+  const requestShoppingPushPermission = async () => {
+    playMobileBeep('shopping');
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      showToast('Ton- & Vibrations-Alarm aktiv', 'Du wirst bei neuen Einkäufen sofort benachrichtigt.', '🔔');
+      return;
+    }
+    try {
+      const perm = await Notification.requestPermission();
+      setNotifPermission(perm);
+      if (perm === 'granted') {
+        new Notification('🛒 Einkaufslisten-Push aktiv!', {
+          body: 'Du erhältst sofort eine Nachricht, sobald etwas auf der Einkaufsliste landet.'
+        });
+        showToast('Push aktiviert!', 'Handy-Benachrichtigungen für die Einkaufsliste sind scharf.', '🔔');
+      }
+    } catch (e) {}
+  };
+
+  const triggerShoppingPhoneNotification = (addedNamesList) => {
+    if (!Array.isArray(addedNamesList) || addedNamesList.length === 0) return;
+    const summaryText = addedNamesList.join(', ');
+    playMobileBeep('shopping');
+    try { navigator.vibrate?.([180, 90, 220]); } catch (e) {}
+    showToast('🛒 Neu auf der Einkaufsliste!', summaryText, '🛒');
+
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+      try {
+        new Notification('🛒 Neu auf der Einkaufsliste (' + addedNamesList.length + ')', {
+          body: summaryText,
+          tag: 'tw-shopping-' + Date.now()
+        });
+      } catch (e) {}
+    }
+  };
+
+  // Überwacht automatisch die Einkaufsliste (safeNotes[0].items) auf Neuzugänge
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const currentOpenTexts = (Array.isArray(safeNotes?.[0]?.items) ? safeNotes[0].items : [])
+      .filter(it => it && !it.done && String(it.text || '').trim() !== '')
+      .map(it => String(it.text).trim());
+
+    if (knownShoppingTextsRef.current === null) {
+      knownShoppingTextsRef.current = new Set(currentOpenTexts.map(t => t.toLowerCase()));
+      return;
+    }
+
+    const newlyAdded = currentOpenTexts.filter(
+      txt => !knownShoppingTextsRef.current.has(txt.toLowerCase())
+    );
+
+    if (newlyAdded.length > 0) {
+      triggerShoppingPhoneNotification(newlyAdded);
+    }
+
+    knownShoppingTextsRef.current = new Set(currentOpenTexts.map(t => t.toLowerCase()));
+  }, [isAuthenticated, safeNotes]);
 
   const renderAvatar = (member, size = 'w-8 h-8', textSize = 'text-xs') => {
     const st = getMemberStyles(member);
@@ -587,7 +719,7 @@ export default function TouchwallPocketApp() {
       if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
         syncAllNow(false);
       }
-    }, 10000);
+    }, 8000);
     return () => clearInterval(interval);
   }, [isAuthenticated, accountId, authKey]);
 
@@ -599,20 +731,57 @@ export default function TouchwallPocketApp() {
       streamRef.current = null;
     }
     setCameraActive(false);
+    setTorchOn(false);
+    setZoomActive(false);
   };
 
   useEffect(() => {
-    return () => stopCameraStream();
+    return () => {
+      stopCameraStream();
+      if (ocrWorkerRef.current) {
+        ocrWorkerRef.current.terminate?.().catch(() => {});
+        ocrWorkerRef.current = null;
+      }
+    };
   }, []);
 
+  // Taschenlampe (Torch) & 2x-Lupe auf dem Smartphone schalten
+  const toggleCameraTorch = async () => {
+    try {
+      const track = streamRef.current?.getVideoTracks?.()?.[0];
+      if (!track) return;
+      const next = !torchOn;
+      await track.applyConstraints({ advanced: [{ torch: next }] });
+      setTorchOn(next);
+    } catch (e) {
+      showToast('Kameralicht', 'Taschenlampe wird auf diesem Gerät vom Browser nicht unterstützt.', '🔦');
+    }
+  };
+
+  const toggleCameraZoom = async () => {
+    const next = !zoomActive;
+    setZoomActive(next);
+    try {
+      const track = streamRef.current?.getVideoTracks?.()?.[0];
+      if (track) {
+        await track.applyConstraints({ advanced: [{ zoom: next ? 2.0 : 1.0 }] });
+      }
+    } catch (e) {}
+  };
+
+  // =========================================================
+  // HOCHPRÄZISER MHD-DATUM-PARSER (FÜR DEUTSCHE & INTERNATIONALE AUFDURCKE)
+  // =========================================================
   const extractExpiryDateFromText = (rawText) => {
     const clean = String(rawText || '')
       .replace(/[|lI!]/g, '1')
-      .replace(/O/g, '0')
+      .replace(/[OQ]/g, '0')
       .replace(/S(?=\d)/g, '5')
-      .replace(/B(?=\d)/g, '8');
+      .replace(/B(?=\d)/g, '8')
+      .replace(/Z(?=\d)/g, '2');
 
-    const dmyRegex = /(0?[1-9]|[12][0-9]|3[01])\s*[.,/\-\s:·•_]+\s*(0?[1-9]|1[0-2])\s*[.,/\-\s:·•_]+\s*(20[2-3][0-9]|[2-3][0-9])\b/g;
+    // 1. Standard: TT.MM.JJJJ oder TT.MM.JJ (auch mit Leerzeichen, Punktmatrix oder Schrägstrich)
+    const dmyRegex = /(0?[1-9]|[12][0-9]|3[01])\s*[.,/\-\s:·•_]+\s*(0?[1-9]|1[0-2])\s*[.,/\-\s:·•_]+\s*(20[2-3][0-9]|2[6-9]|3[0-5])\b/g;
     let match;
     while ((match = dmyRegex.exec(clean)) !== null) {
       const day = String(match[1]).padStart(2, '0');
@@ -625,6 +794,7 @@ export default function TouchwallPocketApp() {
       }
     }
 
+    // 2. Kompaktformat ohne erkannte Punkte: z.B. "210827" oder "27102028"
     const compactRegex = /\b(0[1-9]|[12][0-9]|3[01])(0[1-9]|1[0-2])(20[2-3][0-9]|2[6-9]|3[0-5])\b/g;
     while ((match = compactRegex.exec(clean)) !== null) {
       const day = match[1];
@@ -634,16 +804,46 @@ export default function TouchwallPocketApp() {
       return year + '-' + month + '-' + day;
     }
 
-    const myRegex = /\b(0?[1-9]|1[0-2])\s*[.,/\-:]+\s*(20[2-3][0-9])\b/g;
+    // 3. Monatsformat: MM.JJJJ oder MM/JJ (z.B. "08.2027" oder "08/27")
+    const myRegex = /\b(0?[1-9]|1[0-2])\s*[.,/\-:]+\s*(20[2-3][0-9]|2[6-9]|3[0-5])\b/g;
     while ((match = myRegex.exec(clean)) !== null) {
       const month = String(match[1]).padStart(2, '0');
-      const year = String(match[2]);
+      let year = String(match[2]);
+      if (year.length === 2) year = '20' + year;
       return year + '-' + month + '-28';
     }
 
     return null;
   };
 
+  // Initialisiert einmalig einen schnellen, auf Ziffern trainierten Tesseract-Worker
+  const getFastMhdOcrWorker = async () => {
+    if (ocrWorkerRef.current) return ocrWorkerRef.current;
+
+    if (typeof window !== 'undefined' && !window.Tesseract) {
+      await new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+        s.onload = resolve;
+        s.onerror = reject;
+        document.head.appendChild(s);
+      });
+    }
+
+    if (window.Tesseract?.createWorker) {
+      const worker = await window.Tesseract.createWorker('eng');
+      await worker.setParameters({
+        tessedit_char_whitelist: '0123456789.,/-:MHDmhd '
+      });
+      ocrWorkerRef.current = worker;
+      return worker;
+    }
+    return null;
+  };
+
+  // =========================================================
+  // TURBO-MHD-SCANNER (4x SCHNELLER DURCH ZIELSTREIFEN & ZIFFERN-WORKER)
+  // =========================================================
   const captureMhdFromLiveCamera = async (silentMode = false) => {
     if (!videoRef.current || videoRef.current.readyState < 2) {
       if (!silentMode) showToast('Kamera nicht bereit', 'Bitte zuerst die Kamera starten.', '⚠️');
@@ -653,40 +853,32 @@ export default function TouchwallPocketApp() {
 
     isReadingMhdRef.current = true;
     setIsReadingMhd(true);
-    if (!silentMode) {
-      showToast('Scanne MHD-Datum...', 'Lese Aufdruck im Zielrahmen...', '📅');
-    }
 
     try {
-      if (typeof window !== 'undefined' && !window.Tesseract) {
-        await new Promise((resolve, reject) => {
-          const s = document.createElement('script');
-          s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
-          s.onload = resolve;
-          s.onerror = reject;
-          document.head.appendChild(s);
-        });
-      }
-
       const vid = videoRef.current;
       const vw = vid.videoWidth || 640;
       const vh = vid.videoHeight || 480;
 
-      const cropX = Math.floor(vw * 0.08);
-      const cropY = Math.floor(vh * 0.2);
-      const cropW = Math.floor(vw * 0.84);
-      const cropH = Math.floor(vh * 0.6);
+      // Exakter Zuschnitt auf den gelben MHD-Zielstreifen in der Bildmitte
+      const cropX = Math.floor(vw * 0.10);
+      const cropY = Math.floor(vh * 0.28);
+      const cropW = Math.floor(vw * 0.80);
+      const cropH = Math.floor(vh * 0.44);
 
       const canvas = document.createElement('canvas');
       canvas.width = cropW;
       canvas.height = cropH;
       const ctx = canvas.getContext('2d');
-      ctx.filter = 'contrast(1.75) grayscale(1) brightness(1.08)';
+      ctx.filter = 'contrast(2.1) grayscale(1) brightness(1.12)';
       ctx.drawImage(vid, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
 
-      const result = await window.Tesseract.recognize(canvas, 'eng');
+      const worker = await getFastMhdOcrWorker();
+      const result = worker
+        ? await worker.recognize(canvas)
+        : await window.Tesseract.recognize(canvas, 'eng');
+
       const detectedText = String(result?.data?.text || '').trim();
-      const singleLineHint = detectedText.replace(/\s+/g, ' ').slice(0, 48);
+      const singleLineHint = detectedText.replace(/\s+/g, ' ').slice(0, 42);
       if (singleLineHint) setLastOcrRawHint(singleLineHint);
 
       const parsedDate = extractExpiryDateFromText(detectedText);
@@ -694,12 +886,14 @@ export default function TouchwallPocketApp() {
       if (parsedDate) {
         setDetectedMhdCandidate(parsedDate);
         setScanExpiry(parsedDate);
+        playMobileBeep('scan');
+        try { navigator.vibrate?.(70); } catch (e) {}
         const niceDate = parsedDate.slice(8, 10) + '.' + parsedDate.slice(5, 7) + '.' + parsedDate.slice(0, 4);
-        showToast('MHD erkannt: ' + niceDate, 'Tippe auf „⚡ Akzeptieren & Speichern“!', '🎉');
+        showToast('MHD erkannt: ' + niceDate, 'Tippe unten direkt auf „⚡ Speichern“!', '🎉');
       } else if (!silentMode) {
         showToast(
-          'Noch kein Datum erkannt',
-          singleLineHint ? ('Gelesen: „' + singleLineHint + '“ – bitte kurz ruhiger halten.') : 'Bitte etwas näher an das MHD gehen.',
+          'Datum noch unscharf',
+          'Tipp: Nutze oben im Bild „🔍 2x Lupe“ oder „🔦 Licht“.',
           '🔍'
         );
       }
@@ -711,6 +905,7 @@ export default function TouchwallPocketApp() {
     }
   };
 
+  // Schnellerer 1,2-Sekunden Auto-MHD-Intervall
   useEffect(() => {
     if (!cameraActive || !autoMhdScanEnabled) {
       if (mhdAutoLoopRef.current) clearInterval(mhdAutoLoopRef.current);
@@ -720,7 +915,7 @@ export default function TouchwallPocketApp() {
       if (!isReadingMhdRef.current && !detectedMhdCandidate) {
         captureMhdFromLiveCamera(true);
       }
-    }, 2600);
+    }, 1250);
 
     return () => {
       if (mhdAutoLoopRef.current) clearInterval(mhdAutoLoopRef.current);
@@ -746,7 +941,9 @@ export default function TouchwallPocketApp() {
         if (fullTitle) {
           setScanName(fullTitle);
           setScanQty(qty);
-          showToast('Produkt erkannt!', fullTitle + ' – halte jetzt das MHD in die Kamera!', getFoodEmoji(fullTitle));
+          playMobileBeep('scan');
+          try { navigator.vibrate?.(50); } catch (e) {}
+          showToast('Produkt erkannt!', fullTitle + ' – halte jetzt das MHD in den Rahmen!', getFoodEmoji(fullTitle));
           return;
         }
       }
@@ -763,8 +960,8 @@ export default function TouchwallPocketApp() {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: 'environment',
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
+          width: { ideal: 1920 },
+          height: { ideal: 1080 }
         }
       });
 
@@ -775,6 +972,9 @@ export default function TouchwallPocketApp() {
 
       streamRef.current = stream;
       setCameraActive(true);
+      // Worker schon beim Kamerastart im Hintergrund vorwärmen
+      getFastMhdOcrWorker().catch(() => {});
+
       setTimeout(() => {
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
@@ -800,7 +1000,7 @@ export default function TouchwallPocketApp() {
               }
             }
           } catch (err) {}
-        }, 450);
+        }, 380);
       }
     } catch (err) {
       showToast('Kamera-Zugriff', 'Bitte erlaube den Kamera-Zugriff im Browser.', '⚠️');
@@ -853,7 +1053,6 @@ export default function TouchwallPocketApp() {
     }
   };
 
-  // Speichert das gescannte Produkt inkl. erkannter Lebensmittel-Kategorie
   const saveProductDirectly = async (nameVal, barcodeVal, qtyVal, locVal, expVal, imgVal) => {
     if (!nameVal || !expVal) {
       showToast('Fehlende Angabe', 'Bitte Produktname und MHD prüfen.', '⚠️');
@@ -928,7 +1127,6 @@ export default function TouchwallPocketApp() {
     showToast('Kassenbon übertragen!', newEntries.length + ' Produkte an Touchwall gesendet.', '🎉');
   };
 
-  // Unterstützt Einzelstück-Abzug (-1) auch direkt auf dem Smartphone!
   const handleConsumeFromPocket = async (item) => {
     const now = Date.now();
     lastLocalEditRef.current = now;
@@ -1082,6 +1280,10 @@ export default function TouchwallPocketApp() {
     const firstNote = safeNotes[0] || { id: 1, title: '🛒 Einkaufsliste', items: [] };
     const projId = firstNote.todoistProjectId || todoistConfig?.shoppingProjectId || '';
 
+    if (knownShoppingTextsRef.current) {
+      knownShoppingTextsRef.current.add(clean.toLowerCase());
+    }
+
     let todoistId = null;
     if (todoistConfig?.apiToken && projId) {
       try {
@@ -1096,7 +1298,7 @@ export default function TouchwallPocketApp() {
           '',
           'none',
           todoistConfig.collaborators,
-          false
+          true
         );
         if (created?.id) todoistId = String(created.id);
       } catch (err) {}
@@ -1108,6 +1310,7 @@ export default function TouchwallPocketApp() {
     } : n);
     setFamilyNotes(nextNotes);
     setQuickShopText('');
+    triggerShoppingPhoneNotification([clean]);
     await saveStateToCloud({ familyNotes: nextNotes });
   };
 
@@ -1280,76 +1483,87 @@ export default function TouchwallPocketApp() {
     >
       <style>{pocketStyles}</style>
 
-      {/* FESTER HEADER */}
-      <header className={'shrink-0 z-30 px-3.5 pt-2.5 pb-2 border-b shadow-md ' + themeStyles.header}>
-        <div className="flex items-center justify-between gap-2 mb-2">
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="px-2 py-0.5 rounded-lg bg-sky-500 text-white text-[10px] font-black">POCKET</span>
-            <h1 className="font-extrabold text-sm sm:text-base truncate">{familyName}</h1>
-            {accountId && accountId !== 'local' ? (
-              <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-extrabold border border-emerald-400/30 flex items-center gap-1 shrink-0">
-                <Cloud className="w-3 h-3" /> {accountId}
-              </span>
-            ) : (
-              <span className="px-2 py-0.5 rounded-full bg-rose-500/25 text-rose-300 text-[10px] font-extrabold shrink-0">
-                ⚠️ Nur lokal
-              </span>
-            )}
+      {/* =========================================================
+          OBERER HEADER (WIRD IM SCANNER-TAB KOMPLETT AUSGEBLENDET!)
+         ========================================================= */}
+      {activeTab !== 'scanner' && (
+        <header className={'shrink-0 z-30 px-3.5 pt-2.5 pb-2 border-b shadow-md ' + themeStyles.header}>
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="px-2 py-0.5 rounded-lg bg-sky-500 text-white text-[10px] font-black">POCKET</span>
+              <h1 className="font-extrabold text-sm sm:text-base truncate">{familyName}</h1>
+              {accountId && accountId !== 'local' ? (
+                <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-extrabold border border-emerald-400/30 flex items-center gap-1 shrink-0">
+                  <Cloud className="w-3 h-3" /> {accountId}
+                </span>
+              ) : (
+                <span className="px-2 py-0.5 rounded-full bg-rose-500/25 text-rose-300 text-[10px] font-extrabold shrink-0">
+                  ⚠️ Lokal
+                </span>
+              )}
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={requestShoppingPushPermission}
+                title="Einkaufslisten-Push aktivieren"
+                className={'p-2.5 rounded-xl ' + (notifPermission === 'granted' ? 'bg-emerald-500/25 text-emerald-300 border border-emerald-400/40' : 'tw-glow-btn')}
+              >
+                <BellRing className="w-4 h-4" />
+              </button>
+              <button onClick={() => syncAllNow(true)} className="tw-glow-btn p-2.5 rounded-xl">
+                <RefreshCw className={'w-4 h-4 ' + (isSyncing ? 'animate-spin text-sky-300' : '')} />
+              </button>
+              <a href="/" className="tw-glow-btn px-2.5 py-2 rounded-xl text-[11px] font-extrabold no-underline">
+                🖥️ Wand
+              </a>
+              <button
+                onClick={() => {
+                  localStorage.removeItem('richter_tw_auth_active');
+                  setIsAuthenticated(false);
+                }}
+                className="tw-nav-inactive p-2.5 rounded-xl text-rose-400"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            </div>
           </div>
 
-          <div className="flex items-center gap-1.5">
-            <button onClick={() => syncAllNow(true)} className="tw-glow-btn p-2 rounded-xl">
-              <RefreshCw className={'w-3.5 h-3.5 ' + (isSyncing ? 'animate-spin text-sky-300' : '')} />
-            </button>
-            <a href="/" className="tw-glow-btn px-2.5 py-1.5 rounded-xl text-[11px] font-extrabold no-underline">
-              🖥️ Wand
-            </a>
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
             <button
               onClick={() => {
-                localStorage.removeItem('richter_tw_auth_active');
-                setIsAuthenticated(false);
+                setSelectedPerson('all');
+                try { localStorage.setItem('richter_tw_pocket_person', 'all'); } catch (e) {}
               }}
-              className="tw-nav-inactive p-2 rounded-xl text-rose-400"
+              className={'px-3.5 py-1.5 rounded-xl text-xs font-extrabold shrink-0 ' + (selectedPerson === 'all' ? 'tw-active-nav' : 'tw-nav-inactive')}
             >
-              <LogOut className="w-3.5 h-3.5" />
+              👨‍👩‍👧‍👦 Alle
             </button>
+
+            {safeMembers.filter(m => m.id !== 'all').map(m => {
+              const isSel = selectedPerson === m.id;
+              return (
+                <button
+                  key={m.id}
+                  onClick={() => {
+                    setSelectedPerson(m.id);
+                    setQuickTaskMember(m.id);
+                    try { localStorage.setItem('richter_tw_pocket_person', m.id); } catch (e) {}
+                  }}
+                  className={'pr-3 pl-1.5 py-1 rounded-xl flex items-center gap-1.5 text-xs font-extrabold shrink-0 ' + (isSel ? 'tw-active-nav' : 'tw-nav-inactive')}
+                >
+                  {renderAvatar(m, 'w-5 h-5', 'text-[10px]')}
+                  <span>{m.name.split(' ')[0]}</span>
+                </button>
+              );
+            })}
           </div>
-        </div>
-
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
-          <button
-            onClick={() => {
-              setSelectedPerson('all');
-              try { localStorage.setItem('richter_tw_pocket_person', 'all'); } catch (e) {}
-            }}
-            className={'px-3 py-1 rounded-xl text-xs font-extrabold shrink-0 ' + (selectedPerson === 'all' ? 'tw-active-nav' : 'tw-nav-inactive')}
-          >
-            👨‍👩‍👧‍👦 Alle
-          </button>
-
-          {safeMembers.filter(m => m.id !== 'all').map(m => {
-            const isSel = selectedPerson === m.id;
-            return (
-              <button
-                key={m.id}
-                onClick={() => {
-                  setSelectedPerson(m.id);
-                  setQuickTaskMember(m.id);
-                  try { localStorage.setItem('richter_tw_pocket_person', m.id); } catch (e) {}
-                }}
-                className={'pr-2.5 pl-1 py-0.5 rounded-xl flex items-center gap-1.5 text-xs font-extrabold shrink-0 ' + (isSel ? 'tw-active-nav' : 'tw-nav-inactive')}
-              >
-                {renderAvatar(m, 'w-5 h-5', 'text-[10px]')}
-                <span>{m.name.split(' ')[0]}</span>
-              </button>
-            );
-          })}
-        </div>
-      </header>
+        </header>
+      )}
 
       {/* HAUPT-SCROLLBEREICH */}
-      <main className={'flex-1 overflow-y-auto overflow-x-hidden px-3.5 pt-3.5 pb-6 ' + themeStyles.viewport}>
-        <div className="max-w-lg w-full mx-auto space-y-3.5">
+      <main className={'flex-1 overflow-y-auto overflow-x-hidden px-3 pt-2.5 pb-6 ' + themeStyles.viewport}>
+        <div className="max-w-lg w-full mx-auto space-y-3">
 
           {/* TAB 1: KALENDER */}
           {activeTab === 'agenda' && (
@@ -1366,7 +1580,7 @@ export default function TouchwallPocketApp() {
                         key={v.id}
                         type="button"
                         onClick={() => setCalendarSubView(v.id)}
-                        className={'py-1.5 rounded-lg text-xs font-extrabold ' + (calendarSubView === v.id ? 'tw-active-nav' : 'opacity-75')}
+                        className={'py-2 rounded-lg text-xs font-extrabold ' + (calendarSubView === v.id ? 'tw-active-nav' : 'opacity-75')}
                       >
                         {v.label}
                       </button>
@@ -1380,7 +1594,7 @@ export default function TouchwallPocketApp() {
                       setNewEvMember(selectedPerson === 'all' ? 'all' : selectedPerson);
                       setNewEventModalOpen(true);
                     }}
-                    className="tw-glow-btn px-3 py-2 rounded-xl text-xs font-black flex items-center gap-1 shrink-0"
+                    className="tw-glow-btn px-3.5 py-2.5 rounded-xl text-xs font-black flex items-center gap-1 shrink-0"
                   >
                     <Plus className="w-4 h-4 stroke-[3]" /> Termin
                   </button>
@@ -1388,7 +1602,7 @@ export default function TouchwallPocketApp() {
 
                 <div className="flex items-center justify-between gap-2 pt-0.5">
                   <div className="flex items-center gap-1.5">
-                    <button onClick={() => navigateCalendarCursor(-1)} className="tw-glow-btn w-7 h-7 rounded-xl flex items-center justify-center">
+                    <button onClick={() => navigateCalendarCursor(-1)} className="tw-glow-btn w-8 h-8 rounded-xl flex items-center justify-center">
                       <ChevronLeft className="w-4 h-4" />
                     </button>
                     <button
@@ -1397,11 +1611,11 @@ export default function TouchwallPocketApp() {
                         setCalCursorDate(now);
                         setSelectedMonthDayStr(formatDateStr(now));
                       }}
-                      className="tw-glow-btn px-2.5 py-1 rounded-xl text-xs font-extrabold"
+                      className="tw-glow-btn px-3 py-1.5 rounded-xl text-xs font-extrabold"
                     >
                       Heute
                     </button>
-                    <button onClick={() => navigateCalendarCursor(1)} className="tw-glow-btn w-7 h-7 rounded-xl flex items-center justify-center">
+                    <button onClick={() => navigateCalendarCursor(1)} className="tw-glow-btn w-8 h-8 rounded-xl flex items-center justify-center">
                       <ChevronRight className="w-4 h-4" />
                     </button>
                   </div>
@@ -1430,7 +1644,7 @@ export default function TouchwallPocketApp() {
                       >
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
-                            <span className={'w-7 h-7 rounded-xl text-xs font-black flex items-center justify-center ' + (isToday ? 'bg-orange-500 text-white' : 'bg-black/30')}>
+                            <span className={'w-8 h-8 rounded-xl text-xs font-black flex items-center justify-center ' + (isToday ? 'bg-orange-500 text-white' : 'bg-black/30')}>
                               {WEEKDAYS_SHORT[dayObj.getDay()]}
                             </span>
                             <div>
@@ -1451,14 +1665,14 @@ export default function TouchwallPocketApp() {
                               setNewEvMember(selectedPerson === 'all' ? 'all' : selectedPerson);
                               setNewEventModalOpen(true);
                             }}
-                            className="tw-glow-btn w-7 h-7 rounded-xl font-black text-sm flex items-center justify-center"
+                            className="tw-glow-btn w-8 h-8 rounded-xl font-black text-base flex items-center justify-center"
                           >
                             +
                           </button>
                         </div>
 
                         {dayEvs.length === 0 ? (
-                          <div className="text-[11px] opacity-45 pl-9">Keine Termine</div>
+                          <div className="text-[11px] opacity-45 pl-10">Keine Termine</div>
                         ) : (
                           <div className="space-y-1.5 pl-1">
                             {dayEvs.map(ev => {
@@ -1468,7 +1682,7 @@ export default function TouchwallPocketApp() {
                                 <div
                                   key={ev.id}
                                   style={st.cardStyle}
-                                  className="px-3 py-2 rounded-xl flex items-center justify-between gap-2 shadow-xs"
+                                  className="px-3 py-2.5 rounded-xl flex items-center justify-between gap-2 shadow-xs"
                                 >
                                   <div className="min-w-0">
                                     <div className="font-extrabold text-xs leading-snug break-words">{ev.title}</div>
@@ -1478,9 +1692,9 @@ export default function TouchwallPocketApp() {
                                   </div>
                                   <button
                                     onClick={() => handleDeleteMobileEvent(ev)}
-                                    className="p-1.5 rounded-lg bg-black/25 text-white/80 shrink-0"
+                                    className="p-2 rounded-lg bg-black/25 text-white/80 shrink-0"
                                   >
-                                    <Trash2 className="w-3.5 h-3.5" />
+                                    <Trash2 className="w-4 h-4" />
                                   </button>
                                 </div>
                               );
@@ -1561,7 +1775,7 @@ export default function TouchwallPocketApp() {
                           setNewEvMember(selectedPerson === 'all' ? 'all' : selectedPerson);
                           setNewEventModalOpen(true);
                         }}
-                        className="tw-glow-btn px-3 py-1 rounded-xl text-xs font-black"
+                        className="tw-glow-btn px-3 py-1.5 rounded-xl text-xs font-black"
                       >
                         + Termin hier
                       </button>
@@ -1585,7 +1799,7 @@ export default function TouchwallPocketApp() {
                                 <div className="font-extrabold text-sm">{ev.title}</div>
                                 <div className="text-xs opacity-90">⏰ {ev.time} • {mem.name}</div>
                               </div>
-                              <button onClick={() => handleDeleteMobileEvent(ev)} className="p-1.5 rounded-xl bg-black/25">
+                              <button onClick={() => handleDeleteMobileEvent(ev)} className="p-2 rounded-xl bg-black/25">
                                 <Trash2 className="w-4 h-4" />
                               </button>
                             </div>
@@ -1621,7 +1835,7 @@ export default function TouchwallPocketApp() {
                               </div>
                             </div>
                           </div>
-                          <button onClick={() => handleDeleteMobileEvent(ev)} className="p-1.5 rounded-xl bg-black/25 shrink-0">
+                          <button onClick={() => handleDeleteMobileEvent(ev)} className="p-2 rounded-xl bg-black/25 shrink-0">
                             <Trash2 className="w-4 h-4" />
                           </button>
                         </div>
@@ -1645,11 +1859,11 @@ export default function TouchwallPocketApp() {
                     value={quickTaskText}
                     onChange={(e) => setQuickTaskText(e.target.value)}
                     placeholder="Aufgabe eingeben..."
-                    className={'flex-1 px-3.5 py-2.5 rounded-2xl border text-sm font-bold ' + themeStyles.input}
+                    className={'flex-1 px-3.5 py-3 rounded-2xl border text-sm font-bold ' + themeStyles.input}
                   />
                   <button
                     type="submit"
-                    className="tw-glow-btn px-4 rounded-2xl font-black text-xs flex items-center gap-1 shrink-0"
+                    className="tw-glow-btn px-5 rounded-2xl font-black text-xs flex items-center gap-1.5 shrink-0"
                   >
                     <Send className="w-4 h-4" /> Push
                   </button>
@@ -1663,7 +1877,7 @@ export default function TouchwallPocketApp() {
                         key={m.id}
                         type="button"
                         onClick={() => setQuickTaskMember(m.id)}
-                        className={'px-2.5 py-1 rounded-xl text-[11px] font-extrabold shrink-0 ' + (quickTaskMember === m.id ? 'tw-active-nav' : 'tw-nav-inactive')}
+                        className={'px-3 py-1.5 rounded-xl text-xs font-extrabold shrink-0 ' + (quickTaskMember === m.id ? 'tw-active-nav' : 'tw-nav-inactive')}
                       >
                         {m.name.split(' ')[0]}
                       </button>
@@ -1686,7 +1900,7 @@ export default function TouchwallPocketApp() {
                       <div
                         key={task.id}
                         onClick={() => handleToggleMobileTask(task)}
-                        className={'p-3 rounded-2xl border flex items-center justify-between gap-3 cursor-pointer ' + themeStyles.subtle}
+                        className={'p-3.5 rounded-2xl border flex items-center justify-between gap-3 cursor-pointer ' + themeStyles.subtle}
                       >
                         <div className="flex items-center gap-3 min-w-0">
                           <input type="checkbox" checked={false} readOnly className="w-5 h-5 accent-indigo-600 rounded shrink-0" />
@@ -1706,7 +1920,7 @@ export default function TouchwallPocketApp() {
                               showToast('Handy-Ping gesendet!', task.title, '📲');
                             }
                           }}
-                          className="tw-glow-btn px-2.5 py-1.5 rounded-xl text-[10px] font-black shrink-0"
+                          className="tw-glow-btn px-3 py-2 rounded-xl text-xs font-black shrink-0"
                         >
                           📲 Ping
                         </button>
@@ -1722,7 +1936,7 @@ export default function TouchwallPocketApp() {
                       <div
                         key={task.id}
                         onClick={() => handleToggleMobileTask(task)}
-                        className={'p-2 rounded-xl border flex items-center gap-2.5 opacity-55 ' + themeStyles.subtle}
+                        className={'p-2.5 rounded-xl border flex items-center gap-2.5 opacity-55 ' + themeStyles.subtle}
                       >
                         <input type="checkbox" checked={true} readOnly className="w-4 h-4 accent-emerald-500 rounded" />
                         <span className="text-xs font-bold line-through truncate">{task.title}</span>
@@ -1734,112 +1948,150 @@ export default function TouchwallPocketApp() {
             </div>
           )}
 
-          {/* TAB 3: KAMERA-SCANNER INKL. KATEGORIE-ERKENNUNG */}
+          {/* =====================================================
+              TAB 3: VOLLFOKUS-SCANNER (OHNE OBEREN HEADER!)
+              INKL. TURBO-MHD-OCR, TASCHENLAMPE, 2X-LUPE & GROSSEN TOUCH-TASTEN
+             ===================================================== */}
           {activeTab === 'scanner' && (
-            <div className="space-y-3.5">
-              <div className="grid grid-cols-2 gap-2 p-1.5 rounded-2xl bg-black/30 border border-white/10">
-                <button
-                  type="button"
-                  onClick={() => setScannerMode('barcode')}
-                  className={'py-2 px-3 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 ' + (scannerMode === 'barcode' ? 'tw-active-nav' : 'tw-nav-inactive')}
-                >
-                  <ScanLine className="w-4 h-4" />
-                  <span>Barcode / Produkt</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { stopCameraStream(); setScannerMode('receipt'); }}
-                  className={'py-2 px-3 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 ' + (scannerMode === 'receipt' ? 'tw-active-nav' : 'tw-nav-inactive')}
-                >
-                  <FileText className="w-4 h-4" />
-                  <span>🧾 Kassenbon-Foto</span>
-                </button>
+            <div className="space-y-3">
+              {/* KOMPAKTE, EINHÄNDIGE MODUS- & KAMERA-LEISTE GANZ OBEN */}
+              <div className="flex items-center gap-1.5">
+                <div className="grid grid-cols-2 gap-1.5 flex-1 p-1 rounded-2xl bg-black/35 border border-white/10">
+                  <button
+                    type="button"
+                    onClick={() => setScannerMode('barcode')}
+                    className={'py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 ' + (scannerMode === 'barcode' ? 'tw-active-nav' : 'tw-nav-inactive')}
+                  >
+                    <ScanLine className="w-4 h-4" />
+                    <span>Barcode & MHD</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { stopCameraStream(); setScannerMode('receipt'); }}
+                    className={'py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 ' + (scannerMode === 'receipt' ? 'tw-active-nav' : 'tw-nav-inactive')}
+                  >
+                    <FileText className="w-4 h-4" />
+                    <span>🧾 Kassenbon</span>
+                  </button>
+                </div>
+
+                {scannerMode === 'barcode' && (
+                  !cameraActive ? (
+                    <button
+                      type="button"
+                      onClick={startLiveBarcodeCamera}
+                      className="tw-active-nav px-4 py-3 rounded-2xl text-xs font-black flex items-center gap-1.5 shrink-0 shadow-lg"
+                    >
+                      <Camera className="w-4 h-4" /> Kamera an
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={stopCameraStream}
+                      className="px-3.5 py-3 rounded-2xl bg-rose-600 text-white text-xs font-black shrink-0 shadow-lg"
+                    >
+                      ✕ Aus
+                    </button>
+                  )
+                )}
               </div>
 
               {scannerMode === 'barcode' ? (
-                <div className={'p-4 rounded-3xl border space-y-3 shadow-md ' + themeStyles.card}>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h2 className="font-black text-base">📷 Produkt & MHD Scanner</h2>
-                      <p className="text-[11px] opacity-75">Ordnet Scans automatisch in die 7 Lebensmittel-Kategorien ein</p>
-                    </div>
-                    {!cameraActive ? (
-                      <button
-                        type="button"
-                        onClick={startLiveBarcodeCamera}
-                        className="tw-glow-btn px-3.5 py-2 rounded-2xl text-xs font-black flex items-center gap-1.5"
-                      >
-                        <Camera className="w-4 h-4" /> Kamera an
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={stopCameraStream}
-                        className="px-3.5 py-2 rounded-2xl bg-rose-600 text-white text-xs font-black"
-                      >
-                        ✕ Kamera aus
-                      </button>
-                    )}
-                  </div>
-
+                <div className={'p-3.5 rounded-3xl border space-y-3 shadow-lg ' + themeStyles.card}>
+                  {/* VOLLFOKUS-KAMERAFENSTER MIT LICHT, 2X-LUPE & MHD-ZIELSTREIFEN */}
                   {cameraActive && (
-                    <div className="space-y-2.5">
+                    <div className="space-y-2">
                       <div
                         onClick={() => captureMhdFromLiveCamera(false)}
-                        className="relative rounded-2xl overflow-hidden border-2 border-sky-400 bg-black aspect-video cursor-pointer"
+                        className="relative rounded-2xl overflow-hidden border-2 border-sky-400 bg-black aspect-[16/10] cursor-pointer"
                       >
-                        <video ref={videoRef} className="w-full h-full object-cover" playsInline muted />
-                        <div className="absolute inset-x-5 inset-y-5 border-2 border-dashed border-amber-400/85 rounded-xl pointer-events-none flex flex-col justify-between p-2">
-                          <span className="text-[10px] font-black bg-black/70 text-amber-300 px-2 py-0.5 rounded self-start">
-                            1. Barcode automatisch • 2. MHD-Datum hierhin halten
+                        <video
+                          ref={videoRef}
+                          style={zoomActive ? { transform: 'scale(1.85)', transformOrigin: 'center center' } : undefined}
+                          className="w-full h-full object-cover transition-transform duration-200"
+                          playsInline
+                          muted
+                        />
+
+                        {/* OBERE KAMERA-WERKZEUGE: 2X-LUPE & TASCHENLAMPE */}
+                        <div className="absolute top-2 left-2 right-2 flex items-center justify-between gap-2 z-10">
+                          <span className="text-[10px] font-black bg-black/75 text-amber-300 px-2.5 py-1 rounded-lg border border-amber-400/40">
+                            🎯 MHD-Datum in den gelben Rahmen halten
                           </span>
-                          <div className="w-full h-0.5 bg-rose-500 shadow-[0_0_12px_#f43f5e] animate-pulse" />
-                          <span className="text-[10px] font-bold bg-black/70 text-white px-2.5 py-0.5 rounded self-center">
-                            👆 Aufs Bild oder Button unten tippen zum MHD-Erfassen
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); toggleCameraZoom(); }}
+                              className={'px-2.5 py-1.5 rounded-xl text-[11px] font-black flex items-center gap-1 border ' +
+                                (zoomActive ? 'bg-sky-500 text-white border-white' : 'bg-black/75 text-white border-white/20')}
+                            >
+                              <ZoomIn className="w-3.5 h-3.5" /> 2x Lupe
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); toggleCameraTorch(); }}
+                              className={'px-2.5 py-1.5 rounded-xl text-[11px] font-black flex items-center gap-1 border ' +
+                                (torchOn ? 'bg-amber-400 text-slate-950 border-white' : 'bg-black/75 text-white border-white/20')}
+                            >
+                              <Zap className="w-3.5 h-3.5" /> Licht
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* SCHMALER, KONTRASTREICHER MHD-ZIELSTREIFEN IN DER MITTE */}
+                        <div className="absolute inset-x-6 top-[28%] bottom-[28%] border-2 border-amber-400 rounded-xl pointer-events-none shadow-[0_0_0_9999px_rgba(0,0,0,0.38)] flex flex-col justify-center">
+                          <div className="w-full h-0.5 bg-rose-500/90 shadow-[0_0_10px_#f43f5e] animate-pulse" />
+                        </div>
+
+                        <div className="absolute bottom-1.5 inset-x-0 text-center pointer-events-none">
+                          <span className="text-[10px] font-extrabold bg-black/75 text-white px-2.5 py-0.5 rounded-full">
+                            👆 Aufs Bild tippen = Sofort MHD ablesen
                           </span>
                         </div>
                       </div>
 
+                      {/* GROSSER DAUMEN-BUTTON ZUM MHD-SCANNEN */}
                       <div className="flex items-center gap-2">
                         <button
                           type="button"
                           onClick={() => captureMhdFromLiveCamera(false)}
                           disabled={isReadingMhd}
-                          className="tw-active-nav flex-1 py-3 px-3 rounded-2xl text-xs font-black flex items-center justify-center gap-2 shadow-lg"
+                          className="tw-active-nav flex-1 min-h-[48px] py-3 px-4 rounded-2xl text-xs sm:text-sm font-black flex items-center justify-center gap-2 shadow-lg"
                         >
                           <ScanLine className={'w-4 h-4 ' + (isReadingMhd ? 'animate-spin' : '')} />
-                          <span>{isReadingMhd ? '⏳ Lese MHD-Datum...' : '📸 MHD-Datum jetzt von Packung scannen'}</span>
+                          <span>{isReadingMhd ? '⏳ Lese MHD-Ziffern...' : '📸 MHD-Datum jetzt erfassen'}</span>
                         </button>
 
-                        <label className="px-2.5 py-3 rounded-2xl bg-black/35 border border-white/15 text-[10px] font-extrabold flex items-center gap-1.5 shrink-0 cursor-pointer">
+                        <label className="min-h-[48px] px-3 rounded-2xl bg-black/35 border border-white/15 text-[11px] font-extrabold flex items-center gap-1.5 shrink-0 cursor-pointer">
                           <input
                             type="checkbox"
                             checked={autoMhdScanEnabled}
                             onChange={(e) => setAutoMhdScanEnabled(e.target.checked)}
-                            className="w-3.5 h-3.5 accent-emerald-500 rounded"
+                            className="w-4 h-4 accent-emerald-500 rounded"
                           />
-                          <span>🔄 Auto-MHD</span>
+                          <span>Auto</span>
                         </label>
                       </div>
 
                       {lastOcrRawHint && !detectedMhdCandidate && (
                         <div className="text-[10px] text-slate-400 font-mono px-2 truncate">
-                          Kamera-Text: „{lastOcrRawHint}“
+                          Erkannte Zeichen: „{lastOcrRawHint}“
                         </div>
                       )}
 
+                      {/* GRÜNES BESTÄTIGUNGS-BANNER BEI ERKANNTEM MHD */}
                       {detectedMhdCandidate && (
                         <div className="p-3 rounded-2xl bg-emerald-500/20 border-2 border-emerald-400 space-y-2 shadow-lg">
                           <div className="flex items-center justify-between">
-                            <span className="text-xs font-black text-emerald-300">
-                              📅 Erkanntes MHD: {detectedMhdCandidate.slice(8, 10)}.{detectedMhdCandidate.slice(5, 7)}.{detectedMhdCandidate.slice(0, 4)}
+                            <span className="text-sm font-black text-emerald-300">
+                              📅 MHD erkannt: {detectedMhdCandidate.slice(8, 10)}.{detectedMhdCandidate.slice(5, 7)}.{detectedMhdCandidate.slice(0, 4)}
                             </span>
                             <button
                               type="button"
                               onClick={() => setDetectedMhdCandidate('')}
-                              className="text-[10px] font-bold text-rose-300 px-2 py-0.5 rounded bg-black/30"
+                              className="text-xs font-extrabold text-rose-300 px-2.5 py-1 rounded-lg bg-black/35"
                             >
-                              Neu scannen
+                              Neu
                             </button>
                           </div>
 
@@ -1848,11 +2100,11 @@ export default function TouchwallPocketApp() {
                               type="button"
                               onClick={() => {
                                 setScanExpiry(detectedMhdCandidate);
-                                showToast('MHD übernommen!', 'Datum steht jetzt im Pflichtfeld.', '✅');
+                                showToast('MHD übernommen!', 'Datum steht im Pflichtfeld.', '✅');
                               }}
-                              className="py-2.5 px-3 rounded-xl bg-emerald-600 text-white text-xs font-black flex items-center justify-center gap-1 shadow-md"
+                              className="min-h-[44px] py-2.5 px-3 rounded-xl bg-emerald-600 text-white text-xs font-black flex items-center justify-center gap-1 shadow-md"
                             >
-                              <Check className="w-4 h-4" /> ✓ MHD akzeptieren
+                              <Check className="w-4 h-4" /> ✓ Übernehmen
                             </button>
 
                             <button
@@ -1867,9 +2119,9 @@ export default function TouchwallPocketApp() {
                                   scanImageUrl
                                 );
                               }}
-                              className="tw-active-nav py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1 shadow-md"
+                              className="tw-active-nav min-h-[44px] py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1 shadow-md"
                             >
-                              <span>⚡ Akzeptieren & Speichern</span>
+                              <span>⚡ Direkt speichern</span>
                             </button>
                           </div>
                         </div>
@@ -1877,96 +2129,101 @@ export default function TouchwallPocketApp() {
                     </div>
                   )}
 
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={scannedBarcode}
-                      onChange={(e) => setScannedBarcode(e.target.value)}
-                      placeholder="EAN-Barcode (oder oben Kamera starten)"
-                      className={'flex-1 px-3 py-2 rounded-xl border text-xs font-mono ' + themeStyles.input}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => lookupBarcodeOnOpenFoodFacts(scannedBarcode)}
-                      className="tw-glow-btn px-3 py-2 rounded-xl text-xs font-extrabold"
-                    >
-                      {isLookingUpProduct ? '...' : '🔍 Suchen'}
-                    </button>
-                  </div>
-
-                  <form onSubmit={handleSaveScannedProduct} className="space-y-2.5 pt-2 border-t border-white/10">
+                  {/* PRODUKTNAME + EMOJI + BARCODE-SUCHE */}
+                  <form onSubmit={handleSaveScannedProduct} className="space-y-3">
                     <div className="flex items-center gap-2">
-                      <span className="w-10 h-10 rounded-xl bg-black/25 flex items-center justify-center text-xl shrink-0">
+                      <span className="w-12 h-12 rounded-2xl bg-black/30 border border-white/10 flex items-center justify-center text-2xl shrink-0">
                         {getFoodEmoji(scanName)}
                       </span>
-                      <div className="flex-1 min-w-0">
-                        <input
-                          type="text"
-                          required
-                          value={scanName}
-                          onChange={(e) => setScanName(e.target.value)}
-                          placeholder="Produktname (z.B. Gefro Salatdressing, Apfel Rotkohl)..."
-                          className={'w-full px-3.5 py-2 rounded-2xl border text-sm font-extrabold ' + themeStyles.input}
-                        />
-                      </div>
-                    </div>
-
-                    {/* MENGE + LAGERORT + AUTOMATISCHE LEBENSMITTEL-KATEGORIE */}
-                    <div className="grid grid-cols-2 gap-2">
                       <input
                         type="text"
-                        value={scanQty}
-                        onChange={(e) => setScanQty(e.target.value)}
-                        placeholder="Menge (z.B. 500g, 2x)"
-                        className={'w-full px-3 py-2 rounded-xl border text-xs font-bold ' + themeStyles.input}
+                        required
+                        value={scanName}
+                        onChange={(e) => setScanName(e.target.value)}
+                        placeholder="Produktname (oder Barcode scannen)..."
+                        className={'w-full min-h-[48px] px-3.5 py-2.5 rounded-2xl border text-sm font-extrabold ' + themeStyles.input}
                       />
+                    </div>
+
+                    {/* HANDLICHE MENGEN-WIPPE (- / +) & KATEGORIE */}
+                    <div className="grid grid-cols-12 gap-2 items-center">
+                      <div className="col-span-5 flex items-center gap-1 bg-black/25 p-1 rounded-2xl border border-white/10">
+                        <button
+                          type="button"
+                          onClick={() => setScanQty(stepMobileQty(scanQty, -1))}
+                          className="tw-nav-inactive w-10 h-10 rounded-xl font-black text-base flex items-center justify-center shrink-0"
+                        >
+                          -
+                        </button>
+                        <input
+                          type="text"
+                          value={scanQty}
+                          onChange={(e) => setScanQty(e.target.value)}
+                          className="w-full bg-transparent text-center text-xs font-black focus:outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setScanQty(stepMobileQty(scanQty, 1))}
+                          className="tw-glow-btn w-10 h-10 rounded-xl font-black text-base flex items-center justify-center shrink-0"
+                        >
+                          +
+                        </button>
+                      </div>
+
                       <select
-                        value={scanLocation}
-                        onChange={(e) => setScanLocation(e.target.value)}
-                        className={'w-full px-3 py-2 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+                        value={scanCategory}
+                        onChange={(e) => setScanCategory(e.target.value)}
+                        className={'col-span-7 min-h-[48px] px-3 py-2.5 rounded-2xl border text-xs font-extrabold ' + themeStyles.input}
                       >
-                        <option value="kitchen" className="bg-slate-800 text-white">🍎 Küche</option>
-                        <option value="fridge" className="bg-slate-800 text-white">🧊 Kühlschrank</option>
-                        <option value="freezer" className="bg-slate-800 text-white">❄️ Gefrierschrank</option>
-                        <option value="pantry" className="bg-slate-800 text-white">🗄️ Vorratslager</option>
+                        <option value="auto" className="bg-slate-800 text-amber-300">
+                          ✨ {detectedScanCatObj.icon} {detectedScanCatObj.title}
+                        </option>
+                        {FOOD_CATEGORIES.map(cat => (
+                          <option key={cat.id} value={cat.id} className="bg-slate-800 text-white">
+                            {cat.icon} {cat.title}
+                          </option>
+                        ))}
                       </select>
                     </div>
 
-                    <select
-                      value={scanCategory}
-                      onChange={(e) => setScanCategory(e.target.value)}
-                      className={'w-full px-3 py-2 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
-                    >
-                      <option value="auto" className="bg-slate-800 text-amber-300">
-                        ✨ Erkannte Kategorie: {detectedScanCatObj.icon} {detectedScanCatObj.title}
-                      </option>
-                      {FOOD_CATEGORIES.map(cat => (
-                        <option key={cat.id} value={cat.id} className="bg-slate-800 text-white">
-                          {cat.icon} {cat.title}
-                        </option>
+                    {/* GROSSE TOUCH-PILLS FÜR DEN LAGERORT (STATT DROPDOWN) */}
+                    <div className="grid grid-cols-4 gap-1.5">
+                      {STORAGE_PILLS.map(loc => (
+                        <button
+                          key={loc.id}
+                          type="button"
+                          onClick={() => setScanLocation(loc.id)}
+                          className={'min-h-[44px] py-2 px-1.5 rounded-xl text-xs font-extrabold ' +
+                            (scanLocation === loc.id ? 'tw-active-nav' : 'tw-nav-inactive')}
+                        >
+                          {loc.label}
+                        </button>
                       ))}
-                    </select>
+                    </div>
 
-                    <div className="p-3 rounded-2xl bg-amber-500/15 border border-amber-400/50 space-y-2">
+                    {/* GROSSE DAUMEN-FREUNDLICHE MHD-SCHNELLTASTEN */}
+                    <div className="p-3 rounded-2xl bg-amber-500/15 border border-amber-400/50 space-y-2.5">
                       <div className="flex items-center justify-between">
-                        <label className="block text-[11px] font-black uppercase text-amber-300">
-                          Pflichtfeld: Ablaufdatum (MHD)
+                        <label className="text-[11px] font-black uppercase text-amber-300">
+                          📅 Pflicht-Ablaufdatum (MHD)
                         </label>
                         {scanExpiry && (
-                          <span className="text-[11px] font-black text-emerald-400">
-                            ✓ Gewählt: {scanExpiry.slice(8, 10)}.{scanExpiry.slice(5, 7)}.{scanExpiry.slice(0, 4)}
+                          <span className="text-xs font-black text-emerald-400">
+                            ✓ {scanExpiry.slice(8, 10)}.{scanExpiry.slice(5, 7)}.{scanExpiry.slice(0, 4)}
                           </span>
                         )}
                       </div>
 
-                      <div className="flex flex-wrap gap-1.5">
+                      <div className="grid grid-cols-4 gap-1.5">
                         {[
                           { l: '+3 Tage', d: 3 },
                           { l: '+1 Woche', d: 7 },
-                          { l: '+2 Wochen', d: 14 },
+                          { l: '+2 Wo.', d: 14 },
                           { l: '+1 Monat', d: 30 },
+                          { l: '+3 Mon.', d: 90 },
                           { l: '+6 Mon.', d: 180 },
-                          { l: '+1 Jahr', d: 365 }
+                          { l: '+1 Jahr', d: 365 },
+                          { l: '+2 Jahre', d: 730 }
                         ].map(b => (
                           <button
                             key={b.d}
@@ -1976,7 +2233,7 @@ export default function TouchwallPocketApp() {
                               setScanExpiry(d);
                               setDetectedMhdCandidate(d);
                             }}
-                            className="tw-glow-btn px-2.5 py-1 rounded-xl text-[11px] font-black"
+                            className="tw-glow-btn min-h-[42px] py-2 rounded-xl text-[11px] font-black"
                           >
                             {b.l}
                           </button>
@@ -1992,27 +2249,29 @@ export default function TouchwallPocketApp() {
                           setScanExpiry(e.target.value);
                           setDetectedMhdCandidate(e.target.value);
                         }}
-                        className={'w-full px-3.5 py-2 rounded-xl border text-xs font-black ' + themeStyles.input}
+                        className={'w-full min-h-[46px] px-3.5 py-2 rounded-xl border text-sm font-black ' + themeStyles.input}
                       />
                     </div>
 
                     <button
                       type="submit"
                       disabled={isSyncing || !scanName.trim() || (!scanExpiry && !detectedMhdCandidate)}
-                      className={'w-full py-3.5 rounded-2xl font-black text-xs shadow-lg ' + (!scanName.trim() || (!scanExpiry && !detectedMhdCandidate) ? 'bg-slate-700 text-slate-400 opacity-50' : 'tw-active-nav')}
+                      className={'w-full min-h-[54px] py-3.5 rounded-2xl font-black text-sm shadow-xl ' +
+                        (!scanName.trim() || (!scanExpiry && !detectedMhdCandidate) ? 'bg-slate-700 text-slate-400 opacity-50' : 'tw-active-nav')}
                     >
                       {isSyncing
                         ? '⏳ Übertrage an Touchwall...'
                         : (scanExpiry || detectedMhdCandidate)
-                        ? ('✓ MHD (' + (scanExpiry || detectedMhdCandidate).slice(8, 10) + '.' + (scanExpiry || detectedMhdCandidate).slice(5, 7) + '.' + (scanExpiry || detectedMhdCandidate).slice(0, 4) + ') akzeptieren & an Touchwall senden')
-                        : '⚠️ Erst Ablaufdatum (MHD) scannen oder wählen'}
+                        ? ('🥫 In Speisekammer speichern (' + (scanExpiry || detectedMhdCandidate).slice(8, 10) + '.' + (scanExpiry || detectedMhdCandidate).slice(5, 7) + '.)')
+                        : '⚠️ Erst Ablaufdatum (MHD) wählen'}
                     </button>
                   </form>
                 </div>
               ) : (
+                /* KASSENBON-SCANNER MIT TOUCH-SCHNELLTASTEN */
                 <div className={'p-4 rounded-3xl border space-y-3.5 shadow-md ' + themeStyles.card}>
                   <h2 className="font-black text-base">🧾 Kassenbon abfotografieren</h2>
-                  <label className="tw-glow-btn w-full py-3.5 rounded-2xl font-black text-xs flex items-center justify-center gap-2 cursor-pointer">
+                  <label className="tw-active-nav w-full min-h-[52px] py-3.5 rounded-2xl font-black text-xs flex items-center justify-center gap-2 cursor-pointer shadow-lg">
                     <Camera className="w-5 h-5" />
                     <span>{isScanningReceipt ? '⏳ Lese Kassenbon aus...' : '📸 Kassenbon jetzt fotografieren'}</span>
                     <input
@@ -2025,10 +2284,10 @@ export default function TouchwallPocketApp() {
                   </label>
 
                   {receiptItems.length > 0 && (
-                    <div className="space-y-2 pt-2">
+                    <div className="space-y-2.5 pt-2">
                       {receiptItems.map((rit, idx) => (
-                        <div key={rit.id} className={'p-2.5 rounded-2xl border space-y-1.5 ' + themeStyles.subtle}>
-                          <div className="flex items-center gap-2">
+                        <div key={rit.id} className={'p-3 rounded-2xl border space-y-2 ' + themeStyles.subtle}>
+                          <div className="flex items-center gap-2.5">
                             <input
                               type="checkbox"
                               checked={rit.selected}
@@ -2037,7 +2296,7 @@ export default function TouchwallPocketApp() {
                                 next[idx].selected = !next[idx].selected;
                                 setReceiptItems(next);
                               }}
-                              className="w-4 h-4 accent-emerald-500 rounded"
+                              className="w-5 h-5 accent-emerald-500 rounded"
                             />
                             <input
                               type="text"
@@ -2050,8 +2309,29 @@ export default function TouchwallPocketApp() {
                               className="flex-1 bg-transparent text-xs font-extrabold focus:outline-none"
                             />
                           </div>
-                          <div className="flex items-center justify-between gap-2 pl-6">
-                            <span className="text-[10px] font-bold text-amber-400">Pflicht-MHD:</span>
+
+                          <div className="flex flex-wrap items-center justify-between gap-1.5 pl-7">
+                            <div className="flex gap-1">
+                              {[
+                                { l: '+1W', d: 7 },
+                                { l: '+1M', d: 30 },
+                                { l: '+6M', d: 180 }
+                              ].map(b => (
+                                <button
+                                  key={b.d}
+                                  type="button"
+                                  onClick={() => {
+                                    const next = [...receiptItems];
+                                    next[idx].expiryDate = formatDateStr(addDays(new Date(), b.d));
+                                    setReceiptItems(next);
+                                  }}
+                                  className="tw-glow-btn px-2 py-1 rounded-lg text-[10px] font-black"
+                                >
+                                  {b.l}
+                                </button>
+                              ))}
+                            </div>
+
                             <input
                               type="date"
                               required
@@ -2061,7 +2341,7 @@ export default function TouchwallPocketApp() {
                                 next[idx].expiryDate = e.target.value;
                                 setReceiptItems(next);
                               }}
-                              className={'px-2 py-1 rounded-lg border text-xs font-bold ' + themeStyles.input}
+                              className={'px-2.5 py-1 rounded-lg border text-xs font-bold ' + themeStyles.input}
                             />
                           </div>
                         </div>
@@ -2070,16 +2350,16 @@ export default function TouchwallPocketApp() {
                       <button
                         type="button"
                         onClick={handleSaveAllReceiptItems}
-                        className="tw-glow-btn w-full py-3 rounded-2xl font-black text-xs"
+                        className="tw-active-nav w-full min-h-[50px] py-3 rounded-2xl font-black text-xs shadow-lg"
                       >
-                        ✓ Markierte Produkte an Touchwall senden
+                        ✓ Alle markierten Produkte an Touchwall senden
                       </button>
                     </div>
                   )}
                 </div>
               )}
 
-              {/* SCHLANKE BESTANDS-LISTE AUF DEM HANDY */}
+              {/* SCHLANKE BESTANDS-LISTE UNTER DEM SCANNER */}
               <div className={'p-3 rounded-3xl border space-y-1.5 ' + themeStyles.card}>
                 <div className="flex items-center justify-between pb-1">
                   <span className="font-extrabold text-xs uppercase text-sky-400">
@@ -2088,28 +2368,23 @@ export default function TouchwallPocketApp() {
                   <button
                     type="button"
                     onClick={() => syncAllNow(true)}
-                    className="text-[11px] font-extrabold text-emerald-400 flex items-center gap-1"
+                    className="text-xs font-extrabold text-emerald-400 flex items-center gap-1"
                   >
-                    <RefreshCw className={'w-3 h-3 ' + (isSyncing ? 'animate-spin' : '')} /> Abgleichen
+                    <RefreshCw className={'w-3.5 h-3.5 ' + (isSyncing ? 'animate-spin' : '')} /> Sync
                   </button>
                 </div>
 
                 <div className="space-y-1.5">
-                  {safeStock.slice(0, 15).map(item => {
-                    const catObj = FOOD_CATEGORIES.find(c => c.id === detectFoodCategory(item.name, item.category)) || FOOD_CATEGORIES[1];
+                  {safeStock.slice(0, 12).map(item => {
                     const decPreview = decrementItemPieceCount(item.quantity);
-
                     return (
-                      <div key={item.id} className={'px-2.5 py-2 rounded-xl border flex items-center justify-between gap-2 ' + themeStyles.subtle}>
+                      <div key={item.id} className={'px-3 py-2 rounded-xl border flex items-center justify-between gap-2 ' + themeStyles.subtle}>
                         <div className="flex items-center gap-2 min-w-0 flex-1">
                           <span className="text-lg shrink-0">{getFoodEmoji(item.name)}</span>
                           <div className="min-w-0 flex-1">
                             <div className="font-extrabold text-xs truncate">{item.name}</div>
-                            <div className="text-[10px] text-amber-400 font-bold flex items-center gap-1.5">
-                              <span>{item.quantity}</span>
-                              <span>•</span>
-                              <span>MHD: {item.expiryDate.slice(8, 10)}.{item.expiryDate.slice(5, 7)}.{item.expiryDate.slice(2, 4)}</span>
-                              <span className="text-sky-300 opacity-85 truncate">• {catObj.icon} {catObj.title.split(' ')[0]}</span>
+                            <div className="text-[10px] text-amber-400 font-bold">
+                              {item.quantity} • MHD: {item.expiryDate.slice(8, 10)}.{item.expiryDate.slice(5, 7)}.{item.expiryDate.slice(2, 4)}
                             </div>
                           </div>
                         </div>
@@ -2120,7 +2395,7 @@ export default function TouchwallPocketApp() {
                               type="text"
                               value={editStockQty}
                               onChange={(e) => setEditStockQty(e.target.value)}
-                              className={'w-16 px-2 py-1 rounded-lg border text-xs font-bold ' + themeStyles.input}
+                              className={'w-16 px-2 py-1.5 rounded-lg border text-xs font-bold ' + themeStyles.input}
                             />
                             <button
                               onClick={async () => {
@@ -2135,25 +2410,25 @@ export default function TouchwallPocketApp() {
                                 setEditingStockId(null);
                                 await saveStateToCloud({ pantryItems: nextStock });
                               }}
-                              className="tw-glow-btn p-1.5 rounded-lg"
+                              className="tw-glow-btn p-2 rounded-lg"
                             >
-                              <Check className="w-3.5 h-3.5" />
+                              <Check className="w-4 h-4" />
                             </button>
                           </div>
                         ) : (
-                          <div className="flex items-center gap-1 shrink-0">
+                          <div className="flex items-center gap-1.5 shrink-0">
                             <button
                               onClick={() => {
                                 setEditingStockId(item.id);
                                 setEditStockQty(item.quantity);
                               }}
-                              className="tw-nav-inactive p-1.5 rounded-lg text-sky-300"
+                              className="tw-nav-inactive p-2 rounded-xl text-sky-300"
                             >
                               <Pencil className="w-3.5 h-3.5" />
                             </button>
                             <button
                               onClick={() => handleConsumeFromPocket(item)}
-                              className="tw-glow-btn px-2 py-1.5 rounded-lg text-[10px] font-black"
+                              className="tw-glow-btn px-3 py-2 rounded-xl text-xs font-black"
                             >
                               {decPreview.remaining > 0 ? '🍽️ -1' : '🍽️ Weg'}
                             </button>
@@ -2167,18 +2442,33 @@ export default function TouchwallPocketApp() {
             </div>
           )}
 
-          {/* TAB 4: EINKAUFSLISTE */}
+          {/* TAB 4: EINKAUFSLISTE INKL. PUSH-BENACHRICHTIGUNGS-SCHALTER */}
           {activeTab === 'shopping' && (
             <div className="space-y-3.5">
+              <div className={'p-3 rounded-2xl border flex items-center justify-between gap-2 ' + themeStyles.card}>
+                <div className="text-xs font-extrabold">
+                  🔔 Handy-Alarm bei neuen Einkäufen
+                </div>
+                <button
+                  type="button"
+                  onClick={requestShoppingPushPermission}
+                  className={'px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 ' +
+                    (notifPermission === 'granted' ? 'bg-emerald-500/25 text-emerald-300 border border-emerald-400/40' : 'tw-active-nav')}
+                >
+                  <BellRing className="w-3.5 h-3.5" />
+                  <span>{notifPermission === 'granted' ? 'Push-Alarm aktiv ✓' : 'Push jetzt aktivieren'}</span>
+                </button>
+              </div>
+
               <form onSubmit={handleAddQuickShopItem} className="flex gap-2">
                 <input
                   type="text"
                   value={quickShopText}
                   onChange={(e) => setQuickShopText(e.target.value)}
                   placeholder="Artikel zur Einkaufsliste..."
-                  className={'flex-1 px-4 py-3 rounded-2xl border text-sm font-bold ' + themeStyles.input}
+                  className={'flex-1 min-h-[48px] px-4 py-3 rounded-2xl border text-sm font-bold ' + themeStyles.input}
                 />
-                <button type="submit" className="tw-glow-btn px-5 rounded-2xl font-black text-sm">
+                <button type="submit" className="tw-active-nav min-h-[48px] px-5 rounded-2xl font-black text-base">
                   +
                 </button>
               </form>
@@ -2192,7 +2482,7 @@ export default function TouchwallPocketApp() {
                     <div
                       key={item.origIdx}
                       onClick={() => handleToggleShopItem(item.origIdx)}
-                      className={'p-3 rounded-2xl border flex items-center gap-3 cursor-pointer ' + themeStyles.subtle}
+                      className={'p-3.5 rounded-2xl border flex items-center gap-3 cursor-pointer ' + themeStyles.subtle}
                     >
                       <input type="checkbox" checked={false} readOnly className="w-5 h-5 accent-amber-500 rounded shrink-0" />
                       <span className="font-bold text-sm break-words">{item.text}</span>
@@ -2207,7 +2497,7 @@ export default function TouchwallPocketApp() {
                       <div
                         key={item.origIdx}
                         onClick={() => handleToggleShopItem(item.origIdx)}
-                        className={'p-2 rounded-xl border flex items-center gap-2.5 opacity-50 ' + themeStyles.subtle}
+                        className={'p-2.5 rounded-xl border flex items-center gap-2.5 opacity-50 ' + themeStyles.subtle}
                       >
                         <input type="checkbox" checked={true} readOnly className="w-4 h-4 accent-emerald-500 rounded" />
                         <span className="text-xs font-bold line-through">{item.text}</span>
@@ -2277,7 +2567,7 @@ export default function TouchwallPocketApp() {
         </div>
       )}
 
-      {/* UNTERE NAVIGATION */}
+      {/* UNTERE DAUMEN-NAVIGATION */}
       <nav className={'shrink-0 z-40 border-t px-2.5 py-2 flex items-center justify-around gap-1.5 shadow-2xl ' + themeStyles.header}>
         {[
           { id: 'agenda',   label: 'Kalender', icon: Calendar,     badge: filteredEvents.filter(e => e.date === todayStr).length },
@@ -2294,7 +2584,7 @@ export default function TouchwallPocketApp() {
                 if (tab.id !== 'scanner') stopCameraStream();
                 setActiveTab(tab.id);
               }}
-              className={'relative flex-1 py-2 rounded-2xl flex flex-col items-center gap-1 text-[11px] font-extrabold ' + (active ? 'tw-active-nav' : 'tw-nav-inactive opacity-80')}
+              className={'relative flex-1 py-2.5 rounded-2xl flex flex-col items-center gap-1 text-[11px] font-extrabold ' + (active ? 'tw-active-nav' : 'tw-nav-inactive opacity-80')}
             >
               <Icon className="w-5 h-5" />
               <span>{tab.label}</span>
