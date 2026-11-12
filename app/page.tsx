@@ -96,9 +96,10 @@ export default function TouchwallApp() {
   const [authKey, setAuthKey] = useState('');
   const [familyName, setFamilyName] = useState('Familien-Touchwall');
 
-  // Speisekammer & Mülleimer State
+  // Speisekammer, Mülleimer & RPG Skill-Board State
   const [pantryItems, setPantryItems] = useState([]);
   const [pantryTrash, setPantryTrash] = useState([]);
+  const [skillBoardData, setSkillBoardData] = useState(null);
 
   // Formularfelder für Login & Registrierung
   const [formUsername, setFormUsername] = useState('');
@@ -651,6 +652,7 @@ export default function TouchwallApp() {
       if (Array.isArray(s.familyTasks)) setFamilyTasks(s.familyTasks);
       if (Array.isArray(s.pantryItems)) setPantryItems(s.pantryItems);
       if (Array.isArray(s.pantryTrash)) setPantryTrash(s.pantryTrash);
+      if (s.skillBoardData && typeof s.skillBoardData === 'object') setSkillBoardData(s.skillBoardData);
 
       const lockedTheme = typeof window !== 'undefined' ? localStorage.getItem('richter_tw_theme_lock') : null;
       if (!lockedTheme && s.currentTheme && Date.now() - lastThemeChangeRef.current > 20000) {
@@ -748,6 +750,7 @@ export default function TouchwallApp() {
           if (Array.isArray(parsedState.familyTasks)) setFamilyTasks(parsedState.familyTasks);
           if (Array.isArray(parsedState.pantryItems)) setPantryItems(parsedState.pantryItems);
           if (Array.isArray(parsedState.pantryTrash)) setPantryTrash(parsedState.pantryTrash);
+          if (parsedState.skillBoardData && typeof parsedState.skillBoardData === 'object') setSkillBoardData(parsedState.skillBoardData);
           if (!lockedTheme && parsedState.currentTheme) setCurrentTheme(parsedState.currentTheme);
           if (parsedState.customLogoUrl) setCustomLogoUrl(parsedState.customLogoUrl);
           if (parsedState.todoistConfig && typeof parsedState.todoistConfig === 'object') {
@@ -791,6 +794,7 @@ export default function TouchwallApp() {
       familyTasks: safeTasks,
       pantryItems: safePantryItems,
       pantryTrash: safePantryTrash,
+      skillBoardData,
       currentTheme,
       customLogoUrl,
       todoistConfig: safeTodoistConfig
@@ -810,7 +814,7 @@ export default function TouchwallApp() {
         });
       } catch (e) {}
     }, 600);
-  }, [isAuthenticated, accountId, authKey, familyName, safeMembers, safeMeals, safeNotes, safeSchoolData, safeTasks, safePantryItems, safePantryTrash, currentTheme, customLogoUrl, safeTodoistConfig, appsScriptUrl]);
+  }, [isAuthenticated, accountId, authKey, familyName, safeMembers, safeMeals, safeNotes, safeSchoolData, safeTasks, safePantryItems, safePantryTrash, skillBoardData, currentTheme, customLogoUrl, safeTodoistConfig, appsScriptUrl]);
 
   const handleRegisterSubmit = async (e) => {
     if (e && typeof e.preventDefault === 'function') e.preventDefault();
@@ -867,6 +871,7 @@ export default function TouchwallApp() {
       familyTasks: [],
       pantryItems: [],
       pantryTrash: [],
+      skillBoardData: null,
       currentTheme: 'metal',
       customLogoUrl: '',
       todoistConfig: { apiToken: '', shoppingProjectId: '', tasksProjectId: '', projects: [], collaborators: [] }
@@ -895,6 +900,7 @@ export default function TouchwallApp() {
       setFamilyTasks([]);
       setPantryItems([]);
       setPantryTrash([]);
+      setSkillBoardData(null);
       writeAuthSession(cleanUser, cleanPass, chosenTitle);
       isInitialLoadDone.current = true;
       setIsAuthenticated(true);
@@ -973,6 +979,7 @@ export default function TouchwallApp() {
     setFamilyTasks([]);
     setPantryItems([]);
     setPantryTrash([]);
+    setSkillBoardData(null);
     setFamilyNotes(DEFAULT_NOTES);
     setMealPlan(DEFAULT_MEALS);
     setSchoolData(DEFAULT_SCHOOL);
@@ -1337,6 +1344,7 @@ export default function TouchwallApp() {
       familyTasks: safeTasks,
       pantryItems: safePantryItems,
       pantryTrash: safePantryTrash,
+      skillBoardData,
       currentTheme,
       customLogoUrl,
       todoistConfig: safeTodoistConfig
@@ -1452,7 +1460,8 @@ export default function TouchwallApp() {
         if (Array.isArray(d.familyTasks)) setFamilyTasks(d.familyTasks);
         if (Array.isArray(d.pantryItems)) setPantryItems(d.pantryItems);
         if (Array.isArray(d.pantryTrash)) setPantryTrash(d.pantryTrash);
-        showToast('Import erfolgreich', 'Backup wiederhergestellt.', '🎉');
+        if (d.skillBoardData && typeof d.skillBoardData === 'object') setSkillBoardData(d.skillBoardData);
+        showToast('Import erfolgreich', 'Backup inkl. Skill-Board wiederhergestellt.', '🎉');
       } catch (err) {}
     };
     r.readAsText(f);
@@ -1469,6 +1478,7 @@ export default function TouchwallApp() {
       familyTasks: safeTasks,
       pantryItems: safePantryItems,
       pantryTrash: safePantryTrash,
+      skillBoardData,
       todoistConfig: safeTodoistConfig
     }, null, 2));
     const a = document.createElement('a');
@@ -1888,7 +1898,7 @@ export default function TouchwallApp() {
               {customLogoUrl ? <img src={customLogoUrl} alt="Logo" className="w-full h-full object-cover" /> : <span className="font-black text-lg">TW</span>}
             </button>
 
-              <nav className="flex flex-col items-center gap-2 w-full px-2">
+            <nav className="flex flex-col items-center gap-2 w-full px-2">
               {[
                 { id: 'kalender',   label: 'Kalender',    icon: Calendar },
                 { id: 'schule',     label: 'Schule',      icon: GraduationCap },
@@ -2097,6 +2107,8 @@ export default function TouchwallApp() {
             <QuestSection
               isActive={activeSection === 'skillboard'}
               setActiveSection={setActiveSection}
+              skillBoardData={skillBoardData}
+              setSkillBoardData={setSkillBoardData}
               members={safeMembers}
               events={safeEvents}
               familyTasks={safeTasks}
