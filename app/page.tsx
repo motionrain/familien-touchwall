@@ -16,6 +16,7 @@ import CalendarSection from './CalendarSection';
 import TasksTodoistSection from './TasksTodoistSection';
 import OtherSections from './OtherSections';
 import PantrySection from './PantrySection';
+import QuestSection from './quest';
 
 const {
   formatDateStr,
