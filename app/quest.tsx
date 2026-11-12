@@ -6,8 +6,11 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Sparkles, ShieldCheck, KeyRound, RotateCcw, Lock, Unlock,
-  Swords, Settings, X, Cloud
+  Swords, Settings, X, Cloud, LogOut, Timer
 } from 'lucide-react';
+
+// Inaktivitäts-Timeout: 5 Minuten (in Millisekunden)
+const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000;
 
 // ============================================================================
 // 30 STANDARD-RÄNGE (VON "Wall-Newbie" BIS "Epic Wall Master Legend")
@@ -90,7 +93,7 @@ function playRpgSound(type = 'xp') {
       osc.frequency.setValueAtTime(587.33, now);
       osc.frequency.exponentialRampToValueAtTime(880, now + 0.14);
       gain.gain.setValueAtTime(0.12, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.16 || now + 0.16);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
       osc.connect(gain);
       gain.connect(ctx.destination);
       osc.start(now);
@@ -102,6 +105,7 @@ function playRpgSound(type = 'xp') {
 function createEmptyPlayerStats() {
   return {
     pin: '',
+    pinUpdatedAt: 0,
     tasksDone: 0,
     pantryCare: 0,
     calendarEvents: 0,
@@ -176,8 +180,14 @@ function mergePlayersDataSafe(localMap, remoteMap) {
   Object.keys(remoteMap).forEach(pid => {
     const loc = out[pid] || createEmptyPlayerStats();
     const rem = remoteMap[pid] || createEmptyPlayerStats();
+    const lPinTs = Number(loc.pinUpdatedAt) || 0;
+    const rPinTs = Number(rem.pinUpdatedAt) || 0;
+
     out[pid] = {
-      pin: rem.pin !== undefined && rem.pin !== '' ? rem.pin : (loc.pin || ''),
+      pin: lPinTs >= rPinTs
+        ? (loc.pin !== undefined ? loc.pin : (rem.pin || ''))
+        : (rem.pin !== undefined ? rem.pin : (loc.pin || '')),
+      pinUpdatedAt: Math.max(lPinTs, rPinTs),
       tasksDone: Math.max(Number(loc.tasksDone) || 0, Number(rem.tasksDone) || 0),
       pantryCare: Math.max(Number(loc.pantryCare) || 0, Number(rem.pantryCare) || 0),
       calendarEvents: Math.max(Number(loc.calendarEvents) || 0, Number(rem.calendarEvents) || 0),
@@ -212,10 +222,16 @@ export default function QuestSection({
     return (Array.isArray(members) ? members : []).filter(m => m.id !== 'all');
   }, [members]);
 
-  const [activePlayerId, setActivePlayerId] = useState('hans');
+  // activePlayerId: '' bedeutet abgemeldet (niemand sammelt XP)
+  const [activePlayerId, setActivePlayerId] = useState('');
+  // viewedPlayerId: Welcher Charakter unten in den Diagrammen angezeigt wird
+  const [viewedPlayerId, setViewedPlayerId] = useState('hans');
   const [playersData, setPlayersData] = useState({});
   const [customRanks, setCustomRanks] = useState(DEFAULT_RPG_RANKS);
   const [isLoaded, setIsLoaded] = useState(false);
+
+  // Verbleibende Sekunden bis zum automatischen 5-Minuten-Logout
+  const [remainingSeconds, setRemainingSeconds] = useState(300);
 
   const [pinModal, setPinModal] = useState({
     open: false,
@@ -233,6 +249,7 @@ export default function QuestSection({
   const activePlayerRef = useRef(activePlayerId);
   activePlayerRef.current = activePlayerId;
 
+  const lastActivityTimeRef = useRef(Date.now());
   const lastMousePosRef = useRef({ x: null, y: null });
   const pixelBufferRef = useRef(0);
   const lastCloudSyncStampRef = useRef(0);
@@ -253,7 +270,10 @@ export default function QuestSection({
       const raw = localStorage.getItem('richter_tw_skillboard_v1');
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (parsed.activePlayerId) setActivePlayerId(parsed.activePlayerId);
+        if (parsed.activePlayerId !== undefined) {
+          setActivePlayerId(parsed.activePlayerId || '');
+          if (parsed.activePlayerId) setViewedPlayerId(parsed.activePlayerId);
+        }
         if (parsed.playersData && typeof parsed.playersData === 'object') {
           setPlayersData(parsed.playersData);
         }
@@ -262,10 +282,11 @@ export default function QuestSection({
         }
       }
     } catch (e) {}
+    lastActivityTimeRef.current = Date.now();
     setIsLoaded(true);
   }, []);
 
-  // 2. Empfang von Cloud- / Backup-Daten aus page.tsx (Gerätewechsel oder Backup-Import)
+  // 2. Empfang von Cloud- / Backup-Daten aus page.tsx
   useEffect(() => {
     if (!skillBoardData || typeof skillBoardData !== 'object') return;
     const remoteStamp = Number(skillBoardData.updatedAt) || 0;
@@ -277,12 +298,9 @@ export default function QuestSection({
     if (Array.isArray(skillBoardData.customRanks) && skillBoardData.customRanks.length >= 25) {
       setCustomRanks(skillBoardData.customRanks);
     }
-    if (skillBoardData.activePlayerId) {
-      setActivePlayerId(prev => prev || skillBoardData.activePlayerId);
-    }
   }, [skillBoardData]);
 
-  // 3. Sofort-Sync Funktion an page.tsx (für den Cloud-Tresor & Backup-Export)
+  // 3. Sofort-Sync Funktion an page.tsx
   const pushSkillBoardToCloudState = (nextActiveId, nextPlayers, nextRanks) => {
     const stamp = Date.now();
     lastCloudSyncStampRef.current = stamp;
@@ -300,7 +318,71 @@ export default function QuestSection({
     }
   };
 
-  // Speichert lokal sofort und synchronisiert gebündelt alle 15s (schont Cloud bei Dauer-Klicks)
+  // Charakter manuell oder automatisch abmelden
+  const handleLogoutPlayer = (isAutoTimeout = false) => {
+    const currentId = activePlayerRef.current;
+    if (!currentId) return;
+    const currentMem = playerMembers.find(m => m.id === currentId);
+
+    activePlayerRef.current = '';
+    setActivePlayerId('');
+    pushSkillBoardToCloudState('', playersData, customRanks);
+
+    if (isAutoTimeout) {
+      showToast?.(
+        '⏱️ Automatisch abgemeldet (5 Min. inaktiv)',
+        (currentMem?.name || 'Charakter') + ' wurde gesperrt, damit niemand fremde Punkte sammelt.',
+        '🔒'
+      );
+    } else {
+      showToast?.(
+        '🚪 Charakter abgemeldet',
+        (currentMem?.name || 'Charakter') + ' hat sich vom Skill Board abgemeldet.',
+        '🔒'
+      );
+    }
+  };
+
+  const logoutRef = useRef(null);
+  logoutRef.current = handleLogoutPlayer;
+
+  // =========================================================
+  // 5-MINUTEN INAKTIVITÄTS-TIMER (AUTO-LOGOUT)
+  // =========================================================
+  useEffect(() => {
+    if (!isLoaded) return;
+
+    const resetInactivityTimer = () => {
+      lastActivityTimeRef.current = Date.now();
+    };
+
+    window.addEventListener('pointerdown', resetInactivityTimer, { passive: true });
+    window.addEventListener('keydown', resetInactivityTimer, { passive: true });
+    window.addEventListener('touchstart', resetInactivityTimer, { passive: true });
+
+    const checkInterval = setInterval(() => {
+      if (!activePlayerRef.current) {
+        setRemainingSeconds(300);
+        return;
+      }
+      const elapsedMs = Date.now() - lastActivityTimeRef.current;
+      const leftSec = Math.max(0, Math.ceil((INACTIVITY_TIMEOUT_MS - elapsedMs) / 1000));
+      setRemainingSeconds(leftSec);
+
+      if (elapsedMs >= INACTIVITY_TIMEOUT_MS) {
+        logoutRef.current?.(true);
+      }
+    }, 1000);
+
+    return () => {
+      window.removeEventListener('pointerdown', resetInactivityTimer);
+      window.removeEventListener('keydown', resetInactivityTimer);
+      window.removeEventListener('touchstart', resetInactivityTimer);
+      clearInterval(checkInterval);
+    };
+  }, [isLoaded]);
+
+  // Speichert lokal sofort und synchronisiert gebündelt alle 15s
   useEffect(() => {
     if (!isLoaded) return;
     try {
@@ -339,11 +421,13 @@ export default function QuestSection({
 
   // =========================================================
   // GLOBALES KLICK- & MAUSBEWEGUNGS-TRACKING AUF DER TOUCHWALL
+  // (Zählt nur, wenn ein Charakter aktiv angemeldet ist!)
   // =========================================================
   useEffect(() => {
     if (!isLoaded) return;
 
     const handleGlobalClick = () => {
+      lastActivityTimeRef.current = Date.now();
       const pid = activePlayerRef.current;
       if (!pid) return;
       setPlayersData(prev => {
@@ -364,8 +448,11 @@ export default function QuestSection({
         const dx = x - lastMousePosRef.current.x;
         const dy = y - lastMousePosRef.current.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist > 2 && dist < 500) {
-          pixelBufferRef.current += dist;
+        if (dist > 4 && dist < 500) {
+          lastActivityTimeRef.current = Date.now();
+          if (activePlayerRef.current) {
+            pixelBufferRef.current += dist;
+          }
         }
       }
       lastMousePosRef.current = { x, y };
@@ -422,34 +509,36 @@ export default function QuestSection({
     const pid = activePlayerRef.current;
     const prev = prevCountsRef.current;
 
-    if (doneTasks > prev.doneTasksCount) {
-      const diff = doneTasks - prev.doneTasksCount;
-      incrementPlayerStat(pid, 'tasksDone', diff, true);
-      playRpgSound('xp');
-      showToast?.('⚔️ Quest abgeschlossen!', '+' + (diff * XP_WEIGHTS.tasksDone) + ' Skill-XP erhalten!', '🏆');
-    }
+    if (pid) {
+      if (doneTasks > prev.doneTasksCount) {
+        const diff = doneTasks - prev.doneTasksCount;
+        incrementPlayerStat(pid, 'tasksDone', diff, true);
+        playRpgSound('xp');
+        showToast?.('⚔️ Quest abgeschlossen!', '+' + (diff * XP_WEIGHTS.tasksDone) + ' Skill-XP erhalten!', '🏆');
+      }
 
-    if (evCount > prev.eventsCount) {
-      const diff = evCount - prev.eventsCount;
-      incrementPlayerStat(pid, 'calendarEvents', diff, true);
-      playRpgSound('xp');
-    }
+      if (evCount > prev.eventsCount) {
+        const diff = evCount - prev.eventsCount;
+        incrementPlayerStat(pid, 'calendarEvents', diff, true);
+        playRpgSound('xp');
+      }
 
-    if (pCount > prev.pantryCount || consumedCount > prev.consumedTrashCount) {
-      const diff = Math.max(1, (pCount - prev.pantryCount) + (consumedCount - prev.consumedTrashCount));
-      incrementPlayerStat(pid, 'pantryCare', diff, true);
-      playRpgSound('xp');
-    }
+      if (pCount > prev.pantryCount || consumedCount > prev.consumedTrashCount) {
+        const diff = Math.max(1, (pCount - prev.pantryCount) + (consumedCount - prev.consumedTrashCount));
+        incrementPlayerStat(pid, 'pantryCare', diff, true);
+        playRpgSound('xp');
+      }
 
-    if (shopDone > prev.doneShopCount) {
-      const diff = shopDone - prev.doneShopCount;
-      incrementPlayerStat(pid, 'shoppingDone', diff, true);
-      playRpgSound('xp');
-    }
+      if (shopDone > prev.doneShopCount) {
+        const diff = shopDone - prev.doneShopCount;
+        incrementPlayerStat(pid, 'shoppingDone', diff, true);
+        playRpgSound('xp');
+      }
 
-    if (notesTotal > prev.totalNotesItems) {
-      const diff = notesTotal - prev.totalNotesItems;
-      incrementPlayerStat(pid, 'notesCreated', diff, true);
+      if (notesTotal > prev.totalNotesItems) {
+        const diff = notesTotal - prev.totalNotesItems;
+        incrementPlayerStat(pid, 'notesCreated', diff, true);
+      }
     }
 
     prevCountsRef.current = {
@@ -489,6 +578,7 @@ export default function QuestSection({
   // PIN-SYSTEM: FESTLEGEN, ANMELDEN, ÄNDERN & 0000-RESET
   // =========================================================
   const handleCharacterCardClick = (member) => {
+    setViewedPlayerId(member.id);
     const pStats = playersData[member.id] || createEmptyPlayerStats();
     if (!pStats.pin) {
       setPinModal({
@@ -541,6 +631,7 @@ export default function QuestSection({
     const targetId = pinModal.targetMemberId;
     const targetMember = playerMembers.find(m => m.id === targetId);
     const curStats = playersData[targetId] || createEmptyPlayerStats();
+    const now = Date.now();
 
     if (pinModal.mode === 'setup') {
       const cleanNew = pinModal.newPinInput.trim();
@@ -550,10 +641,12 @@ export default function QuestSection({
       }
       const nextMap = {
         ...playersData,
-        [targetId]: { ...curStats, pin: cleanNew }
+        [targetId]: { ...curStats, pin: cleanNew, pinUpdatedAt: now }
       };
       setPlayersData(nextMap);
       setActivePlayerId(targetId);
+      setViewedPlayerId(targetId);
+      lastActivityTimeRef.current = now;
       pushSkillBoardToCloudState(targetId, nextMap, customRanks);
       setPinModal({ ...pinModal, open: false });
       playRpgSound('xp');
@@ -571,10 +664,12 @@ export default function QuestSection({
         return;
       }
       setActivePlayerId(targetId);
+      setViewedPlayerId(targetId);
+      lastActivityTimeRef.current = now;
       pushSkillBoardToCloudState(targetId, playersData, customRanks);
       setPinModal({ ...pinModal, open: false });
       playRpgSound('xp');
-      showToast?.('Spieler gewechselt!', 'Du bedienst die Touchwall jetzt als ' + targetMember?.name + '.', '🎮');
+      showToast?.('Spieler angemeldet!', 'Du bedienst die Touchwall jetzt als ' + targetMember?.name + '.', '🎮');
       return;
     }
 
@@ -589,10 +684,12 @@ export default function QuestSection({
       }
       const nextMap = {
         ...playersData,
-        [targetId]: { ...curStats, pin: pinModal.newPinInput.trim() }
+        [targetId]: { ...curStats, pin: pinModal.newPinInput.trim(), pinUpdatedAt: now }
       };
       setPlayersData(nextMap);
       setActivePlayerId(targetId);
+      setViewedPlayerId(targetId);
+      lastActivityTimeRef.current = now;
       pushSkillBoardToCloudState(targetId, nextMap, customRanks);
       setPinModal({ ...pinModal, open: false });
       showToast?.('PIN geändert!', 'Neuer PIN für ' + targetMember?.name + ' wurde in der Cloud gespeichert.', '🔑');
@@ -606,7 +703,7 @@ export default function QuestSection({
       }
       const nextMap = {
         ...playersData,
-        [targetId]: { ...curStats, pin: '' }
+        [targetId]: { ...curStats, pin: '', pinUpdatedAt: now }
       };
       setPlayersData(nextMap);
       pushSkillBoardToCloudState(activePlayerId, nextMap, customRanks);
@@ -622,11 +719,15 @@ export default function QuestSection({
     }
   };
 
-  const activeMemberObj = useMemo(() => {
-    return playerMembers.find(m => m.id === activePlayerId) || playerMembers[0] || { id: 'hans', name: 'Spieler', color: 'navy_bold' };
-  }, [playerMembers, activePlayerId]);
+  const isSomeoneLoggedIn = Boolean(activePlayerId);
 
-  const activeStats = playersData[activeMemberObj.id] || createEmptyPlayerStats();
+  // Welcher Charakter im Dashboard unten betrachtet wird (entweder der eingeloggte oder der zuletzt angeklickte)
+  const displayMemberObj = useMemo(() => {
+    const targetId = activePlayerId || viewedPlayerId;
+    return playerMembers.find(m => m.id === targetId) || playerMembers[0] || { id: 'hans', name: 'Spieler', color: 'navy_bold' };
+  }, [playerMembers, activePlayerId, viewedPlayerId]);
+
+  const activeStats = playersData[displayMemberObj.id] || createEmptyPlayerStats();
   const activeBreakdown = useMemo(() => calculatePlayerBreakdown(activeStats), [activeStats]);
   const activeRankInfo = useMemo(() => getRankForXp(activeBreakdown.totalXp, customRanks), [activeBreakdown.totalXp, customRanks]);
 
@@ -666,23 +767,52 @@ export default function QuestSection({
     }).join(' ');
   }, [radarAxes]);
 
+  const formattedCountdown = useMemo(() => {
+    const mins = Math.floor(remainingSeconds / 60);
+    const secs = String(remainingSeconds % 60).padStart(2, '0');
+    return mins + ':' + secs;
+  }, [remainingSeconds]);
+
+  // Schwebendes Mini-Badge unten links (wenn man im Kalender, Vorrat oder Todoist ist)
   if (!isActive) {
     return (
       <>
-        <div
-          onClick={() => setActiveSection?.('skillboard')}
-          title="Klicken, um zum Skill Board & Charakter-Wechsel zu springen"
-          className="fixed bottom-3 left-24 z-40 px-3.5 py-2 rounded-2xl bg-slate-900/90 border border-sky-400/50 text-white shadow-xl flex items-center gap-2.5 cursor-pointer hover:scale-105 transition-transform"
-        >
-          <span className="text-lg">{activeRankInfo.current.badge}</span>
-          <div className="text-[11px] leading-tight">
-            <div className="font-black text-sky-300">
-              🎮 {activeMemberObj.name} • Lv.{activeRankInfo.current.level}
-            </div>
-            <div className="font-bold opacity-80">
-              {activeBreakdown.totalXp} XP • 👆 {activeStats.clicks || 0} Klicks
-            </div>
+        <div className="fixed bottom-3 left-24 z-40 flex items-center gap-1.5">
+          <div
+            onClick={() => setActiveSection?.('skillboard')}
+            title="Klicken, um zum Skill Board & Charakter-Wechsel zu springen"
+            className={'px-3.5 py-2 rounded-2xl bg-slate-900/95 border text-white shadow-xl flex items-center gap-2.5 cursor-pointer hover:scale-105 transition-transform ' +
+              (isSomeoneLoggedIn ? 'border-sky-400/60' : 'border-rose-400/50 opacity-85')}
+          >
+            <span className="text-lg">{isSomeoneLoggedIn ? activeRankInfo.current.badge : '🔒'}</span>
+            {isSomeoneLoggedIn ? (
+              <div className="text-[11px] leading-tight">
+                <div className="font-black text-sky-300 flex items-center gap-1.5">
+                  <span>🎮 {displayMemberObj.name} • Lv.{activeRankInfo.current.level}</span>
+                  <span className="text-[9px] text-amber-300 opacity-80">({formattedCountdown})</span>
+                </div>
+                <div className="font-bold opacity-80">
+                  {activeBreakdown.totalXp} XP • 👆 {activeStats.clicks || 0} Klicks
+                </div>
+              </div>
+            ) : (
+              <div className="text-[11px] leading-tight">
+                <div className="font-black text-rose-300">Kein Charakter aktiv</div>
+                <div className="font-bold opacity-75">Tippen für PIN-Login</div>
+              </div>
+            )}
           </div>
+
+          {isSomeoneLoggedIn && (
+            <button
+              type="button"
+              onClick={() => handleLogoutPlayer(false)}
+              title="Charakter sofort abmelden"
+              className="p-2.5 rounded-2xl bg-rose-600/90 hover:bg-rose-500 text-white shadow-xl border border-rose-400/50 cursor-pointer"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          )}
         </div>
 
         {levelUpBanner && (
@@ -726,7 +856,7 @@ export default function QuestSection({
 
   return (
     <div className="p-4 sm:p-6 flex flex-col gap-5">
-      {/* 1. KOPFZEILE & CHARAKTER-WAHL */}
+      {/* 1. KOPFZEILE & CHARAKTER-WAHL MIT ABMELDEN-BUTTON & 5-MIN-TIMER */}
       <div className={'p-5 rounded-3xl border shadow-sm space-y-4 ' + themeStyles.card}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -734,32 +864,59 @@ export default function QuestSection({
               <span className="px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-400/40 text-xs font-black">
                 🎮 RPG SKILL BOARD & QUEST-SYSTEM
               </span>
-              <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-xs font-extrabold">
-                🟢 Aktiver Charakter: {activeMemberObj.name} ({activeRankInfo.current.badge} Lv.{activeRankInfo.current.level})
-              </span>
+
+              {isSomeoneLoggedIn ? (
+                <>
+                  <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-xs font-extrabold">
+                    🟢 Angemeldet: {displayMemberObj.name} ({activeRankInfo.current.badge} Lv.{activeRankInfo.current.level})
+                  </span>
+                  <span className="px-2.5 py-1 rounded-full bg-amber-500/15 text-amber-300 border border-amber-400/30 text-[11px] font-extrabold flex items-center gap-1">
+                    <Timer className="w-3.5 h-3.5" /> Auto-Logout in {formattedCountdown}
+                  </span>
+                </>
+              ) : (
+                <span className="px-3 py-1 rounded-full bg-rose-500/25 text-rose-300 border border-rose-400/40 text-xs font-black">
+                  🔒 Abgemeldet – Bitte Charakter antippen, um XP zu sammeln!
+                </span>
+              )}
+
               <span className="px-2.5 py-1 rounded-full bg-sky-500/20 text-sky-300 border border-sky-400/30 text-[11px] font-extrabold flex items-center gap-1">
-                <Cloud className="w-3.5 h-3.5" /> Cloud-Tresor & Backup aktiv
+                <Cloud className="w-3.5 h-3.5" /> Cloud-Tresor aktiv
               </span>
             </div>
+
             <h2 className="text-xl sm:text-2xl font-black mt-1.5">
-              Wähle deinen Charakter (mit persönlichem PIN-Schutz)
+              Wähle deinen Charakter (mit persönlichem PIN-Schutz & 5-Min. Auto-Logout)
             </h2>
             <p className={'text-xs font-semibold ' + themeStyles.textMuted}>
-              Beim ersten Antippen legst du deinen PIN fest. Vergessen? Über „🔄 Reset“ und den Code „0000“ kannst du deinen PIN jederzeit zurücksetzen.
+              Nach 5 Minuten ohne Berührung meldet sich dein Charakter automatisch ab. Du kannst dich auch jederzeit sofort über „🚪 Abmelden“ ausloggen.
             </p>
           </div>
 
-          <button
-            type="button"
-            onClick={() => {
-              setRanksDraft(customRanks);
-              setRankModalOpen(true);
-            }}
-            className="tw-glow-btn px-4 py-2.5 rounded-2xl text-xs font-black flex items-center gap-2 cursor-pointer"
-          >
-            <Settings className="w-4 h-4" />
-            <span>👑 30 Ränge & Abzeichen anpassen</span>
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            {isSomeoneLoggedIn && (
+              <button
+                type="button"
+                onClick={() => handleLogoutPlayer(false)}
+                className="px-4 py-2.5 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-black flex items-center gap-2 shadow-lg cursor-pointer"
+              >
+                <LogOut className="w-4 h-4" />
+                <span>🚪 {displayMemberObj.name} abmelden</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => {
+                setRanksDraft(customRanks);
+                setRankModalOpen(true);
+              }}
+              className="tw-glow-btn px-4 py-2.5 rounded-2xl text-xs font-black flex items-center gap-2 cursor-pointer"
+            >
+              <Settings className="w-4 h-4" />
+              <span>👑 30 Ränge & Abzeichen</span>
+            </button>
+          </div>
         </div>
 
         {/* CHARAKTER-KACHELN */}
@@ -768,7 +925,8 @@ export default function QuestSection({
             const pStats = playersData[member.id] || createEmptyPlayerStats();
             const bd = calculatePlayerBreakdown(pStats);
             const rk = getRankForXp(bd.totalXp, customRanks);
-            const isCurrent = member.id === activeMemberObj.id;
+            const isLoggedInHere = isSomeoneLoggedIn && member.id === activePlayerId;
+            const isPreviewedHere = member.id === displayMemberObj.id;
             const hasPin = Boolean(pStats.pin);
             const st = getMemberStyles(member);
 
@@ -778,18 +936,22 @@ export default function QuestSection({
                 onClick={() => handleCharacterCardClick(member)}
                 style={st.headerStyle}
                 className={'p-4 rounded-3xl border-2 flex flex-col justify-between gap-3 cursor-pointer transition-all hover:scale-[1.02] ' +
-                  (isCurrent ? 'ring-3 ring-amber-400 border-amber-400 shadow-xl' : themeStyles.divider)}
+                  (isLoggedInHere
+                    ? 'ring-3 ring-emerald-400 border-emerald-400 shadow-xl'
+                    : isPreviewedHere
+                    ? 'border-sky-400/70'
+                    : themeStyles.divider)}
               >
                 <div className="space-y-2.5">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-center gap-3 min-w-0">
                       {renderAvatar(member, 'w-12 h-12', 'text-xl')}
                       <div className="min-w-0">
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="font-black text-base truncate">{member.name}</span>
-                          {isCurrent && (
+                          {isLoggedInHere && (
                             <span className="px-2 py-0.5 rounded-full bg-emerald-500 text-slate-950 text-[9px] font-black">
-                              AKTIV
+                              AKTIV ({formattedCountdown})
                             </span>
                           )}
                         </div>
@@ -820,18 +982,33 @@ export default function QuestSection({
                   </div>
                 </div>
 
+                {/* BUTTON-LEISTE DER CHARAKTER-KACHEL (INKL. DIREKTEM ABMELDEN-KNOPF) */}
                 <div className="flex items-center gap-1.5 pt-2 border-t border-white/15">
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleCharacterCardClick(member);
-                    }}
-                    className="tw-glow-btn flex-1 py-2 px-2.5 rounded-xl text-[11px] font-black flex items-center justify-center gap-1 cursor-pointer"
-                  >
-                    <ShieldCheck className="w-3.5 h-3.5" />
-                    <span>{hasPin ? (isCurrent ? 'Aktiv ✓' : 'Auswählen') : 'PIN setzen'}</span>
-                  </button>
+                  {isLoggedInHere ? (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleLogoutPlayer(false);
+                      }}
+                      className="flex-1 py-2 px-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-[11px] font-black flex items-center justify-center gap-1 cursor-pointer shadow-md"
+                    >
+                      <LogOut className="w-3.5 h-3.5" />
+                      <span>🚪 Abmelden</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleCharacterCardClick(member);
+                      }}
+                      className="tw-glow-btn flex-1 py-2 px-2.5 rounded-xl text-[11px] font-black flex items-center justify-center gap-1 cursor-pointer"
+                    >
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                      <span>{hasPin ? 'Anmelden' : 'PIN setzen'}</span>
+                    </button>
+                  )}
 
                   <button
                     type="button"
@@ -840,7 +1017,7 @@ export default function QuestSection({
                     className="tw-nav-inactive py-2 px-2.5 rounded-xl text-[11px] font-extrabold flex items-center gap-1 cursor-pointer"
                   >
                     <KeyRound className="w-3.5 h-3.5 text-sky-300" />
-                    <span>PIN ändern</span>
+                    <span>PIN</span>
                   </button>
 
                   {hasPin && (
@@ -873,8 +1050,13 @@ export default function QuestSection({
                 <div className="text-xs font-black uppercase text-amber-400">
                   Level {activeRankInfo.current.level} / 30 • {activeRpgClassTitle}
                 </div>
-                <h3 className="text-2xl font-black leading-tight">
-                  {activeMemberObj.name}
+                <h3 className="text-2xl font-black leading-tight flex items-center gap-2">
+                  <span>{displayMemberObj.name}</span>
+                  {!isSomeoneLoggedIn && (
+                    <span className="px-2 py-0.5 rounded-lg bg-rose-500/20 text-rose-300 text-[10px] font-extrabold">
+                      Vorschau (Abgemeldet)
+                    </span>
+                  )}
                 </h3>
                 <div className="text-sm font-extrabold text-sky-300">
                   Rang: „{activeRankInfo.current.title}“
@@ -890,7 +1072,7 @@ export default function QuestSection({
 
           <div className="flex flex-col items-center justify-center py-1">
             <div className="text-xs font-black uppercase text-sky-400 mb-1">
-              🕸️ RPG-Attribut-Diagramm ({activeMemberObj.name})
+              🕸️ RPG-Attribut-Diagramm ({displayMemberObj.name})
             </div>
             <svg viewBox="0 0 260 260" className="w-60 h-60 overflow-visible">
               {[0.25, 0.5, 0.75, 1].map((scale, sIdx) => {
@@ -964,7 +1146,7 @@ export default function QuestSection({
         <div className={'lg:col-span-7 p-5 rounded-3xl border flex flex-col justify-between gap-5 ' + themeStyles.card}>
           <div className="space-y-3">
             <div>
-              <h3 className="text-lg font-black">📊 Skill-Punkte & Aktivitäts-Diagramm ({activeMemberObj.name})</h3>
+              <h3 className="text-lg font-black">📊 Skill-Punkte & Aktivitäts-Diagramm ({displayMemberObj.name})</h3>
               <p className={'text-xs font-semibold ' + themeStyles.textMuted}>
                 Wichtige Aufgaben (Quests, Vorrat & Einkauf) bringen großen XP-Fortschritt – Klicks & Mausbewegung sammeln nebenbei Ausdauer-XP!
               </p>
@@ -1007,7 +1189,11 @@ export default function QuestSection({
                 })
                 .sort((a, b) => b.bd.totalXp - a.bd.totalXp)
                 .map((entry, idx) => (
-                  <div key={entry.member.id} className="flex items-center justify-between gap-3 px-3 py-2 rounded-xl bg-black/25 border border-white/10">
+                  <div
+                    key={entry.member.id}
+                    onClick={() => setViewedPlayerId(entry.member.id)}
+                    className="flex items-center justify-between gap-3 px-3 py-2 rounded-xl bg-black/25 border border-white/10 cursor-pointer hover:bg-white/5"
+                  >
                     <div className="flex items-center gap-2.5 min-w-0">
                       <span className="text-sm font-black w-5 text-amber-400">#{idx + 1}</span>
                       {renderAvatar(entry.member, 'w-7 h-7', 'text-xs')}
@@ -1034,7 +1220,9 @@ export default function QuestSection({
             <span>⚔️ Aktive Familien-Quests (Jede erledigte Quest bringt sofort +60 XP!)</span>
           </h3>
           <p className={'text-xs font-semibold ' + themeStyles.textMuted}>
-            Schließe offene Aufgaben direkt hier auf dem Skill Board ab, um deinen Charakter hochzuleveln!
+            {isSomeoneLoggedIn
+              ? ('Du bist als ' + displayMemberObj.name + ' angemeldet – jede erledigte Quest unten zählt sofort auf dein XP-Konto!')
+              : 'Bitte melde dich zuerst oben mit deinem Charakter-PIN an, damit dir die +60 XP gutgeschrieben werden!'}
           </p>
         </div>
 
@@ -1045,7 +1233,7 @@ export default function QuestSection({
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {openQuestsList.slice(0, 9).map(q => {
-              const assignedMem = playerMembers.find(m => m.id === q.member) || activeMemberObj;
+              const assignedMem = playerMembers.find(m => m.id === q.member) || displayMemberObj;
               return (
                 <div
                   key={q.id}
@@ -1059,7 +1247,14 @@ export default function QuestSection({
                   </div>
                   <button
                     type="button"
-                    onClick={() => toggleTaskDone?.(q.id, true)}
+                    onClick={() => {
+                      if (!isSomeoneLoggedIn) {
+                        showToast?.('Bitte zuerst anmelden!', 'Wähle oben deinen Charakter mit PIN aus, um die +60 XP zu erhalten.', '🔒');
+                        handleCharacterCardClick(assignedMem);
+                        return;
+                      }
+                      toggleTaskDone?.(q.id, true);
+                    }}
                     className="tw-glow-btn px-3.5 py-2.5 rounded-xl text-xs font-black shrink-0 cursor-pointer"
                   >
                     ✓ Erledigen
