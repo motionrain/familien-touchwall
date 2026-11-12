@@ -399,12 +399,12 @@ export default function QuestSection({
   useEffect(() => {
     if (!isLoaded) return;
 
-    const evCount = Array.isArray(events) ? events.length : 0;
-    const doneTasks = (Array.isArray(familyTasks) ? familyTasks : []).filter(t => t.done).length;
-    const pCount = Array.isArray(pantryItems) ? pantryItems.length : 0;
-    const consumedCount = (Array.isArray(pantryTrash) ? pantryTrash : []).filter(t => t.reason === 'consumed').length;
-    const shopDone = (Array.isArray(familyNotes?.[0]?.items) ? familyNotes[0].items : []).filter(i => i.done).length;
-    const notesTotal = (Array.isArray(familyNotes) ? familyNotes : []).reduce((acc, n) => acc + (Array.isArray(n.items) ? n.items.length : 0), 0);
+    const evCount = (Array.isArray(events) ? events : []).filter(e => !e?.fromMobile).length;
+    const doneTasks = (Array.isArray(familyTasks) ? familyTasks : []).filter(t => t.done && !t?.fromMobile).length;
+    const pCount = (Array.isArray(pantryItems) ? pantryItems : []).filter(p => !p?.fromMobile).length;
+    const consumedCount = (Array.isArray(pantryTrash) ? pantryTrash : []).filter(t => t.reason === 'consumed' && !t?.fromMobile).length;
+    const shopDone = (Array.isArray(familyNotes?.[0]?.items) ? familyNotes[0].items : []).filter(i => i.done && !i?.fromMobile).length;
+    const notesTotal = (Array.isArray(familyNotes) ? familyNotes : []).reduce((acc, n) => acc + (Array.isArray(n.items) ? n.items.filter(i => !i?.fromMobile).length : 0), 0);
 
     if (!prevCountsRef.current.initialized) {
       prevCountsRef.current = {
