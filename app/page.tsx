@@ -1888,16 +1888,17 @@ export default function TouchwallApp() {
               {customLogoUrl ? <img src={customLogoUrl} alt="Logo" className="w-full h-full object-cover" /> : <span className="font-black text-lg">TW</span>}
             </button>
 
-            <nav className="flex flex-col items-center gap-2 w-full px-2">
+              <nav className="flex flex-col items-center gap-2 w-full px-2">
               {[
-                { id: 'kalender', label: 'Kalender',   icon: Calendar },
-                { id: 'schule',   label: 'Schule',     icon: GraduationCap },
-                { id: 'aufgaben', label: 'Todoist',    icon: CheckSquare },
-                { id: 'essen',    label: 'Essensplan', icon: Utensils },
-                { id: 'vorrat',   label: 'Vorrat',     icon: Package },
-                { id: 'listen',   label: 'Notizen',    icon: FileText },
-                { id: 'design',   label: 'Design',     icon: Palette },
-                { id: 'google',   label: 'Konten',     icon: Cloud }
+                { id: 'kalender',   label: 'Kalender',    icon: Calendar },
+                { id: 'schule',     label: 'Schule',      icon: GraduationCap },
+                { id: 'aufgaben',   label: 'Todoist',     icon: CheckSquare },
+                { id: 'essen',      label: 'Essensplan',  icon: Utensils },
+                { id: 'vorrat',     label: 'Vorrat',      icon: Package },
+                { id: 'listen',     label: 'Notizen',     icon: FileText },
+                { id: 'design',     label: 'Design',      icon: Palette },
+                { id: 'google',     label: 'Konten',      icon: Cloud },
+                { id: 'skillboard', label: 'Skill Board', icon: Sparkles }
               ].map(item => {
                 const Icon = item.icon;
                 const active = activeSection === item.id;
@@ -2092,6 +2093,22 @@ export default function TouchwallApp() {
             {['schule', 'essen', 'listen', 'design', 'google'].includes(activeSection) && (
               <OtherSections {...otherSectionsProps} />
             )}
+
+            <QuestSection
+              isActive={activeSection === 'skillboard'}
+              setActiveSection={setActiveSection}
+              members={safeMembers}
+              events={safeEvents}
+              familyTasks={safeTasks}
+              toggleTaskDone={toggleTaskDone}
+              pantryItems={safePantryItems}
+              pantryTrash={safePantryTrash}
+              familyNotes={safeNotes}
+              themeStyles={themeStyles}
+              getMemberStyles={getMemberStyles}
+              renderAvatar={renderAvatar}
+              showToast={showToast}
+            />
           </main>
         </div>
       </div>
