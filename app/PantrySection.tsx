@@ -7,7 +7,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   Package, Trash2, Utensils, Plus, CheckCircle2,
   ShoppingCart, Sparkles, RotateCcw, Globe, Clock,
-  Wand2, ExternalLink, ChefHat, Pencil, Check, X
+  Wand2, ExternalLink, ChefHat, Pencil, Check, X,
+  Table as TableIcon, LayoutGrid
 } from 'lucide-react';
 import { formatDateStr, addDays } from './touchwallConfig';
 
@@ -19,6 +20,54 @@ const STORAGE_LOCATIONS = [
   { id: 'kitchen', label: '🍎 Küche / Vorratsschrank', short: '🍎 Küche' }
 ];
 
+// ============================================================================
+// DIE 7 LEBENSMITTEL-KATEGORIEN INKL. ERNÄHRUNGS-BESCHREIBUNG
+// ============================================================================
+export const FOOD_CATEGORIES = [
+  {
+    id: 'drinks',
+    icon: '🧃',
+    title: 'Getränke',
+    desc: 'Wasser, Kaffee, Tee und ungesüßte Säfte.'
+  },
+  {
+    id: 'produce',
+    icon: '🥦',
+    title: 'Obst und Gemüse',
+    desc: 'Frisches Obst, Gemüse, Salate und Hülsenfrüchte als wichtige Quellen für Vitamine und Ballaststoffe.'
+  },
+  {
+    id: 'grains',
+    icon: '🌾',
+    title: 'Getreide, Getreideprodukte und Kartoffeln',
+    desc: 'Brot, Nudeln, Reis, Getreideflocken und Kartoffeln als Kohlenhydratquellen.'
+  },
+  {
+    id: 'dairy',
+    icon: '🧀',
+    title: 'Milch und Milchprodukte',
+    desc: 'Milch, Joghurt, Quark, Sahne und Käse (reich an Calcium und Eiweiß).'
+  },
+  {
+    id: 'meat_fish_eggs',
+    icon: '🥩',
+    title: 'Fleisch, Fisch, Wurst und Eier',
+    desc: 'Eiweiß- und Nährstofflieferanten in eher maßvoller Portionsgröße.'
+  },
+  {
+    id: 'oils_fats',
+    icon: '🧈',
+    title: 'Öle und Fette (inkl. Würzmittel)',
+    desc: 'Pflanzliche Öle und tierische Fette (wie Butter/Kräuterbutter) sowie Essig, Senf und Soßen.'
+  },
+  {
+    id: 'sweets_snacks',
+    icon: '🍫',
+    title: 'Süßwaren, Knabbereien & Sonstiges',
+    desc: 'Chips, Schokolade, Zuckerwaren und sonstige Vorräte.'
+  }
+];
+
 const FOOD_EMOJI_PICKER = [
   '🌭', '🥩', '🍗', '🥓', '🍔', '🐟', '🥚', '🧀', '🧈', '🥛',
   '🥣', '🥬', '🥒', '🍅', '🫑', '🥕', '🥔', '🧅', '🥦', '🌽',
@@ -26,7 +75,34 @@ const FOOD_EMOJI_PICKER = [
   '🥖', '🥐', '🍕', '🌮', '🥫', '🌾', '🍫', '🍪', '🧃', '🐶'
 ];
 
-// Intelligente Emoji-Erkennung (inkl. aller Produkte aus deinem Vorrat)
+// Automatische Erkennung der passenden Lebensmittel-Kategorie anhand des Produktnamens
+export function detectFoodCategory(nameStr, customCategory = '') {
+  if (customCategory && FOOD_CATEGORIES.some(c => c.id === customCategory)) {
+    return customCategory;
+  }
+  const n = String(nameStr || '').toLowerCase();
+
+  if (/wasser|mineralwasser|kaffee|espresso|tee|saft|apfelsaft|orangensaft|schorle|cola|limo|getränk|sirup|kakao|bier|wein/.test(n)) {
+    return 'drinks';
+  }
+  if (/butter|kräuterbutter|meggle|margarine|öl|sonnenblumenöl|olivenöl|rapsöl|kokosöl|fett|schmalz|essig|hengstenberg|senf|thomy|ketchup|mayo|mayonnaise|dressing|burger sauce|heinz|soße|sauce|pesto/.test(n)) {
+    return 'oils_fats';
+  }
+  if (/milch|vollmilch|schwarzwaldmilch|landfein|joghurt|quark|käse|frischkäse|philadelphia|scheibenkäse|gouda|mozzarella|parmesan|emmentaler|camembert|feta|schlagsahne|sahne|schmand|creme fraiche|mascarpone|ayran|kefir/.test(n)) {
+    return 'dairy';
+  }
+  if (/fleisch|hackfleisch|rinderhack|rind|schwein|hähnchen|huhn|pute|geflügel|schnitzel|steak|gulasch|wurst|bratwurst|rostbratwurst|leberwurst|würstchen|wiener|lyoner|salami|schinken|speck|aufschnitt|fisch|lachs|thunfisch|fischstäbchen|forelle|garnele|ei|eier/.test(n)) {
+    return 'meat_fish_eggs';
+  }
+  if (/brot|landbrot|mehrkorn|brötchen|toast|baguette|croissant|nudel|spaghetti|pasta|penne|rigatoni|tortellini|ravioli|spätzle|reis|spitzenreis|langkorn|basmati|jasmin|milchreis|getreide|haferflocken|müsli|cornflakes|mehl|grieß|stärke|wraps|wrap|tortilla|taco|schär|kartoffel|kartoffelpüree|pfanni|gnocchi|schupfnudel|pommes|knödel/.test(n)) {
+    return 'grains';
+  }
+  if (/obst|apfel|äpfel|elstar|apfelmus|banane|clementine|mandarine|orange|susi|beere|erdbeer|himbeer|heidelbeer|traube|birne|zitrone|limette|kiwi|mango|ananas|melone|gemüse|salat|eisberg|mâche|mache|feldsalat|rucola|spinat|gurke|tomate|tomatenmark|passierte|oro di parma|paprika|karotte|möhre|zwiebel|knoblauch|brokkoli|blumenkohl|spargel|stangenspargel|rotkohl|kraut|pilz|champignon|avocado|mais|erbse|bohne|linse|kichererbse|chili sin carne|gefro/.test(n)) {
+    return 'produce';
+  }
+  return 'sweets_snacks';
+}
+
 export function getFoodEmoji(nameStr, customEmoji = '') {
   if (customEmoji && String(customEmoji).trim() !== '') {
     return String(customEmoji).trim();
@@ -73,12 +149,10 @@ export function getFoodEmoji(nameStr, customEmoji = '') {
 
 // =========================================================
 // INTELLIGENTE STÜCKZAHL-REDUZIERUNG BEIM KLICK AUF "VERZEHRT"
-// Unterstützt: "2x", "2pcs", "6.0 pcs", "2pkg", "8x 125g", "5 x 20 g = 100 g", "3 x 50g (150g)"
 // =========================================================
 function decrementItemPieceCount(rawQtyStr) {
   const clean = String(rawQtyStr || '1x').trim();
 
-  // 1. Mehrfachpackung mit Einzelgewicht: z.B. "5 x 20 g = 100 g", "8x 125g", "3 x 50g (150g)"
   const multiMatch = clean.match(/^(\d+(?:[.,]\d+)?)\s*([x×])\s*(\d+(?:[.,]\d+)?)\s*(g|ml|kg|l|gr|stk|pcs)(.*)$/i);
   if (multiMatch) {
     const currentCount = Math.round(parseFloat(multiMatch[1].replace(',', '.')));
@@ -100,7 +174,6 @@ function decrementItemPieceCount(rawQtyStr) {
     return { remaining: 0, nextQtyStr: '0' };
   }
 
-  // 2. Stückzahl-Formate: "2x", "2pcs", "6.0 pcs", "10.0 pcs", "2pkg", "4 Stk", "3 Pack"
   const pieceMatch = clean.match(/^(\d+(?:[.,]\d+)?)\s*(x|pcs|pc|stk|stück|pkg|pack|pck|dosen|dose|flaschen|fl|gläser|glas|becher|rollen|rolle)?$/i);
   if (pieceMatch) {
     const val = parseFloat(pieceMatch[1].replace(',', '.'));
@@ -120,7 +193,6 @@ function decrementItemPieceCount(rawQtyStr) {
     return { remaining: 0, nextQtyStr: '0' };
   }
 
-  // 3. Reine Gewichts-/Volumenangabe ohne Stückzahl (z.B. "220g", "1000 g", "500 ml") -> Komplett verzehrt
   return { remaining: 0, nextQtyStr: '0' };
 }
 
@@ -237,13 +309,16 @@ export default function PantrySection({
   showToast
 }) {
   const [activeSubTab, setActiveSubTab] = useState('stock');
+  const [viewMode, setViewMode] = useState('table'); // 'table' (Kategorien-Tabelle) | 'cards' (6er-Kacheln)
   const [locationFilter, setLocationFilter] = useState('all');
+  const [categoryFilter, setCategoryFilter] = useState('all');
   const [recipeFilter, setRecipeFilter] = useState('all');
 
   // Formular: Neues Produkt
   const [itemName, setItemName] = useState('');
   const [itemQty, setItemQty] = useState('1x');
   const [itemLocation, setItemLocation] = useState('fridge');
+  const [itemCategory, setItemCategory] = useState('auto');
   const [itemExpiry, setItemExpiry] = useState('');
 
   // Komfort-Bearbeitungs-Modal für ein einzelnes Produkt
@@ -253,6 +328,7 @@ export default function PantrySection({
     name: '',
     quantity: '',
     location: 'fridge',
+    category: 'produce',
     expiryDate: '',
     customEmoji: ''
   });
@@ -305,24 +381,28 @@ export default function PantrySection({
       return;
     }
 
+    const finalCat = itemCategory === 'auto' ? detectFoodCategory(cleanName) : itemCategory;
+
     const newItem = {
       id: 'p_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
       name: cleanName,
       quantity: itemQty.trim() || '1x',
       location: itemLocation,
+      category: finalCat,
       expiryDate: itemExpiry,
       customEmoji: '',
-      addedAt: todayStr
+      addedAt: todayStr,
+      updatedAt: Date.now()
     };
 
     setPantryItems(prev => [newItem, ...(Array.isArray(prev) ? prev : [])]);
     setItemName('');
     setItemQty('1x');
+    setItemCategory('auto');
     setItemExpiry('');
     showToast('In Speisekammer gespeichert', cleanName + ' (MHD: ' + itemExpiry + ')', getFoodEmoji(cleanName));
   };
 
-  // Öffnet das Bearbeitungs-Fenster für ein Produkt
   const openEditProductModal = (item) => {
     setEditModal({
       open: true,
@@ -330,6 +410,7 @@ export default function PantrySection({
       name: item.name || '',
       quantity: item.quantity || '1x',
       location: item.location || 'fridge',
+      category: detectFoodCategory(item.name, item.category),
       expiryDate: item.expiryDate || todayStr,
       customEmoji: item.customEmoji || getFoodEmoji(item.name)
     });
@@ -349,8 +430,10 @@ export default function PantrySection({
             name: editModal.name.trim(),
             quantity: editModal.quantity.trim() || '1x',
             location: editModal.location,
+            category: editModal.category,
             expiryDate: editModal.expiryDate,
-            customEmoji: editModal.customEmoji
+            customEmoji: editModal.customEmoji,
+            updatedAt: Date.now()
           }
         : it
     ));
@@ -368,16 +451,12 @@ export default function PantrySection({
     setEditModal({ ...editModal, open: false });
   };
 
-  // =========================================================
-  // "VERZEHRT"-LOGIK: ZÄHLT STÜCKZAHLEN HERUNTER ODER LEGT IN MÜLLEIMER
-  // =========================================================
   const handleConsumeClick = (item) => {
     const result = decrementItemPieceCount(item.quantity);
 
     if (result.remaining > 0) {
-      // Es sind noch Stücke übrig -> Stückzahl um 1 reduzieren!
       setPantryItems(prev => (Array.isArray(prev) ? prev : []).map(it =>
-        it.id === item.id ? { ...it, quantity: result.nextQtyStr } : it
+        it.id === item.id ? { ...it, quantity: result.nextQtyStr, updatedAt: Date.now() } : it
       ));
       showToast(
         '1 Stück verzehrt!',
@@ -385,7 +464,6 @@ export default function PantrySection({
         getFoodEmoji(item.name, item.customEmoji)
       );
     } else {
-      // Alles aufgebraucht -> Produkt in den Mülleimer verschieben
       MoveItemToTrash(item, 'consumed');
     }
   };
@@ -421,9 +499,11 @@ export default function PantrySection({
         name: trashItem.name,
         quantity: trashItem.quantity || '1x',
         location: trashItem.location || 'pantry',
+        category: detectFoodCategory(trashItem.name, trashItem.category),
         expiryDate: newExp.trim(),
         customEmoji: trashItem.customEmoji || '',
-        addedAt: todayStr
+        addedAt: todayStr,
+        updatedAt: Date.now()
       },
       ...(Array.isArray(prev) ? prev : [])
     ]);
@@ -432,10 +512,25 @@ export default function PantrySection({
 
   const filteredStock = useMemo(() => {
     return safeStock
+      .map(it => ({
+        ...it,
+        resolvedCategory: detectFoodCategory(it.name, it.category)
+      }))
       .filter(it => locationFilter === 'all' || it.location === locationFilter)
-      .slice()
+      .filter(it => categoryFilter === 'all' || it.resolvedCategory === categoryFilter)
       .sort((a, b) => String(a.expiryDate || '9999').localeCompare(String(b.expiryDate || '9999')));
-  }, [safeStock, locationFilter]);
+  }, [safeStock, locationFilter, categoryFilter]);
+
+  // Gruppierung nach den 7 Lebensmittel-Kategorien
+  const groupedByCategory = useMemo(() => {
+    return FOOD_CATEGORIES.map(cat => {
+      const items = filteredStock.filter(it => it.resolvedCategory === cat.id);
+      return {
+        ...cat,
+        items
+      };
+    }).filter(group => categoryFilter === 'all' ? group.items.length > 0 : group.id === categoryFilter);
+  }, [filteredStock, categoryFilter]);
 
   const expiringSoonItems = useMemo(() => {
     return safeStock
@@ -697,6 +792,14 @@ export default function PantrySection({
     '  z-index: 30;',
     '  box-shadow: 0 18px 36px -6px rgba(0, 0, 0, 0.75), 0 0 22px var(--tw-btn-glow, rgba(56, 189, 248, 0.5)) !important;',
     '}',
+    '.tw-pantry-row {',
+    '  transition: transform 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease;',
+    '}',
+    '.tw-pantry-row:hover {',
+    '  transform: scale(1.012);',
+    '  z-index: 20;',
+    '  background-color: rgba(56, 189, 248, 0.1) !important;',
+    '}',
     '.tw-pantry-warn-orange {',
     '  animation: twPulseOrangeMhd 2.2s infinite ease-in-out;',
     '  border-width: 2px !important;',
@@ -715,13 +818,13 @@ export default function PantrySection({
       <div className={'p-4 rounded-3xl border shadow-sm flex flex-wrap items-center justify-between gap-3 ' + themeStyles.card}>
         <div>
           <div className="flex items-center gap-2.5 flex-wrap">
-            <h2 className="text-xl sm:text-2xl font-extrabold">🥫 Speisekammer, Web-Rezepte & Tages-Menü</h2>
+            <h2 className="text-xl sm:text-2xl font-extrabold">🥫 Speisekammer nach Lebensmittel-Kategorien</h2>
             <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-xs font-extrabold">
               🌱 Nachhaltigkeit: {trashStats.score}% ({trashStats.consumed} verzehrt / {trashStats.wasted} abgelaufen)
             </span>
           </div>
           <p className={'text-xs font-semibold mt-0.5 ' + themeStyles.textMuted}>
-            6 Touch-Kacheln pro Reihe • Stückzahlen zählen beim Klick auf „Verzehrt“ einzeln herunter • Pulsierender Glow ab 7 Tagen (🟠) & 3 Tagen (🔴).
+            Übersichtlich geordnet in 7 Ernährungsgruppen • Einzelstück-Abzug bei „Verzehrt (-1)“ • Pulsierender Glow ab 7 Tagen (🟠) & 3 Tagen (🔴).
           </p>
         </div>
 
@@ -758,14 +861,15 @@ export default function PantrySection({
       </div>
 
       {/* =========================================================
-          SUB-TAB 1: BESTAND & SCHNELL-EINGABE
+          SUB-TAB 1: BESTAND NACH 7 LEBENSMITTEL-KATEGORIEN
          ========================================================= */}
       {activeSubTab === 'stock' && (
         <div className="space-y-4">
+          {/* EINGABE-FORMULAR INKL. AUTOMATISCHER ODER MANUELLER KATEGORIE */}
           <form onSubmit={handleAddProduct} className={'p-4 rounded-3xl border space-y-2.5 ' + themeStyles.card}>
             <div className="flex items-center justify-between flex-wrap gap-2">
               <span className="text-[11px] font-black uppercase text-sky-400">
-                ➕ Lebensmittel in Speisekammer einbuchen (Ablaufdatum ist Pflicht!)
+                ➕ Lebensmittel in Speisekammer einbuchen (Kategorie wird automatisch erkannt!)
               </span>
               <button
                 type="button"
@@ -778,7 +882,7 @@ export default function PantrySection({
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5">
-              <div className="md:col-span-5 flex items-center gap-2">
+              <div className="md:col-span-4 flex items-center gap-2">
                 <span className="w-10 h-10 rounded-xl bg-black/25 border border-white/10 flex items-center justify-center text-xl shrink-0">
                   {getFoodEmoji(itemName)}
                 </span>
@@ -787,7 +891,7 @@ export default function PantrySection({
                   required
                   value={itemName}
                   onChange={(e) => setItemName(e.target.value)}
-                  placeholder="Produktname (z.B. Vollmilch, Kräuterbutter, Eier)..."
+                  placeholder="Produktname (z.B. Vollmilch, Eier, Äpfel)..."
                   className={'w-full px-3.5 py-2.5 rounded-xl border text-xs sm:text-sm font-extrabold ' + themeStyles.input}
                 />
               </div>
@@ -796,9 +900,24 @@ export default function PantrySection({
                 type="text"
                 value={itemQty}
                 onChange={(e) => setItemQty(e.target.value)}
-                placeholder="Menge (z.B. 6.0 pcs, 2x, 250g)"
-                className={'md:col-span-2 px-3.5 py-2.5 rounded-xl border text-xs sm:text-sm font-bold ' + themeStyles.input}
+                placeholder="Menge (z.B. 6.0 pcs, 2x)"
+                className={'md:col-span-2 px-3 py-2.5 rounded-xl border text-xs font-bold ' + themeStyles.input}
               />
+
+              <select
+                value={itemCategory}
+                onChange={(e) => setItemCategory(e.target.value)}
+                className={'md:col-span-2 px-3 py-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+              >
+                <option value="auto" className="bg-slate-800 text-amber-300">
+                  ✨ Kategorie: Automatisch ({FOOD_CATEGORIES.find(c => c.id === detectFoodCategory(itemName))?.title.split(',')[0]})
+                </option>
+                {FOOD_CATEGORIES.map(cat => (
+                  <option key={cat.id} value={cat.id} className="bg-slate-800 text-white">
+                    {cat.icon} {cat.title}
+                  </option>
+                ))}
+              </select>
 
               <select
                 value={itemLocation}
@@ -810,7 +929,7 @@ export default function PantrySection({
                 ))}
               </select>
 
-              <div className="md:col-span-3 flex items-center gap-2">
+              <div className="md:col-span-2 flex items-center gap-2">
                 <input
                   type="date"
                   required
@@ -858,141 +977,365 @@ export default function PantrySection({
             </div>
           </form>
 
-          {/* LAGERORT-FILTER */}
-          <div className="flex flex-wrap items-center gap-2">
-            {STORAGE_LOCATIONS.map(loc => (
+          {/* FILTERLEISTEN: LAGERORT + LEBENSMITTEL-KATEGORIE + ANSICHTS-UMSCHALTER (TABELLE / 6ER-KACHELN) */}
+          <div className={'p-3.5 rounded-3xl border space-y-2.5 ' + themeStyles.card}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-1.5">
+                {STORAGE_LOCATIONS.map(loc => (
+                  <button
+                    key={loc.id}
+                    onClick={() => setLocationFilter(loc.id)}
+                    className={'px-3 py-1.5 rounded-xl text-xs font-extrabold cursor-pointer ' + (locationFilter === loc.id ? 'tw-active-nav' : 'tw-nav-inactive')}
+                  >
+                    {loc.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* UMSCHALTER: TABELLE vs. 6ER-KACHELN */}
+              <div className="flex items-center gap-1.5 p-1 rounded-2xl bg-black/25 border border-white/10">
+                <button
+                  type="button"
+                  onClick={() => setViewMode('table')}
+                  className={'px-3.5 py-1.5 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer ' + (viewMode === 'table' ? 'tw-active-nav' : 'opacity-75')}
+                >
+                  <TableIcon className="w-3.5 h-3.5" />
+                  <span>📋 Kategorien-Tabelle</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('cards')}
+                  className={'px-3.5 py-1.5 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer ' + (viewMode === 'cards' ? 'tw-active-nav' : 'opacity-75')}
+                >
+                  <LayoutGrid className="w-3.5 h-3.5" />
+                  <span>🔲 6er-Kacheln</span>
+                </button>
+              </div>
+            </div>
+
+            {/* KATEGORIEN-SCHNELLFILTER (ALLE 7 GRUPPEN MIT ANZAHL) */}
+            <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-white/10">
               <button
-                key={loc.id}
-                onClick={() => setLocationFilter(loc.id)}
-                className={'px-3.5 py-2 rounded-xl text-xs font-extrabold cursor-pointer ' + (locationFilter === loc.id ? 'tw-active-nav' : 'tw-nav-inactive')}
+                type="button"
+                onClick={() => setCategoryFilter('all')}
+                className={'px-3 py-1.5 rounded-xl text-xs font-extrabold cursor-pointer ' + (categoryFilter === 'all' ? 'tw-active-nav' : 'tw-nav-inactive')}
               >
-                {loc.label}
+                🍱 Alle 7 Kategorien ({safeStock.length})
               </button>
-            ))}
+              {FOOD_CATEGORIES.map(cat => {
+                const count = safeStock.filter(it => detectFoodCategory(it.name, it.category) === cat.id).length;
+                return (
+                  <button
+                    key={cat.id}
+                    type="button"
+                    onClick={() => setCategoryFilter(categoryFilter === cat.id ? 'all' : cat.id)}
+                    title={cat.desc}
+                    className={'px-3 py-1.5 rounded-xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer ' + (categoryFilter === cat.id ? 'tw-active-nav' : 'tw-nav-inactive')}
+                  >
+                    <span>{cat.icon}</span>
+                    <span>{cat.title.split(',')[0]}</span>
+                    <span className="px-1.5 py-0.2 rounded-full bg-black/35 text-[10px] font-black text-amber-300">
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {/* =========================================================
-              TOUCH-FREUNDLICHE PRODUKTKACHELN (GENAU 6 PRO REIHE AUF VOLLER BREITE!)
-              + PULSIERENDER GLOW (AB 7 TAGEN ORANGE, AB 3 TAGEN ROT)
-              + HOVER-ZOOM & EINZELSTÜCK-ABZUG BEI "VERZEHRT"
+              ANSICHT A: ÜBERSICHTLICHE TABELLE NACH LEBENSMITTEL-KATEGORIEN
              ========================================================= */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3.5 pt-1">
-            {filteredStock.length === 0 ? (
-              <div className={'col-span-full p-8 rounded-3xl border text-center space-y-1.5 ' + themeStyles.card}>
-                <div className="text-2xl">🥫</div>
-                <div className="font-extrabold text-sm">Noch keine Lebensmittel in dieser Ansicht</div>
-              </div>
-            ) : (
-              filteredStock.map(item => {
-                const daysLeft = getDaysUntil(item.expiryDate, todayStr);
-                const locObj = STORAGE_LOCATIONS.find(l => l.id === item.location) || STORAGE_LOCATIONS[3];
-                const isUrgentRed = daysLeft <= 3;
-                const isWarningOrange = daysLeft > 3 && daysLeft <= 7;
-                const emojiIcon = getFoodEmoji(item.name, item.customEmoji);
-                const decPreview = decrementItemPieceCount(item.quantity);
-
-                const glowClass = isUrgentRed
-                  ? ' tw-pantry-urgent-red bg-rose-950/25'
-                  : isWarningOrange
-                  ? ' tw-pantry-warn-orange bg-amber-950/20'
-                  : '';
-
-                return (
-                  <div
-                    key={item.id}
-                    className={'tw-pantry-tile p-3.5 rounded-2xl border flex flex-col justify-between gap-2.5 shadow-md ' + themeStyles.card + glowClass}
-                  >
-                    {/* OBERER BEREICH: GROSSES TOUCH-EMOJI + LAGERORT + STÜCKZAHL + NAME */}
-                    <div className="space-y-2">
-                      <div className="flex items-start gap-2.5">
-                        <button
-                          type="button"
-                          onClick={() => openEditProductModal(item)}
-                          title="Antippen zum Bearbeiten"
-                          className="w-12 h-12 rounded-2xl bg-black/35 border border-white/15 flex items-center justify-center text-2xl shrink-0 shadow-inner cursor-pointer"
-                        >
-                          {emojiIcon}
-                        </button>
-
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center justify-between gap-1">
-                            <span className="text-[10px] font-extrabold opacity-80 truncate">
-                              {locObj.short}
-                            </span>
-                            <span
-                              onClick={() => openEditProductModal(item)}
-                              className="px-2 py-0.5 rounded-lg bg-black/45 border border-amber-400/30 text-[11px] font-black text-amber-300 shrink-0 cursor-pointer"
-                            >
-                              {item.quantity}
-                            </span>
-                          </div>
-
-                          <h3
-                            onClick={() => openEditProductModal(item)}
-                            title={item.name}
-                            className="font-extrabold text-xs sm:text-[13px] leading-snug line-clamp-2 break-words mt-1 cursor-pointer hover:text-sky-300"
-                          >
-                            {item.name}
-                          </h3>
+          {groupedByCategory.length === 0 ? (
+            <div className={'p-10 rounded-3xl border text-center space-y-1.5 ' + themeStyles.card}>
+              <div className="text-3xl">🥫</div>
+              <div className="font-extrabold text-base">Keine Lebensmittel in dieser Auswahl</div>
+              <p className={'text-xs ' + themeStyles.textMuted}>
+                Wähle oben „Alle Lagerorte“ / „Alle 7 Kategorien“ oder buche ein neues Produkt ein.
+              </p>
+            </div>
+          ) : viewMode === 'table' ? (
+            <div className="space-y-5">
+              {groupedByCategory.map(group => (
+                <div
+                  key={group.id}
+                  className={'rounded-3xl border-2 overflow-hidden shadow-md ' + themeStyles.card + ' ' + themeStyles.divider}
+                >
+                  {/* KATEGORIE-KOPFZEILE MIT BESCHREIBUNG */}
+                  <div className={'px-5 py-3.5 border-b flex flex-wrap items-center justify-between gap-2 ' + themeStyles.banner + ' ' + themeStyles.divider}>
+                    <div className="flex items-center gap-3">
+                      <span className="w-10 h-10 rounded-2xl bg-black/30 border border-white/15 flex items-center justify-center text-2xl shrink-0">
+                        {group.icon}
+                      </span>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-black text-base sm:text-lg">{group.title}</h3>
+                          <span className="px-2.5 py-0.5 rounded-full bg-sky-500/25 text-sky-300 border border-sky-400/30 text-xs font-black">
+                            {group.items.length} Produkt{group.items.length === 1 ? '' : 'e'}
+                          </span>
                         </div>
+                        <p className={'text-xs font-semibold ' + themeStyles.textMuted}>{group.desc}</p>
                       </div>
-
-                      {/* MHD-STATUSLEISTE MIT WARN-FARBEN */}
-                      <div
-                        onClick={() => openEditProductModal(item)}
-                        className={'px-2.5 py-1.5 rounded-xl border flex items-center justify-between text-[11px] font-extrabold cursor-pointer ' +
-                          (isUrgentRed
-                            ? 'bg-rose-500/30 border-rose-400 text-rose-100'
-                            : isWarningOrange
-                            ? 'bg-amber-500/30 border-amber-400 text-amber-100'
-                            : themeStyles.subtle)}
-                      >
-                        <span>📅 MHD: {item.expiryDate.slice(8, 10)}.{item.expiryDate.slice(5, 7)}.{item.expiryDate.slice(2, 4)}</span>
-                        <span className="font-black">
-                          {daysLeft <= 0 ? '🔴 HEUTE!' : daysLeft === 1 ? '🔴 1 Tag' : isUrgentRed ? ('🔴 ' + daysLeft + ' T.') : isWarningOrange ? ('🟠 ' + daysLeft + ' T.') : ('🟢 ' + daysLeft + ' T.')}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* UNTERE TOUCH-AKTIONSLEISTE (GROSSE TREFFFLÄCHEN FÜR DEN FINGER) */}
-                    <div className="flex items-center gap-1.5 pt-0.5">
-                      <button
-                        type="button"
-                        onClick={() => handleConsumeClick(item)}
-                        title={decPreview.remaining > 0 ? ('1 Stück abziehen (Rest: ' + decPreview.nextQtyStr + ')') : 'Komplett verzehrt (in Verlauf legen)'}
-                        className="tw-glow-btn flex-1 min-h-[38px] py-2 px-2.5 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer"
-                      >
-                        <CheckCircle2 className="w-4 h-4 shrink-0" />
-                        <span>{decPreview.remaining > 0 ? 'Verzehrt (-1)' : 'Verzehrt'}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => openEditProductModal(item)}
-                        title="Produkt bearbeiten (MHD, Emoji, Name, Lagerort, Löschen)"
-                        className="tw-glow-btn min-h-[38px] px-2.5 py-2 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1 cursor-pointer"
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
-                        <span>Edit</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        title="Auf die Einkaufsliste setzen"
-                        onClick={() => {
-                          addShoppingItem(item.name);
-                          showToast('Auf Einkaufsliste', item.name + ' wurde zur Einkaufsliste hinzugefügt.', '🛒');
-                        }}
-                        className="tw-nav-inactive min-h-[38px] px-2.5 py-2 rounded-xl text-sky-400 flex items-center justify-center cursor-pointer"
-                      >
-                        <ShoppingCart className="w-4 h-4" />
-                      </button>
                     </div>
                   </div>
-                );
-              })
-            )}
-          </div>
+
+                  {/* STRUKTURIERTE LEBENSMITTEL-TABELLE */}
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse text-left">
+                      <thead>
+                        <tr className={'text-[11px] uppercase font-black tracking-wider border-b ' + themeStyles.subtle + ' ' + themeStyles.divider}>
+                          <th className="py-2.5 px-4 w-[38%]">Produkt</th>
+                          <th className="py-2.5 px-3 w-[16%]">Lagerort</th>
+                          <th className="py-2.5 px-3 w-[14%]">Menge / Stück</th>
+                          <th className="py-2.5 px-3 w-[16%]">Ablaufdatum (MHD)</th>
+                          <th className="py-2.5 px-4 text-right w-[16%]">Aktionen</th>
+                        </tr>
+                      </thead>
+                      <tbody className={'divide-y ' + themeStyles.divider}>
+                        {group.items.map(item => {
+                          const daysLeft = getDaysUntil(item.expiryDate, todayStr);
+                          const locObj = STORAGE_LOCATIONS.find(l => l.id === item.location) || STORAGE_LOCATIONS[3];
+                          const isUrgentRed = daysLeft <= 3;
+                          const isWarningOrange = daysLeft > 3 && daysLeft <= 7;
+                          const emojiIcon = getFoodEmoji(item.name, item.customEmoji);
+                          const decPreview = decrementItemPieceCount(item.quantity);
+
+                          const rowGlowClass = isUrgentRed
+                            ? ' tw-pantry-urgent-red bg-rose-950/30'
+                            : isWarningOrange
+                            ? ' tw-pantry-warn-orange bg-amber-950/25'
+                            : '';
+
+                          return (
+                            <tr
+                              key={item.id}
+                              className={'tw-pantry-row ' + rowGlowClass}
+                            >
+                              {/* SPALTE 1: EMOJI + PRODUKTNAME */}
+                              <td className="py-2.5 px-4">
+                                <div className="flex items-center gap-3">
+                                  <button
+                                    type="button"
+                                    onClick={() => openEditProductModal(item)}
+                                    className="w-10 h-10 rounded-xl bg-black/35 border border-white/15 flex items-center justify-center text-xl shrink-0 cursor-pointer"
+                                  >
+                                    {emojiIcon}
+                                  </button>
+                                  <span
+                                    onClick={() => openEditProductModal(item)}
+                                    className="font-extrabold text-sm cursor-pointer hover:text-sky-300 break-words"
+                                  >
+                                    {item.name}
+                                  </span>
+                                </div>
+                              </td>
+
+                              {/* SPALTE 2: LAGERORT */}
+                              <td className="py-2.5 px-3">
+                                <span
+                                  onClick={() => openEditProductModal(item)}
+                                  className={'inline-flex items-center px-2.5 py-1 rounded-xl border text-xs font-extrabold cursor-pointer ' + themeStyles.subtle}
+                                >
+                                  {locObj.short}
+                                </span>
+                              </td>
+
+                              {/* SPALTE 3: MENGE / STÜCKZAHL */}
+                              <td className="py-2.5 px-3">
+                                <span
+                                  onClick={() => openEditProductModal(item)}
+                                  className="inline-flex items-center px-3 py-1 rounded-xl bg-black/40 border border-amber-400/35 text-xs font-black text-amber-300 cursor-pointer"
+                                >
+                                  {item.quantity}
+                                </span>
+                              </td>
+
+                              {/* SPALTE 4: MHD & RESTTAGE */}
+                              <td className="py-2.5 px-3">
+                                <div
+                                  onClick={() => openEditProductModal(item)}
+                                  className={'inline-flex items-center gap-2 px-3 py-1 rounded-xl border text-xs font-extrabold cursor-pointer ' +
+                                    (isUrgentRed
+                                      ? 'bg-rose-500/30 border-rose-400 text-rose-100'
+                                      : isWarningOrange
+                                      ? 'bg-amber-500/30 border-amber-400 text-amber-100'
+                                      : themeStyles.subtle)}
+                                >
+                                  <span>📅 {item.expiryDate.slice(8, 10)}.{item.expiryDate.slice(5, 7)}.{item.expiryDate.slice(0, 4)}</span>
+                                  <span className="font-black">
+                                    ({daysLeft <= 0 ? '🔴 HEUTE!' : daysLeft === 1 ? '🔴 1 Tag' : isUrgentRed ? ('🔴 ' + daysLeft + ' T.') : isWarningOrange ? ('🟠 ' + daysLeft + ' T.') : ('🟢 ' + daysLeft + ' T.')})
+                                  </span>
+                                </div>
+                              </td>
+
+                              {/* SPALTE 5: TOUCH-AKTIONEN */}
+                              <td className="py-2.5 px-4 text-right">
+                                <div className="inline-flex items-center justify-end gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleConsumeClick(item)}
+                                    className="tw-glow-btn min-h-[36px] px-3 py-1.5 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer"
+                                  >
+                                    <CheckCircle2 className="w-4 h-4 shrink-0" />
+                                    <span>{decPreview.remaining > 0 ? 'Verzehrt (-1)' : 'Verzehrt'}</span>
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => openEditProductModal(item)}
+                                    className="tw-glow-btn min-h-[36px] px-2.5 py-1.5 rounded-xl text-xs font-extrabold flex items-center gap-1 cursor-pointer"
+                                  >
+                                    <Pencil className="w-3.5 h-3.5" />
+                                    <span>Edit</span>
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    title="Auf die Einkaufsliste setzen"
+                                    onClick={() => {
+                                      addShoppingItem(item.name);
+                                      showToast('Auf Einkaufsliste', item.name + ' wurde zur Einkaufsliste hinzugefügt.', '🛒');
+                                    }}
+                                    className="tw-nav-inactive min-h-[36px] px-2.5 py-1.5 rounded-xl text-sky-400 flex items-center justify-center cursor-pointer"
+                                  >
+                                    <ShoppingCart className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            /* =========================================================
+               ANSICHT B: 6ER-KACHELN GRUPPIERT NACH LEBENSMITTEL-KATEGORIEN
+               ========================================================= */
+            <div className="space-y-6">
+              {groupedByCategory.map(group => (
+                <div key={group.id} className="space-y-2.5">
+                  <div className={'px-4 py-2.5 rounded-2xl border flex items-center justify-between ' + themeStyles.card}>
+                    <div className="flex items-center gap-2.5">
+                      <span className="text-xl">{group.icon}</span>
+                      <span className="font-black text-sm sm:text-base">{group.title}</span>
+                      <span className="text-xs opacity-70 hidden md:inline">• {group.desc}</span>
+                    </div>
+                    <span className="px-2.5 py-0.5 rounded-full bg-sky-500/20 text-sky-300 text-xs font-black">
+                      {group.items.length}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3.5">
+                    {group.items.map(item => {
+                      const daysLeft = getDaysUntil(item.expiryDate, todayStr);
+                      const locObj = STORAGE_LOCATIONS.find(l => l.id === item.location) || STORAGE_LOCATIONS[3];
+                      const isUrgentRed = daysLeft <= 3;
+                      const isWarningOrange = daysLeft > 3 && daysLeft <= 7;
+                      const emojiIcon = getFoodEmoji(item.name, item.customEmoji);
+                      const decPreview = decrementItemPieceCount(item.quantity);
+
+                      const glowClass = isUrgentRed
+                        ? ' tw-pantry-urgent-red bg-rose-950/25'
+                        : isWarningOrange
+                        ? ' tw-pantry-warn-orange bg-amber-950/20'
+                        : '';
+
+                      return (
+                        <div
+                          key={item.id}
+                          className={'tw-pantry-tile p-3.5 rounded-2xl border flex flex-col justify-between gap-2.5 shadow-md ' + themeStyles.card + glowClass}
+                        >
+                          <div className="space-y-2">
+                            <div className="flex items-start gap-2.5">
+                              <button
+                                type="button"
+                                onClick={() => openEditProductModal(item)}
+                                className="w-12 h-12 rounded-2xl bg-black/35 border border-white/15 flex items-center justify-center text-2xl shrink-0 shadow-inner cursor-pointer"
+                              >
+                                {emojiIcon}
+                              </button>
+
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center justify-between gap-1">
+                                  <span className="text-[10px] font-extrabold opacity-80 truncate">
+                                    {locObj.short}
+                                  </span>
+                                  <span
+                                    onClick={() => openEditProductModal(item)}
+                                    className="px-2 py-0.5 rounded-lg bg-black/45 border border-amber-400/30 text-[11px] font-black text-amber-300 shrink-0 cursor-pointer"
+                                  >
+                                    {item.quantity}
+                                  </span>
+                                </div>
+
+                                <h3
+                                  onClick={() => openEditProductModal(item)}
+                                  title={item.name}
+                                  className="font-extrabold text-xs sm:text-[13px] leading-snug line-clamp-2 break-words mt-1 cursor-pointer hover:text-sky-300"
+                                >
+                                  {item.name}
+                                </h3>
+                              </div>
+                            </div>
+
+                            <div
+                              onClick={() => openEditProductModal(item)}
+                              className={'px-2.5 py-1.5 rounded-xl border flex items-center justify-between text-[11px] font-extrabold cursor-pointer ' +
+                                (isUrgentRed
+                                  ? 'bg-rose-500/30 border-rose-400 text-rose-100'
+                                  : isWarningOrange
+                                  ? 'bg-amber-500/30 border-amber-400 text-amber-100'
+                                  : themeStyles.subtle)}
+                            >
+                              <span>📅 MHD: {item.expiryDate.slice(8, 10)}.{item.expiryDate.slice(5, 7)}.{item.expiryDate.slice(2, 4)}</span>
+                              <span className="font-black">
+                                {daysLeft <= 0 ? '🔴 HEUTE!' : daysLeft === 1 ? '🔴 1 Tag' : isUrgentRed ? ('🔴 ' + daysLeft + ' T.') : isWarningOrange ? ('🟠 ' + daysLeft + ' T.') : ('🟢 ' + daysLeft + ' T.')}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 pt-0.5">
+                            <button
+                              type="button"
+                              onClick={() => handleConsumeClick(item)}
+                              className="tw-glow-btn flex-1 min-h-[38px] py-2 px-2.5 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer"
+                            >
+                              <CheckCircle2 className="w-4 h-4 shrink-0" />
+                              <span>{decPreview.remaining > 0 ? 'Verzehrt (-1)' : 'Verzehrt'}</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => openEditProductModal(item)}
+                              className="tw-glow-btn min-h-[38px] px-2.5 py-2 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1 cursor-pointer"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                              <span>Edit</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                addShoppingItem(item.name);
+                                showToast('Auf Einkaufsliste', item.name + ' wurde zur Einkaufsliste hinzugefügt.', '🛒');
+                              }}
+                              className="tw-nav-inactive min-h-[38px] px-2.5 py-2 rounded-xl text-sky-400 flex items-center justify-center cursor-pointer"
+                            >
+                              <ShoppingCart className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -1275,7 +1618,7 @@ export default function PantrySection({
       )}
 
       {/* =========================================================
-          BEARBEITEN-FENSTER (MODAL) FÜR JEDES PRODUKT
+          BEARBEITEN-FENSTER (MODAL) INKL. KATEGORIE-ZUWEISUNG
          ========================================================= */}
       {editModal.open && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
@@ -1291,7 +1634,7 @@ export default function PantrySection({
                 <div>
                   <h3 className="text-lg font-extrabold">✏️ Produkt bearbeiten</h3>
                   <p className={'text-xs font-semibold ' + themeStyles.textMuted}>
-                    Name, Menge, Emoji, Lagerort oder MHD anpassen
+                    Name, Menge, Lebensmittel-Kategorie, Lagerort oder MHD anpassen
                   </p>
                 </div>
               </div>
@@ -1331,6 +1674,25 @@ export default function PantrySection({
               </div>
             </div>
 
+            {/* LEBENSMITTEL-KATEGORIE WÄHLEN */}
+            <div>
+              <label className="block text-[11px] font-black uppercase text-purple-300 mb-1">
+                Lebensmittel-Kategorie
+              </label>
+              <select
+                value={editModal.category}
+                onChange={(e) => setEditModal({ ...editModal, category: e.target.value })}
+                className={'w-full px-3.5 py-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+              >
+                {FOOD_CATEGORIES.map(cat => (
+                  <option key={cat.id} value={cat.id} className="bg-slate-800 text-white">
+                    {cat.icon} {cat.title}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* LAGERORT WÄHLEN */}
             <div>
               <label className="block text-[11px] font-black uppercase text-emerald-400 mb-1.5">
                 Lagerort zuweisen
@@ -1350,6 +1712,7 @@ export default function PantrySection({
               </div>
             </div>
 
+            {/* ABLAUFDATUM (MHD) */}
             <div className={'p-3.5 rounded-2xl border space-y-2.5 ' + themeStyles.subtle}>
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <label className="text-xs font-black uppercase text-amber-400">
@@ -1383,6 +1746,7 @@ export default function PantrySection({
               />
             </div>
 
+            {/* EMOJI WÄHLEN */}
             <div className={'p-3.5 rounded-2xl border space-y-2 ' + themeStyles.subtle}>
               <div className="flex items-center justify-between">
                 <span className="text-xs font-black uppercase">🎨 Passendes Emoji wählen</span>
