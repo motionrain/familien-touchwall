@@ -11,6 +11,18 @@ import {
 } from 'lucide-react';
 
 import * as Cfg from '../touchwallConfig';
+import {
+  PUBLIC_CLOUD_BACKEND_URL,
+  hasJsonChanged,
+  loadLocalSyncMeta,
+  saveLocalSyncMeta,
+  mergeSyncMetaMaps,
+  mergePantryChannelSafe,
+  registerPendingCalendarOp,
+  mergeCalendarEventsSafe,
+  mergeSkillBoardSafe,
+  callCloudApi
+} from '../sync';
 
 function getFoodEmoji(nameStr) {
   const n = String(nameStr || '').toLowerCase();
@@ -73,8 +85,6 @@ const {
   pushTodoistTaskToPhoneNow
 } = Cfg;
 
-const PUBLIC_CLOUD_BACKEND_URL = 'https://script.google.com/macros/s/AKfycbzBs3ewHvp78OCIgWQkOQ80vXyKcM6wR5hQSn-WfYPU4puS7Gu0lPCX0KMwkxzeDxoE4g/exec';
-
 function writeAuthSession(accountId, authKey, familyName) {
   try {
     const maxAge = 60 * 60 * 24 * 365;
@@ -106,22 +116,6 @@ function readAuthSession() {
   }
 }
 
-// Verlustfreies Zusammenführen von Vorratslisten (Handy + Touchwall)
-function mergeByIdList(localList, remoteList, deletedIdsSet = new Set()) {
-  const map = new Map();
-  (Array.isArray(remoteList) ? remoteList : []).forEach(item => {
-    if (item && item.id && !deletedIdsSet.has(String(item.id))) {
-      map.set(String(item.id), item);
-    }
-  });
-  (Array.isArray(localList) ? localList : []).forEach(item => {
-    if (item && item.id && !deletedIdsSet.has(String(item.id))) {
-      map.set(String(item.id), item);
-    }
-  });
-  return Array.from(map.values());
-}
-
 export default function TouchwallPocketApp() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
@@ -134,9 +128,8 @@ export default function TouchwallPocketApp() {
   const [loginError, setLoginError] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
-  // 4 Haupt-Kategorien (Ohne Skill Board - Mobile zählt nicht für Quests!)
   const [activeTab, setActiveTab] = useState('scanner'); // 'agenda' | 'tasks' | 'scanner' | 'shopping'
-  const [calendarSubView, setCalendarSubView] = useState('week'); // 'week' | 'month' | 'list'
+  const [calendarSubView, setCalendarSubView] = useState('week');
   const [calCursorDate, setCalCursorDate] = useState(() => new Date());
   const [selectedMonthDayStr, setSelectedMonthDayStr] = useState(() => formatDateStr(new Date()));
 
@@ -144,7 +137,6 @@ export default function TouchwallPocketApp() {
   const [currentTheme, setCurrentTheme] = useState('metal');
   const [todayStr] = useState(() => formatDateStr(new Date()));
 
-  // Gemeinsame Familiendaten
   const [members, setMembers] = useState(DEFAULT_MEMBERS);
   const [events, setEvents] = useState([]);
   const [familyTasks, setFamilyTasks] = useState([]);
@@ -161,12 +153,14 @@ export default function TouchwallPocketApp() {
     collaborators: []
   });
 
-  // Bewahrt Touchwall-Felder (wie skillBoardData & customLogoUrl) im Hintergrund auf,
-  // damit das Handy sie beim Speichern niemals überschreibt!
+  // Sync-Refs für app/sync.tsx
   const preservedWallStateRef = useRef({});
-  const deletedPantryIdsRef = useRef(new Set());
+  const syncMetaRef = useRef({ deletedPantryIds: {}, deletedTaskIds: {}, deletedEventIds: {} });
+  const pendingCalendarOpsRef = useRef({});
+  const isNetworkSavingRef = useRef(false);
+  const lastLocalEditRef = useRef(0);
 
-  // Scanner-State (Kamera-Barcode, MHD-OCR & Kassenbon)
+  // Scanner-State
   const [scannerMode, setScannerMode] = useState('barcode');
   const [cameraActive, setCameraActive] = useState(false);
   const [scannedBarcode, setScannedBarcode] = useState('');
@@ -207,8 +201,6 @@ export default function TouchwallPocketApp() {
   const [quickTaskText, setQuickTaskText] = useState('');
   const [quickTaskMember, setQuickTaskMember] = useState('hans');
   const [quickShopText, setQuickShopText] = useState('');
-
-  const lastLocalEditRef = useRef(0);
 
   const showToast = (title, msg, icon = '📲') => {
     setToast({ title, msg, icon });
@@ -293,73 +285,63 @@ export default function TouchwallPocketApp() {
   ].join('\n');
 
   const callCloudBackend = async (postBody) => {
-    const payload = {
-      ...postBody,
-      accountId: postBody.accountId !== undefined ? postBody.accountId : accountId,
-      authKey: postBody.authKey !== undefined ? postBody.authKey : authKey
-    };
-
-    try {
-      const proxyRes = await fetch('/api/todoist?_t=' + Date.now(), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'gasProxy',
-          gasUrl: PUBLIC_CLOUD_BACKEND_URL,
-          gasMethod: 'POST',
-          gasBody: payload
-        }),
-        cache: 'no-store'
-      });
-      if (proxyRes.ok) {
-        const d = await proxyRes.json();
-        if (d && !d.notSupported && !d.error) return d;
-      }
-    } catch (e) {}
-
-    const res = await fetch(PUBLIC_CLOUD_BACKEND_URL, {
-      method: 'POST',
-      redirect: 'follow',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(payload)
-    });
-    return res.json();
+    return callCloudApi(
+      PUBLIC_CLOUD_BACKEND_URL,
+      'POST',
+      postBody,
+      postBody.accountId !== undefined ? postBody.accountId : accountId,
+      postBody.authKey !== undefined ? postBody.authKey : authKey
+    );
   };
 
   const applyRemoteBundle = (bundle) => {
     if (!bundle) return;
     if (bundle.state) {
       const s = bundle.state;
+      if (s.syncMeta) {
+        syncMetaRef.current = mergeSyncMetaMaps(syncMetaRef.current, s.syncMeta);
+        saveLocalSyncMeta(syncMetaRef.current);
+      }
+
       preservedWallStateRef.current = {
         ...preservedWallStateRef.current,
-        skillBoardData: s.skillBoardData || preservedWallStateRef.current.skillBoardData || null,
+        skillBoardData: mergeSkillBoardSafe(preservedWallStateRef.current.skillBoardData, s.skillBoardData),
         customLogoUrl: s.customLogoUrl || preservedWallStateRef.current.customLogoUrl || '',
         calendars: s.calendars || preservedWallStateRef.current.calendars || {}
       };
+
       if (s.familyName) setFamilyName(s.familyName);
-      if (Array.isArray(s.members) && s.members.length >= 2) setMembers(s.members);
-      if (Array.isArray(s.mealPlan) && s.mealPlan.length > 0) setMealPlan(s.mealPlan);
-      if (Array.isArray(s.familyNotes) && s.familyNotes.length > 0) setFamilyNotes(s.familyNotes);
+      if (Array.isArray(s.members) && s.members.length >= 2 && hasJsonChanged(safeMembers, s.members)) setMembers(s.members);
+      if (Array.isArray(s.mealPlan) && s.mealPlan.length > 0 && hasJsonChanged(safeMeals, s.mealPlan)) setMealPlan(s.mealPlan);
+      if (Array.isArray(s.familyNotes) && s.familyNotes.length > 0 && hasJsonChanged(safeNotes, s.familyNotes)) setFamilyNotes(s.familyNotes);
       if (s.schoolData?.dean) setSchoolData(s.schoolData);
-      if (Array.isArray(s.familyTasks)) setFamilyTasks(s.familyTasks);
-      if (Array.isArray(s.pantryItems)) {
-        setPantryItems(prev => mergeByIdList(prev, s.pantryItems, deletedPantryIdsRef.current));
+      if (Array.isArray(s.familyTasks) && hasJsonChanged(safeTasks, s.familyTasks)) setFamilyTasks(s.familyTasks);
+
+      if (Array.isArray(s.pantryItems) || Array.isArray(s.pantryTrash)) {
+        const { mergedStock, mergedTrash } = mergePantryChannelSafe(
+          safeStock,
+          s.pantryItems,
+          safeTrash,
+          s.pantryTrash,
+          syncMetaRef.current
+        );
+        if (hasJsonChanged(safeStock, mergedStock)) setPantryItems(mergedStock);
+        if (hasJsonChanged(safeTrash, mergedTrash)) setPantryTrash(mergedTrash);
       }
-      if (Array.isArray(s.pantryTrash)) {
-        setPantryTrash(prev => mergeByIdList(prev, s.pantryTrash));
-      }
+
       if (s.currentTheme) setCurrentTheme(s.currentTheme);
       if (s.todoistConfig?.apiToken) setTodoistConfig(prev => ({ ...prev, ...s.todoistConfig }));
     }
+
     if (Array.isArray(bundle?.calendarData?.events)) {
-      setEvents(bundle.calendarData.events);
-      try { localStorage.setItem('richter_touchwall_events_cache', JSON.stringify(bundle.calendarData.events)); } catch (e) {}
+      const guardedEvents = mergeCalendarEventsSafe(bundle.calendarData.events, pendingCalendarOpsRef, syncMetaRef.current);
+      if (hasJsonChanged(safeEvents, guardedEvents)) {
+        setEvents(guardedEvents);
+        try { localStorage.setItem('richter_touchwall_events_cache', JSON.stringify(guardedEvents)); } catch (e) {}
+      }
     }
   };
 
-  // =========================================================
-  // SMART-MERGE CLOUD-SPEICHERUNG (ÜBERSCHREIBT NIEMALS TOUCHWALL-DATEN!)
-  // =========================================================
   const saveStateToCloud = async (overrides = {}) => {
     const localStockToSave = overrides.pantryItems !== undefined ? overrides.pantryItems : safeStock;
     const localTrashToSave = overrides.pantryTrash !== undefined ? overrides.pantryTrash : safeTrash;
@@ -378,6 +360,7 @@ export default function TouchwallPocketApp() {
       pantryItems: localStockToSave,
       pantryTrash: localTrashToSave,
       skillBoardData: preservedWallStateRef.current.skillBoardData || null,
+      syncMeta: syncMetaRef.current,
       customLogoUrl: preservedWallStateRef.current.customLogoUrl || '',
       currentTheme,
       todoistConfig
@@ -386,13 +369,15 @@ export default function TouchwallPocketApp() {
     try { localStorage.setItem('richter_touchwall_v6', JSON.stringify(basePayload)); } catch (e) {}
 
     if (!accountId || accountId === 'local') {
-      showToast('Nur lokal gespeichert!', 'Bitte mit Familien-Konto anmelden, damit es auf der Touchwall landet.', '⚠️');
+      showToast('Nur lokal gespeichert!', 'Bitte mit Familien-Konto anmelden.', '⚠️');
       return;
     }
 
+    isNetworkSavingRef.current = true;
+    lastLocalEditRef.current = Date.now();
     setIsSyncing(true);
+
     try {
-      // 1. Kurz aktuellen Cloud-Stand holen, damit nichts von der Touchwall verloren geht
       let mergedStock = localStockToSave;
       let mergedTrash = localTrashToSave;
       let latestSkillBoard = preservedWallStateRef.current.skillBoardData || null;
@@ -402,21 +387,32 @@ export default function TouchwallPocketApp() {
         const freshBundle = await callCloudBackend({ action: 'loadBundle' });
         if (freshBundle?.ok && freshBundle.state) {
           const rs = freshBundle.state;
-          if (rs.skillBoardData) latestSkillBoard = rs.skillBoardData;
+          syncMetaRef.current = mergeSyncMetaMaps(syncMetaRef.current, rs.syncMeta);
+          saveLocalSyncMeta(syncMetaRef.current);
+
+          if (rs.skillBoardData) latestSkillBoard = mergeSkillBoardSafe(latestSkillBoard, rs.skillBoardData);
           if (rs.customLogoUrl) latestLogo = rs.customLogoUrl;
-          mergedStock = mergeByIdList(localStockToSave, rs.pantryItems, deletedPantryIdsRef.current);
-          mergedTrash = mergeByIdList(localTrashToSave, rs.pantryTrash);
+
+          const pMerged = mergePantryChannelSafe(
+            localStockToSave,
+            rs.pantryItems,
+            localTrashToSave,
+            rs.pantryTrash,
+            syncMetaRef.current
+          );
+          mergedStock = pMerged.mergedStock;
+          mergedTrash = pMerged.mergedTrash;
           setPantryItems(mergedStock);
           setPantryTrash(mergedTrash);
         }
       } catch (e) {}
 
-      // 2. Zusammengeführtes Paket in die Cloud schreiben
       const finalPayload = {
         ...basePayload,
         pantryItems: mergedStock,
         pantryTrash: mergedTrash,
         skillBoardData: latestSkillBoard,
+        syncMeta: syncMetaRef.current,
         customLogoUrl: latestLogo
       };
 
@@ -424,6 +420,8 @@ export default function TouchwallPocketApp() {
     } catch (e) {
       showToast('Sync-Warnung', 'Bitte Internetverbindung prüfen.', '⚠️');
     } finally {
+      lastLocalEditRef.current = Date.now();
+      isNetworkSavingRef.current = false;
       setIsSyncing(false);
     }
   };
@@ -431,7 +429,7 @@ export default function TouchwallPocketApp() {
   const syncAllNow = async (showFeedback = false, accOverride = undefined, keyOverride = undefined) => {
     const activeAcc = accOverride !== undefined ? accOverride : accountId;
     const activeKey = keyOverride !== undefined ? keyOverride : authKey;
-    if (!showFeedback && Date.now() - lastLocalEditRef.current < 4500) return;
+    if (!showFeedback && (isNetworkSavingRef.current || Date.now() - lastLocalEditRef.current < 7000)) return;
 
     if (showFeedback) setIsSyncing(true);
     try {
@@ -441,6 +439,7 @@ export default function TouchwallPocketApp() {
           accountId: activeAcc,
           authKey: activeKey
         });
+        if (!showFeedback && (isNetworkSavingRef.current || Date.now() - lastLocalEditRef.current < 5000)) return;
         if (bundle?.ok) applyRemoteBundle(bundle);
       }
       if (todoistConfig?.apiToken?.trim()) {
@@ -452,17 +451,18 @@ export default function TouchwallPocketApp() {
           safeMembers
         );
         if (pulled) {
-          if (Array.isArray(pulled.tasks)) setFamilyTasks(pulled.tasks);
-          if (Array.isArray(pulled.familyNotes)) setFamilyNotes(pulled.familyNotes);
+          if (Array.isArray(pulled.tasks) && hasJsonChanged(safeTasks, pulled.tasks)) setFamilyTasks(pulled.tasks);
+          if (Array.isArray(pulled.familyNotes) && hasJsonChanged(safeNotes, pulled.familyNotes)) setFamilyNotes(pulled.familyNotes);
         }
       }
-      if (showFeedback) showToast('Synchronisiert', 'Alle Daten mit der Touchwall abgeglichen.', '✅');
+      if (showFeedback) showToast('Synchronisiert', 'Alle 4 Kanäle mit der Touchwall abgeglichen.', '✅');
     } catch (e) {} finally {
       if (showFeedback) setIsSyncing(false);
     }
   };
 
   useEffect(() => {
+    syncMetaRef.current = loadLocalSyncMeta();
     try {
       const params = new URLSearchParams(window.location.search);
       const qrAcc = params.get('account');
@@ -524,14 +524,13 @@ export default function TouchwallPocketApp() {
     setIsCheckingAuth(false);
   }, []);
 
-  // Automatischer Hintergrund-Abgleich alle 8 Sekunden
   useEffect(() => {
     if (!isAuthenticated || !accountId || accountId === 'local') return;
     const interval = setInterval(() => {
       if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
         syncAllNow(false);
       }
-    }, 8000);
+    }, 10000);
     return () => clearInterval(interval);
   }, [isAuthenticated, accountId, authKey]);
 
@@ -796,15 +795,16 @@ export default function TouchwallPocketApp() {
     }
   };
 
-  // Speichert das gescannte Produkt mit fromMobile: true (zählt NICHT für Skill-Board Quests!)
+  // Speichert das gescannte Produkt mit updatedAt & fromMobile: true
   const saveProductDirectly = async (nameVal, barcodeVal, qtyVal, locVal, expVal, imgVal) => {
     if (!nameVal || !expVal) {
       showToast('Fehlende Angabe', 'Bitte Produktname und MHD prüfen.', '⚠️');
       return;
     }
-    lastLocalEditRef.current = Date.now();
+    const now = Date.now();
+    lastLocalEditRef.current = now;
     const newItem = {
-      id: 'p_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+      id: 'p_' + now + '_' + Math.floor(Math.random() * 1000),
       name: nameVal,
       barcode: barcodeVal || '',
       quantity: qtyVal || '1x',
@@ -812,6 +812,7 @@ export default function TouchwallPocketApp() {
       expiryDate: expVal,
       imageUrl: imgVal || '',
       addedAt: todayStr,
+      updatedAt: now,
       fromMobile: true
     };
 
@@ -843,15 +844,17 @@ export default function TouchwallPocketApp() {
   const handleSaveAllReceiptItems = async () => {
     const selected = receiptItems.filter(it => it.selected && it.name.trim() && it.expiryDate);
     if (selected.length === 0) return;
-    lastLocalEditRef.current = Date.now();
+    const now = Date.now();
+    lastLocalEditRef.current = now;
     const newEntries = selected.map((it, idx) => ({
-      id: 'p_' + Date.now() + '_' + idx + '_' + Math.floor(Math.random() * 1000),
+      id: 'p_' + now + '_' + idx + '_' + Math.floor(Math.random() * 1000),
       name: it.name.trim(),
       quantity: it.quantity || '1x',
       location: it.location || 'fridge',
       expiryDate: it.expiryDate,
       imageUrl: '',
       addedAt: todayStr,
+      updatedAt: now,
       fromMobile: true
     }));
 
@@ -863,11 +866,14 @@ export default function TouchwallPocketApp() {
   };
 
   const handleConsumeFromPocket = async (item) => {
-    lastLocalEditRef.current = Date.now();
-    deletedPantryIdsRef.current.add(String(item.id));
+    const now = Date.now();
+    lastLocalEditRef.current = now;
+    syncMetaRef.current.deletedPantryIds[String(item.id)] = now;
+    saveLocalSyncMeta(syncMetaRef.current);
+
     const nextStock = safeStock.filter(x => x.id !== item.id);
     const nextTrash = [
-      { ...item, trashedAt: todayStr, reason: 'consumed', reasonLabel: '🍽️ Verzehrt am ' + todayStr, fromMobile: true },
+      { ...item, trashedAt: todayStr, reason: 'consumed', reasonLabel: '🍽️ Verzehrt am ' + todayStr, updatedAt: now, fromMobile: true },
       ...safeTrash
     ];
     setPantryItems(nextStock);
@@ -893,6 +899,7 @@ export default function TouchwallPocketApp() {
       fromGoogle: true,
       fromMobile: true
     };
+    registerPendingCalendarOp(pendingCalendarOpsRef, 'create', newEv);
     setEvents(prev => [...(Array.isArray(prev) ? prev : []), newEv]);
     setNewEvTitle('');
     setNewEventModalOpen(false);
@@ -901,13 +908,20 @@ export default function TouchwallPocketApp() {
     if (accountId && accountId !== 'local') {
       try {
         const res = await callCloudBackend({ action: 'createEvent', event: newEv });
-        if (res?.result?.events) setEvents(res.result.events);
+        if (res?.result?.events) {
+          const guarded = mergeCalendarEventsSafe(res.result.events, pendingCalendarOpsRef, syncMetaRef.current);
+          setEvents(guarded);
+        }
       } catch (err) {}
     }
   };
 
   const handleDeleteMobileEvent = async (ev) => {
     lastLocalEditRef.current = Date.now();
+    registerPendingCalendarOp(pendingCalendarOpsRef, 'delete', ev);
+    syncMetaRef.current.deletedEventIds[String(ev.id)] = Date.now();
+    saveLocalSyncMeta(syncMetaRef.current);
+
     setEvents(prev => (Array.isArray(prev) ? prev : []).filter(item => String(item.id) !== String(ev.id)));
     showToast('Termin gelöscht', ev.title, '🗑️');
     if (accountId && accountId !== 'local') {
@@ -1120,7 +1134,7 @@ export default function TouchwallPocketApp() {
             </div>
             <div>
               <span className="px-2.5 py-0.5 rounded-full bg-sky-500/20 text-sky-300 text-[10px] font-extrabold">
-                📱 Touchwall Pocket • Scanner & Familien-App
+                📱 Touchwall Pocket • 4-Kanal Sync & Scanner
               </span>
               <h1 className="text-xl font-black mt-0.5">Handy-Anmeldung</h1>
             </div>
@@ -1667,7 +1681,7 @@ export default function TouchwallPocketApp() {
                   <div className="flex items-center justify-between">
                     <div>
                       <h2 className="font-black text-base">📷 Produkt & MHD Scanner</h2>
-                      <p className="text-[11px] opacity-75">Synchronisiert direkt mit eurer Touchwall-Speisekammer</p>
+                      <p className="text-[11px] opacity-75">Synchronisiert direkt über Kanal 3 (sync.tsx) mit der Touchwall</p>
                     </div>
                     {!cameraActive ? (
                       <button
@@ -2004,7 +2018,13 @@ export default function TouchwallPocketApp() {
                           />
                           <button
                             onClick={async () => {
-                              const nextStock = safeStock.map(x => x.id === item.id ? { ...x, quantity: editStockQty || '1x' } : x);
+                              const now = Date.now();
+                              lastLocalEditRef.current = now;
+                              const nextStock = safeStock.map(x =>
+                                x.id === item.id
+                                  ? { ...x, quantity: editStockQty || '1x', updatedAt: now, fromMobile: true }
+                                  : x
+                              );
                               setPantryItems(nextStock);
                               setEditingStockId(null);
                               await saveStateToCloud({ pantryItems: nextStock });
