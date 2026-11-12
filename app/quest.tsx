@@ -6,8 +6,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Sparkles, ShieldCheck, KeyRound, RotateCcw, Lock, Unlock,
-  Swords, Flame, Compass, MousePointer, CheckSquare, Calendar,
-  Package, ShoppingCart, Award, Settings, X, Check, ChevronRight, Zap
+  Swords, Settings, X, Cloud
 } from 'lucide-react';
 
 // ============================================================================
@@ -53,15 +52,14 @@ const BADGE_EMOJI_PICKER = [
   '🎮', '🚀', '🦊', '🐺', '🦄', '☄️', '🥇', '🎖️', '🔮', '🦸‍♂️'
 ];
 
-// XP-Gewichtung: Wichtige Aufgaben zählen stark, Klicks & Mausbewegung geben Basis-XP
 const XP_WEIGHTS = {
-  tasksDone:       60, // Aufgabe / Quest erledigt (Höchste Priorität)
-  pantryCare:      45, // Lebensmittel eingebucht oder rechtzeitig verzehrt (Nachhaltigkeit)
+  tasksDone:       60, // Aufgabe / Quest erledigt
+  pantryCare:      45, // Lebensmittel eingebucht oder rechtzeitig verzehrt
   calendarEvents:  35, // Kalendereintrag geplant
   shoppingDone:    30, // Einkaufspunkt erledigt
   notesCreated:    20, // Notiz / Listenpunkt hinzugefügt
-  clicks:           2, // Jeder Touch / Mausklick auf der Touchwall
-  mouseMeters:      3  // Pro gelaufenem Maus-Meter auf dem Bildschirm
+  clicks:           2, // Jeder Touch / Mausklick
+  mouseMeters:      3  // Pro gelaufenem Maus-Meter
 };
 
 function playRpgSound(type = 'xp') {
@@ -92,7 +90,7 @@ function playRpgSound(type = 'xp') {
       osc.frequency.setValueAtTime(587.33, now);
       osc.frequency.exponentialRampToValueAtTime(880, now + 0.14);
       gain.gain.setValueAtTime(0.12, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.16 || now + 0.16);
       osc.connect(gain);
       gain.connect(ctx.destination);
       osc.start(now);
@@ -103,7 +101,7 @@ function playRpgSound(type = 'xp') {
 
 function createEmptyPlayerStats() {
   return {
-    pin: '', // Leer = Noch kein PIN gesetzt (Beim 1. Klick festlegen)
+    pin: '',
     tasksDone: 0,
     pantryCare: 0,
     calendarEvents: 0,
@@ -170,9 +168,34 @@ function getRankForXp(totalXp, ranksList) {
   };
 }
 
+// Verbindet lokale & Cloud-Spielerdaten verlustfrei (behält immer den höheren Punktestand)
+function mergePlayersDataSafe(localMap, remoteMap) {
+  const out = { ...(localMap || {}) };
+  if (!remoteMap || typeof remoteMap !== 'object') return out;
+
+  Object.keys(remoteMap).forEach(pid => {
+    const loc = out[pid] || createEmptyPlayerStats();
+    const rem = remoteMap[pid] || createEmptyPlayerStats();
+    out[pid] = {
+      pin: rem.pin !== undefined && rem.pin !== '' ? rem.pin : (loc.pin || ''),
+      tasksDone: Math.max(Number(loc.tasksDone) || 0, Number(rem.tasksDone) || 0),
+      pantryCare: Math.max(Number(loc.pantryCare) || 0, Number(rem.pantryCare) || 0),
+      calendarEvents: Math.max(Number(loc.calendarEvents) || 0, Number(rem.calendarEvents) || 0),
+      shoppingDone: Math.max(Number(loc.shoppingDone) || 0, Number(rem.shoppingDone) || 0),
+      notesCreated: Math.max(Number(loc.notesCreated) || 0, Number(rem.notesCreated) || 0),
+      clicks: Math.max(Number(loc.clicks) || 0, Number(rem.clicks) || 0),
+      mousePixels: Math.max(Number(loc.mousePixels) || 0, Number(rem.mousePixels) || 0),
+      bonusXp: Math.max(Number(loc.bonusXp) || 0, Number(rem.bonusXp) || 0)
+    };
+  });
+  return out;
+}
+
 export default function QuestSection({
   isActive,
   setActiveSection,
+  skillBoardData,
+  setSkillBoardData,
   members,
   events,
   familyTasks,
@@ -194,7 +217,6 @@ export default function QuestSection({
   const [customRanks, setCustomRanks] = useState(DEFAULT_RPG_RANKS);
   const [isLoaded, setIsLoaded] = useState(false);
 
-  // PIN-Dialog State ('setup' | 'login' | 'change' | 'reset')
   const [pinModal, setPinModal] = useState({
     open: false,
     mode: 'login',
@@ -204,17 +226,16 @@ export default function QuestSection({
     errorMsg: ''
   });
 
-  // Rang-Editor Modal State
   const [rankModalOpen, setRankModalOpen] = useState(false);
   const [ranksDraft, setRanksDraft] = useState(DEFAULT_RPG_RANKS);
   const [levelUpBanner, setLevelUpBanner] = useState(null);
 
-  // Refs für das automatische Hintergrund-Tracking auf der gesamten Touchwall
   const activePlayerRef = useRef(activePlayerId);
   activePlayerRef.current = activePlayerId;
 
   const lastMousePosRef = useRef({ x: null, y: null });
   const pixelBufferRef = useRef(0);
+  const lastCloudSyncStampRef = useRef(0);
   const prevCountsRef = useRef({
     initialized: false,
     eventsCount: 0,
@@ -226,9 +247,7 @@ export default function QuestSection({
   });
   const prevPlayerLevelsRef = useRef({});
 
-  // =========================================================
-  // LADEN & SPEICHERN IM LOCALSTORAGE
-  // =========================================================
+  // 1. Initiales Laden aus LocalStorage
   useEffect(() => {
     try {
       const raw = localStorage.getItem('richter_tw_skillboard_v1');
@@ -246,34 +265,80 @@ export default function QuestSection({
     setIsLoaded(true);
   }, []);
 
+  // 2. Empfang von Cloud- / Backup-Daten aus page.tsx (Gerätewechsel oder Backup-Import)
+  useEffect(() => {
+    if (!skillBoardData || typeof skillBoardData !== 'object') return;
+    const remoteStamp = Number(skillBoardData.updatedAt) || 0;
+    if (remoteStamp > 0 && remoteStamp === lastCloudSyncStampRef.current) return;
+
+    if (skillBoardData.playersData && typeof skillBoardData.playersData === 'object') {
+      setPlayersData(prev => mergePlayersDataSafe(prev, skillBoardData.playersData));
+    }
+    if (Array.isArray(skillBoardData.customRanks) && skillBoardData.customRanks.length >= 25) {
+      setCustomRanks(skillBoardData.customRanks);
+    }
+    if (skillBoardData.activePlayerId) {
+      setActivePlayerId(prev => prev || skillBoardData.activePlayerId);
+    }
+  }, [skillBoardData]);
+
+  // 3. Sofort-Sync Funktion an page.tsx (für den Cloud-Tresor & Backup-Export)
+  const pushSkillBoardToCloudState = (nextActiveId, nextPlayers, nextRanks) => {
+    const stamp = Date.now();
+    lastCloudSyncStampRef.current = stamp;
+    const bundle = {
+      activePlayerId: nextActiveId !== undefined ? nextActiveId : activePlayerId,
+      playersData: nextPlayers !== undefined ? nextPlayers : playersData,
+      customRanks: nextRanks !== undefined ? nextRanks : customRanks,
+      updatedAt: stamp
+    };
+    try {
+      localStorage.setItem('richter_tw_skillboard_v1', JSON.stringify(bundle));
+    } catch (e) {}
+    if (typeof setSkillBoardData === 'function') {
+      setSkillBoardData(bundle);
+    }
+  };
+
+  // Speichert lokal sofort und synchronisiert gebündelt alle 15s (schont Cloud bei Dauer-Klicks)
   useEffect(() => {
     if (!isLoaded) return;
     try {
       localStorage.setItem('richter_tw_skillboard_v1', JSON.stringify({
         activePlayerId,
         playersData,
-        customRanks
+        customRanks,
+        updatedAt: Date.now()
       }));
     } catch (e) {}
+
+    const timer = setTimeout(() => {
+      pushSkillBoardToCloudState(activePlayerId, playersData, customRanks);
+    }, 15000);
+
+    return () => clearTimeout(timer);
   }, [isLoaded, activePlayerId, playersData, customRanks]);
 
-  // Hilfsfunktion: Aktualisiert einen Statistik-Wert eines Spielers
-  const incrementPlayerStat = (playerId, statKey, delta = 1) => {
+  const incrementPlayerStat = (playerId, statKey, delta = 1, syncImmediately = false) => {
     if (!playerId) return;
     setPlayersData(prev => {
       const currentObj = prev[playerId] || createEmptyPlayerStats();
-      return {
+      const nextMap = {
         ...prev,
         [playerId]: {
           ...currentObj,
           [statKey]: Math.max(0, (Number(currentObj[statKey]) || 0) + delta)
         }
       };
+      if (syncImmediately) {
+        setTimeout(() => pushSkillBoardToCloudState(activePlayerRef.current, nextMap, customRanks), 50);
+      }
+      return nextMap;
     });
   };
 
   // =========================================================
-  // 1. GLOBALES KLICK- & MAUSBEWEGUNGS-TRACKING AUF DER TOUCHWALL
+  // GLOBALES KLICK- & MAUSBEWEGUNGS-TRACKING AUF DER TOUCHWALL
   // =========================================================
   useEffect(() => {
     if (!isLoaded) return;
@@ -305,7 +370,6 @@ export default function QuestSection({
       }
       lastMousePosRef.current = { x, y };
 
-      // Alle 800 Pixel gebündelt in den State schreiben (schont die Performance)
       if (pixelBufferRef.current >= 800) {
         const addPx = Math.round(pixelBufferRef.current);
         pixelBufferRef.current = 0;
@@ -330,7 +394,7 @@ export default function QuestSection({
   }, [isLoaded]);
 
   // =========================================================
-  // 2. AUTOMATISCHE ERKENNUNG VON ERLEDIGTEN AUFGABEN, KALENDER, VORRAT & NOTIZEN
+  // AUTOMATISCHE ERKENNUNG VON QUESTS, KALENDER, VORRAT & NOTIZEN
   // =========================================================
   useEffect(() => {
     if (!isLoaded) return;
@@ -358,39 +422,34 @@ export default function QuestSection({
     const pid = activePlayerRef.current;
     const prev = prevCountsRef.current;
 
-    // A) Aufgabe / Quest erledigt (+60 XP)
     if (doneTasks > prev.doneTasksCount) {
       const diff = doneTasks - prev.doneTasksCount;
-      incrementPlayerStat(pid, 'tasksDone', diff);
+      incrementPlayerStat(pid, 'tasksDone', diff, true);
       playRpgSound('xp');
       showToast?.('⚔️ Quest abgeschlossen!', '+' + (diff * XP_WEIGHTS.tasksDone) + ' Skill-XP erhalten!', '🏆');
     }
 
-    // B) Kalendereintrag angelegt (+35 XP)
     if (evCount > prev.eventsCount) {
       const diff = evCount - prev.eventsCount;
-      incrementPlayerStat(pid, 'calendarEvents', diff);
+      incrementPlayerStat(pid, 'calendarEvents', diff, true);
       playRpgSound('xp');
     }
 
-    // C) Lebensmittel eingebucht oder rechtzeitig verzehrt (+45 XP)
     if (pCount > prev.pantryCount || consumedCount > prev.consumedTrashCount) {
       const diff = Math.max(1, (pCount - prev.pantryCount) + (consumedCount - prev.consumedTrashCount));
-      incrementPlayerStat(pid, 'pantryCare', diff);
+      incrementPlayerStat(pid, 'pantryCare', diff, true);
       playRpgSound('xp');
     }
 
-    // D) Einkauf erledigt (+30 XP)
     if (shopDone > prev.doneShopCount) {
       const diff = shopDone - prev.doneShopCount;
-      incrementPlayerStat(pid, 'shoppingDone', diff);
+      incrementPlayerStat(pid, 'shoppingDone', diff, true);
       playRpgSound('xp');
     }
 
-    // E) Neue Notiz / Listenpunkt (+20 XP)
     if (notesTotal > prev.totalNotesItems) {
       const diff = notesTotal - prev.totalNotesItems;
-      incrementPlayerStat(pid, 'notesCreated', diff);
+      incrementPlayerStat(pid, 'notesCreated', diff, true);
     }
 
     prevCountsRef.current = {
@@ -404,9 +463,7 @@ export default function QuestSection({
     };
   }, [isLoaded, events, familyTasks, pantryItems, pantryTrash, familyNotes]);
 
-  // =========================================================
-  // 3. LEVEL-UP DETEKTOR MIT FANFARE
-  // =========================================================
+  // Level-Up Detektor
   useEffect(() => {
     if (!isLoaded) return;
     playerMembers.forEach(m => {
@@ -434,7 +491,6 @@ export default function QuestSection({
   const handleCharacterCardClick = (member) => {
     const pStats = playersData[member.id] || createEmptyPlayerStats();
     if (!pStats.pin) {
-      // Beim allerersten Klick: Neuen PIN festlegen
       setPinModal({
         open: true,
         mode: 'setup',
@@ -444,7 +500,6 @@ export default function QuestSection({
         errorMsg: ''
       });
     } else {
-      // PIN abfragen, um Charakter zu aktivieren
       setPinModal({
         open: true,
         mode: 'login',
@@ -493,14 +548,16 @@ export default function QuestSection({
         setPinModal(prev => ({ ...prev, errorMsg: 'Bitte mindestens 3 Zeichen/Ziffern für deinen PIN wählen.' }));
         return;
       }
-      setPlayersData(prev => ({
-        ...prev,
+      const nextMap = {
+        ...playersData,
         [targetId]: { ...curStats, pin: cleanNew }
-      }));
+      };
+      setPlayersData(nextMap);
       setActivePlayerId(targetId);
+      pushSkillBoardToCloudState(targetId, nextMap, customRanks);
       setPinModal({ ...pinModal, open: false });
       playRpgSound('xp');
-      showToast?.('Charakter aktiviert!', targetMember?.name + ' ist jetzt bereit – PIN wurde gespeichert.', '🛡️');
+      showToast?.('Charakter & PIN in Cloud gesichert!', targetMember?.name + ' ist jetzt aktiv.', '🛡️');
       return;
     }
 
@@ -514,6 +571,7 @@ export default function QuestSection({
         return;
       }
       setActivePlayerId(targetId);
+      pushSkillBoardToCloudState(targetId, playersData, customRanks);
       setPinModal({ ...pinModal, open: false });
       playRpgSound('xp');
       showToast?.('Spieler gewechselt!', 'Du bedienst die Touchwall jetzt als ' + targetMember?.name + '.', '🎮');
@@ -529,13 +587,15 @@ export default function QuestSection({
         setPinModal(prev => ({ ...prev, errorMsg: 'Der neue PIN muss mindestens 3 Zeichen haben.' }));
         return;
       }
-      setPlayersData(prev => ({
-        ...prev,
+      const nextMap = {
+        ...playersData,
         [targetId]: { ...curStats, pin: pinModal.newPinInput.trim() }
-      }));
+      };
+      setPlayersData(nextMap);
       setActivePlayerId(targetId);
+      pushSkillBoardToCloudState(targetId, nextMap, customRanks);
       setPinModal({ ...pinModal, open: false });
-      showToast?.('PIN geändert!', 'Neuer PIN für ' + targetMember?.name + ' ist aktiv.', '🔑');
+      showToast?.('PIN geändert!', 'Neuer PIN für ' + targetMember?.name + ' wurde in der Cloud gespeichert.', '🔑');
       return;
     }
 
@@ -544,11 +604,12 @@ export default function QuestSection({
         setPinModal(prev => ({ ...prev, errorMsg: 'Bitte gib den Master-Reset-PIN „0000“ ein, um den PIN zu löschen.' }));
         return;
       }
-      // Löscht den PIN auf diesem Charakter und schaltet direkt in die Neuvergabe
-      setPlayersData(prev => ({
-        ...prev,
+      const nextMap = {
+        ...playersData,
         [targetId]: { ...curStats, pin: '' }
-      }));
+      };
+      setPlayersData(nextMap);
+      pushSkillBoardToCloudState(activePlayerId, nextMap, customRanks);
       setPinModal({
         open: true,
         mode: 'setup',
@@ -561,7 +622,6 @@ export default function QuestSection({
     }
   };
 
-  // Daten des aktuell ausgewählten Spielers berechnen
   const activeMemberObj = useMemo(() => {
     return playerMembers.find(m => m.id === activePlayerId) || playerMembers[0] || { id: 'hans', name: 'Spieler', color: 'navy_bold' };
   }, [playerMembers, activePlayerId]);
@@ -570,7 +630,6 @@ export default function QuestSection({
   const activeBreakdown = useMemo(() => calculatePlayerBreakdown(activeStats), [activeStats]);
   const activeRankInfo = useMemo(() => getRankForXp(activeBreakdown.totalXp, customRanks), [activeBreakdown.totalXp, customRanks]);
 
-  // RPG-Klassen-Titel anhand der stärksten Kategorie bestimmen
   const activeRpgClassTitle = useMemo(() => {
     const pairs = [
       { label: '⚔️ Großmeister der Quests', val: activeBreakdown.xpTasks },
@@ -582,7 +641,6 @@ export default function QuestSection({
     return pairs[0]?.val > 0 ? pairs[0].label : '🌟 Aufstrebender Abenteurer';
   }, [activeBreakdown]);
 
-  // 6-Eck Radar-Werte (0 bis 100 normiert für das SVG-Netzdiagramm)
   const radarAxes = useMemo(() => {
     const norm = (val, maxRef) => Math.min(100, Math.max(12, Math.round((val / maxRef) * 100)));
     return [
@@ -608,8 +666,6 @@ export default function QuestSection({
     }).join(' ');
   }, [radarAxes]);
 
-  // Wenn man gerade in einer anderen Rubrik (z.B. Kalender oder Vorrat) ist:
-  // Zeige unten rechts ein kompaktes Live-Spieler-Badge + Level-Up-Popup!
   if (!isActive) {
     return (
       <>
@@ -655,7 +711,6 @@ export default function QuestSection({
     );
   }
 
-  // Kategorien für das gewichtete XP-Balkendiagramm
   const chartBars = [
     { label: '⚔️ Quests & Aufgaben (+60 XP)',     count: activeStats.tasksDone || 0,      xp: activeBreakdown.xpTasks,    color: '#f43f5e' },
     { label: '🥫 Vorrat & Nahrung (+45 XP)',      count: activeStats.pantryCare || 0,     xp: activeBreakdown.xpPantry,   color: '#10b981' },
@@ -671,9 +726,7 @@ export default function QuestSection({
 
   return (
     <div className="p-4 sm:p-6 flex flex-col gap-5">
-      {/* =========================================================
-          1. KOPFZEILE & CHARAKTER-WAHL (WER BEDIENT DIE TOUCHWALL?)
-         ========================================================= */}
+      {/* 1. KOPFZEILE & CHARAKTER-WAHL */}
       <div className={'p-5 rounded-3xl border shadow-sm space-y-4 ' + themeStyles.card}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -683,6 +736,9 @@ export default function QuestSection({
               </span>
               <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-xs font-extrabold">
                 🟢 Aktiver Charakter: {activeMemberObj.name} ({activeRankInfo.current.badge} Lv.{activeRankInfo.current.level})
+              </span>
+              <span className="px-2.5 py-1 rounded-full bg-sky-500/20 text-sky-300 border border-sky-400/30 text-[11px] font-extrabold flex items-center gap-1">
+                <Cloud className="w-3.5 h-3.5" /> Cloud-Tresor & Backup aktiv
               </span>
             </div>
             <h2 className="text-xl sm:text-2xl font-black mt-1.5">
@@ -706,7 +762,7 @@ export default function QuestSection({
           </button>
         </div>
 
-        {/* CHARAKTER-KACHELN MIT PIN-ÄNDERN & 0000-RESET */}
+        {/* CHARAKTER-KACHELN */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
           {playerMembers.map(member => {
             const pStats = playersData[member.id] || createEmptyPlayerStats();
@@ -750,7 +806,6 @@ export default function QuestSection({
                     </span>
                   </div>
 
-                  {/* LEVEL-FORTSCHRITTSBALKEN DES CHARAKTERS */}
                   <div className="space-y-1">
                     <div className="flex justify-between text-[10px] font-black">
                       <span>✨ {bd.totalXp} XP</span>
@@ -765,7 +820,6 @@ export default function QuestSection({
                   </div>
                 </div>
 
-                {/* BUTTONS HINTER JEDEM CHARAKTER: AUSWÄHLEN, PIN ÄNDERN & RESET (0000) */}
                 <div className="flex items-center gap-1.5 pt-2 border-t border-white/15">
                   <button
                     type="button"
@@ -807,11 +861,8 @@ export default function QuestSection({
         </div>
       </div>
 
-      {/* =========================================================
-          2. RPG-HELDEN-STATUS & LIVE-DIAGRAMME DES AKTIVEN SPIELERS
-         ========================================================= */}
+      {/* 2. RPG-HELDEN-STATUS & LIVE-DIAGRAMME */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-        {/* LINKE SPALTE (5 SPALTEN): HELDEN-PROFIL & 6-ACHSEN RADAR-DIAGRAMM */}
         <div className={'lg:col-span-5 p-5 rounded-3xl border-2 border-sky-500/40 flex flex-col justify-between gap-4 ' + themeStyles.card}>
           <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-4">
             <div className="flex items-center gap-3.5">
@@ -837,13 +888,11 @@ export default function QuestSection({
             </div>
           </div>
 
-          {/* SVG 6-ECK RPG-SKILL-RADAR */}
           <div className="flex flex-col items-center justify-center py-1">
             <div className="text-xs font-black uppercase text-sky-400 mb-1">
               🕸️ RPG-Attribut-Diagramm ({activeMemberObj.name})
             </div>
             <svg viewBox="0 0 260 260" className="w-60 h-60 overflow-visible">
-              {/* Hintergrund-Ringe */}
               {[0.25, 0.5, 0.75, 1].map((scale, sIdx) => {
                 const pts = [0, 1, 2, 3, 4, 5].map(i => {
                   const ang = (Math.PI * 2 * i) / 6 - Math.PI / 2;
@@ -861,7 +910,6 @@ export default function QuestSection({
                 );
               })}
 
-              {/* Achsen-Linien & Beschriftung */}
               {radarAxes.map((ax, idx) => {
                 const ang = (Math.PI * 2 * idx) / 6 - Math.PI / 2;
                 const x2 = Math.round(130 + 88 * Math.cos(ang));
@@ -884,7 +932,6 @@ export default function QuestSection({
                 );
               })}
 
-              {/* Ausgefülltes Spieler-Polygon */}
               <polygon
                 points={radarPolygonPoints}
                 fill="rgba(56, 189, 248, 0.32)"
@@ -894,7 +941,6 @@ export default function QuestSection({
             </svg>
           </div>
 
-          {/* 4 SCHNELL-STATISTIK-KACHELN */}
           <div className="grid grid-cols-4 gap-2 pt-2 border-t border-white/10 text-center">
             <div className={'p-2.5 rounded-2xl border ' + themeStyles.subtle}>
               <div className="text-base font-black text-rose-400">{activeStats.tasksDone || 0}</div>
@@ -915,16 +961,13 @@ export default function QuestSection({
           </div>
         </div>
 
-        {/* RECHTE SPALTE (7 SPALTEN): GEWICHTETES BALKEN-DIAGRAMM & GILDEN-VERGLEICH */}
         <div className={'lg:col-span-7 p-5 rounded-3xl border flex flex-col justify-between gap-5 ' + themeStyles.card}>
           <div className="space-y-3">
-            <div className="flex items-center justify-between flex-wrap gap-2">
-              <div>
-                <h3 className="text-lg font-black">📊 Skill-Punkte & Aktivitäts-Diagramm ({activeMemberObj.name})</h3>
-                <p className={'text-xs font-semibold ' + themeStyles.textMuted}>
-                  Wichtige Aufgaben (Quests, Vorrat & Einkauf) bringen großen XP-Fortschritt – Klicks & Mausbewegung sammeln nebenbei Ausdauer-XP!
-                </p>
-              </div>
+            <div>
+              <h3 className="text-lg font-black">📊 Skill-Punkte & Aktivitäts-Diagramm ({activeMemberObj.name})</h3>
+              <p className={'text-xs font-semibold ' + themeStyles.textMuted}>
+                Wichtige Aufgaben (Quests, Vorrat & Einkauf) bringen großen XP-Fortschritt – Klicks & Mausbewegung sammeln nebenbei Ausdauer-XP!
+              </p>
             </div>
 
             <div className="space-y-2.5 pt-1">
@@ -950,7 +993,6 @@ export default function QuestSection({
             </div>
           </div>
 
-          {/* FAMILIEN-GILDEN-RANGLISTE (VERGLEICHS-DIAGRAMM ALLER MITGLIEDER) */}
           <div className={'p-4 rounded-2xl border space-y-2.5 ' + themeStyles.subtle}>
             <div className="text-xs font-black uppercase text-amber-400">
               🏆 Familien-Gilden-Rangliste (Level & XP-Vergleich)
@@ -984,20 +1026,16 @@ export default function QuestSection({
         </div>
       </div>
 
-      {/* =========================================================
-          3. DIREKTE QUEST-TAFEL (OFFENE AUFGABEN ALS RPG-QUESTS ABSCHLIESSEN)
-         ========================================================= */}
+      {/* 3. DIREKTE QUEST-TAFEL */}
       <div className={'p-5 rounded-3xl border space-y-3.5 ' + themeStyles.card}>
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <div>
-            <h3 className="text-lg font-black flex items-center gap-2">
-              <Swords className="w-5 h-5 text-rose-400" />
-              <span>⚔️ Aktive Familien-Quests (Jede erledigte Quest bringt sofort +60 XP!)</span>
-            </h3>
-            <p className={'text-xs font-semibold ' + themeStyles.textMuted}>
-              Schließe offene Aufgaben direkt hier auf dem Skill Board ab, um deinen Charakter hochzuleveln!
-            </p>
-          </div>
+        <div>
+          <h3 className="text-lg font-black flex items-center gap-2">
+            <Swords className="w-5 h-5 text-rose-400" />
+            <span>⚔️ Aktive Familien-Quests (Jede erledigte Quest bringt sofort +60 XP!)</span>
+          </h3>
+          <p className={'text-xs font-semibold ' + themeStyles.textMuted}>
+            Schließe offene Aufgaben direkt hier auf dem Skill Board ab, um deinen Charakter hochzuleveln!
+          </p>
         </div>
 
         {openQuestsList.length === 0 ? (
@@ -1033,10 +1071,7 @@ export default function QuestSection({
         )}
       </div>
 
-      {/* =========================================================
-          MODAL 1: PIN FESTLEGEN / EINGEBEN / ÄNDERN / 0000-RESET
-          (INKL. TOUCH-ZIFFERNBLOCK FÜR DIE TOUCHWALL!)
-         ========================================================= */}
+      {/* MODAL 1: PIN FESTLEGEN / EINGEBEN / ÄNDERN / 0000-RESET */}
       {pinModal.open && (() => {
         const targetMem = playerMembers.find(m => m.id === pinModal.targetMemberId);
         const isSetup = pinModal.mode === 'setup';
@@ -1123,7 +1158,6 @@ export default function QuestSection({
                 </div>
               )}
 
-              {/* TOUCH-ZIFFERNBLOCK FÜR SCHNELLE EINGABE AN DER TOUCHWALL */}
               {!isChange && (
                 <div className="grid grid-cols-3 gap-2 pt-1">
                   {['1', '2', '3', '4', '5', '6', '7', '8', '9', '0000', '0', '⌫'].map(key => (
@@ -1166,9 +1200,7 @@ export default function QuestSection({
         );
       })()}
 
-      {/* =========================================================
-          MODAL 2: 30 RANGNAMEN & EMOJI-ABZEICHEN FREI ANPASSEN
-         ========================================================= */}
+      {/* MODAL 2: 30 RANGNAMEN & EMOJI-ABZEICHEN FREI ANPASSEN */}
       {rankModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4">
           <div className={'w-full max-w-3xl rounded-3xl border-2 p-6 shadow-2xl flex flex-col max-h-[88vh] ' + themeStyles.modal}>
@@ -1259,8 +1291,9 @@ export default function QuestSection({
                   type="button"
                   onClick={() => {
                     setCustomRanks(ranksDraft);
+                    pushSkillBoardToCloudState(activePlayerId, playersData, ranksDraft);
                     setRankModalOpen(false);
-                    showToast?.('Ränge gespeichert!', 'Alle 30 Rangnamen und Abzeichen wurden übernommen.', '👑');
+                    showToast?.('Ränge in Cloud gespeichert!', 'Alle 30 Rangnamen und Abzeichen wurden übernommen.', '👑');
                   }}
                   className="tw-glow-btn px-6 py-2.5 rounded-xl text-xs font-black cursor-pointer"
                 >
