@@ -1060,7 +1060,7 @@ export default function PocketScanner({
       )}
 
       {/* =========================================================
-          EINKAUFSWAGEN DIREKT UNTER DEM SCANNER (ZULETZT GESCANNT OBEN!)
+          EINKAUFSWAGEN! DIREKT UNTER DEM SCANNER (ZULETZT GESCANNT OBEN!)
          ========================================================= */}
       <div className={'p-3.5 rounded-3xl border space-y-2.5 ' + themeStyles.card}>
         <div className="flex items-center justify-between">
