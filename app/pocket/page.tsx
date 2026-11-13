@@ -6,9 +6,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Calendar, CheckSquare, ShoppingCart, Camera,
-  Plus, RefreshCw, Smartphone, LogOut, Send, Trash2,
-  X, ScanLine, FileText, ChevronLeft, ChevronRight, Pencil, Check, Cloud,
-  BellRing,Zap, ZoomIn
+  RefreshCw, Smartphone, LogOut, Cloud, BellRing, Download, WifiOff
 } from 'lucide-react';
 
 import * as Cfg from '../touchwallConfig';
@@ -24,171 +22,21 @@ import {
   mergeSkillBoardSafe,
   callCloudApi
 } from '../sync';
+import {
+  detectFoodCategory,
+  getFoodEmoji,
+  decrementItemPieceCount,
+  playMobileBeep
+} from '../foodUtils';
 
-const FOOD_CATEGORIES = [
-  { id: 'drinks',         icon: '🧃', title: 'Getränke' },
-  { id: 'produce',        icon: '🥦', title: 'Obst & Gemüse' },
-  { id: 'grains',         icon: '🌾', title: 'Getreide & Kartoffeln' },
-  { id: 'dairy',          icon: '🧀', title: 'Milchprodukte & Käse' },
-  { id: 'meat_fish_eggs', icon: '🥩', title: 'Fleisch, Fisch, Wurst & Eier' },
-  { id: 'oils_fats',      icon: '🧈', title: 'Öle, Fette & Würzmittel' },
-  { id: 'sweets_snacks',  icon: '🍫', title: 'Süßwaren & Sonstiges' }
-];
-
-const STORAGE_PILLS = [
-  { id: 'kitchen', label: '🍎 Küche' },
-  { id: 'fridge',  label: '🧊 Kühl.' },
-  { id: 'freezer', label: '❄️ TK' },
-  { id: 'pantry',  label: '🗄️ Vorrat' }
-];
-
-function detectFoodCategory(nameStr, customCategory = '') {
-  if (customCategory && FOOD_CATEGORIES.some(c => c.id === customCategory)) {
-    return customCategory;
-  }
-  const n = String(nameStr || '').toLowerCase();
-  if (/butter|kräuterbutter|meggle|margarine|öl|sonnenblumenöl|olivenöl|rapsöl|kokosöl|fett|schmalz|essig|hengstenberg|senf|thomy|ketchup|mayo|mayonnaise|dressing|burger sauce|heinz|soße|sauce|pesto/.test(n)) return 'oils_fats';
-  if (/schokolade|choco|schoko|nutella|keks|cookie|gummibär|chips|flips|eis|bonbon|praline/.test(n)) return 'sweets_snacks';
-  if (/wasser|mineralwasser|kaffee|espresso|tee|saft|apfelsaft|orangensaft|schorle|cola|limo|getränk|sirup|kakao|\bbier\b|\bwein\b/.test(n)) return 'drinks';
-  if (/milch|vollmilch|schwarzwaldmilch|landfein|joghurt|quark|käse|frischkäse|philadelphia|scheibenkäse|gouda|mozzarella|parmesan|emmentaler|camembert|feta|schlagsahne|sahne|schmand|creme fraiche|mascarpone|ayran|kefir/.test(n)) return 'dairy';
-  if (/fleisch|hackfleisch|rinderhack|rind|schwein|hähnchen|huhn|pute|geflügel|schnitzel|steak|gulasch|wurst|bratwurst|rostbratwurst|leberwurst|würstchen|wiener|lyoner|salami|schinken|speck|aufschnitt|fisch|lachs|thunfisch|fischstäbchen|forelle|garnele|\bei\b|eier/.test(n)) return 'meat_fish_eggs';
-  if (/brot|landbrot|mehrkorn|brötchen|toast|baguette|croissant|nudel|spaghetti|pasta|penne|rigatoni|tortellini|ravioli|spätzle|reis|spitzenreis|langkorn|basmati|jasmin|milchreis|getreide|haferflocken|müsli|cornflakes|mehl|grieß|stärke|wraps|wrap|tortilla|taco|schär|kartoffel|kartoffelpüree|pfanni|gnocchi|schupfnudel|pommes|knödel/.test(n)) return 'grains';
-  if (/obst|apfel|äpfel|elstar|apfelmus|banane|clementine|mandarine|orange|susi|beere|erdbeer|himbeer|heidelbeer|traube|birne|zitrone|limette|kiwi|mango|ananas|melone|gemüse|salat|eisberg|mâche|mache|feldsalat|rucola|spinat|gurke|tomate|tomatenmark|passierte|oro di parma|paprika|karotte|möhre|zwiebel|knoblauch|brokkoli|blumenkohl|spargel|stangenspargel|rotkohl|kraut|pilz|champignon|avocado|mais|erbse|bohne|linse|kichererbse|chili sin carne|gefro/.test(n)) return 'produce';
-  return 'sweets_snacks';
-}
-
-function getFoodEmoji(nameStr) {
-  const n = String(nameStr || '').toLowerCase();
-  if (/hunde|katzen|tierfutter|futter/.test(n)) return '🐶';
-  if (/bratwurst|rostbratwurst|leberwurst|wurst|würstchen|wiener|lyoner|aufschnitt|schinken|salami|speck/.test(n)) return '🌭';
-  if (/clementine|mandarine|orange|apfelsine/.test(n)) return '🍊';
-  if (/apfel|äpfel|elstar|boskoop|pink lady|rotkohl|apfelmus/.test(n)) return '🍎';
-  if (/banane/.test(n)) return '🍌';
-  if (/erdbeer|himbeer|heidelbeer|blaubeer|beeren|kirsch/.test(n)) return '🍓';
-  if (/zitrone|limette/.test(n)) return '🍋';
-  if (/salat|eisberg|mâche|mache|kopfsalat|rucola|feldsalat|spinat|dressing|kräuter/.test(n)) return '🥬';
-  if (/gurke/.test(n)) return '🥒';
-  if (/tomate|passierte|tomatenmark/.test(n)) return '🍅';
-  if (/paprika|chili/.test(n)) return '🫑';
-  if (/karotte|möhre/.test(n)) return '🥕';
-  if (/kartoffel|kartoffelpüree|pfanni|pommes|gnocchi|schupfnudel/.test(n)) return '🥔';
-  if (/zwiebel|knoblauch/.test(n)) return '🧅';
-  if (/brokkoli|blumenkohl|spargel/.test(n)) return '🥦';
-  if (/mais/.test(n)) return '🌽';
-  if (/pilz|champignon/.test(n)) return '🍄';
-  if (/avocado/.test(n)) return '🥑';
-  if (/käse|frischkäse|philadelphia|scheibenkäse|gouda|mozzarella|parmesan|emmentaler|camembert|feta/.test(n)) return '🧀';
-  if (/milch|vollmilch|hafermilch|kakao/.test(n)) return '🥛';
-  if (/butter|kräuterbutter|meggle|margarine/.test(n)) return '🧈';
-  if (/joghurt|quark|pudding|schmand|sahne|schlagsahne|creme/.test(n)) return '🥣';
-  if (/\bei\b|eier/.test(n)) return '🥚';
-  if (/hähnchen|huhn|pute|geflügel|nuggets/.test(n)) return '🍗';
-  if (/hackfleisch|rinderhack|rind|steak|fleisch|schnitzel|gulasch/.test(n)) return '🥩';
-  if (/fisch|lachs|thunfisch|fischstäbchen|forelle/.test(n)) return '🐟';
-  if (/nudel|spaghetti|pasta|penne|tortellini|ravioli|spätzle/.test(n)) return '🍝';
-  if (/reis|spitzenreis|langkorn|basmati|jasmin|milchreis/.test(n)) return '🍚';
-  if (/brot|landbrot|brötchen|toast|baguette|croissant/.test(n)) return '🥖';
-  if (/pizza|flammkuchen/.test(n)) return '🍕';
-  if (/wrap|taco|tortilla|schär/.test(n)) return '🌮';
-  if (/senf|thomy|heinz|ketchup|mayo|soße|sauce|pesto|öl|essig/.test(n)) return '🥫';
-  if (/mehl|zucker|salz|haferflocken|müsli|cornflakes/.test(n)) return '🌾';
-  if (/schokolade|choco|schoko|nutella|keks|gummibär|chips|eis/.test(n)) return '🍫';
-  if (/wasser|saft|cola|limo|bier|wein|kaffee|tee/.test(n)) return '🧃';
-  return '🥫';
-}
-
-function stepMobileQty(rawQtyStr, delta) {
-  const clean = String(rawQtyStr || '1x').trim();
-  const match = clean.match(/^(\d+(?:[.,]\d+)?)\s*(.*)$/);
-  if (!match) return delta > 0 ? '2x' : '1x';
-  const val = parseFloat(match[1].replace(',', '.'));
-  const unit = (match[2] || 'x').trim();
-  const uLower = unit.toLowerCase();
-  const step = (uLower === 'g' || uLower === 'ml') ? (val >= 200 ? 50 : 25) : 1;
-  const nextVal = Math.max(step, Math.round((val + delta * step) * 100) / 100);
-  return nextVal + (unit ? (uLower === 'x' ? 'x' : ' ' + unit) : 'x');
-}
-
-function decrementItemPieceCount(rawQtyStr) {
-  const clean = String(rawQtyStr || '1x').trim();
-  const multiMatch = clean.match(/^(\d+(?:[.,]\d+)?)\s*([x×])\s*(\d+(?:[.,]\d+)?)\s*(g|ml|kg|l|gr|stk|pcs)(.*)$/i);
-  if (multiMatch) {
-    const currentCount = Math.round(parseFloat(multiMatch[1].replace(',', '.')));
-    const unitWeight = parseFloat(multiMatch[3].replace(',', '.'));
-    const unit = multiMatch[4];
-    const tail = multiMatch[5] || '';
-    if (currentCount > 1) {
-      const nextCount = currentCount - 1;
-      const nextTotal = Math.round(nextCount * unitWeight * 100) / 100;
-      if (tail.includes('=')) return { remaining: nextCount, nextQtyStr: nextCount + ' x ' + unitWeight + ' ' + unit + ' = ' + nextTotal + ' ' + unit };
-      if (tail.includes('(')) return { remaining: nextCount, nextQtyStr: nextCount + ' x ' + unitWeight + unit + ' (' + nextTotal + unit + ')' };
-      return { remaining: nextCount, nextQtyStr: nextCount + 'x ' + unitWeight + unit };
-    }
-    return { remaining: 0, nextQtyStr: '0' };
-  }
-
-  const pieceMatch = clean.match(/^(\d+(?:[.,]\d+)?)\s*(x|pcs|pc|stk|stück|pkg|pack|pck|dosen|dose|flaschen|fl|gläser|glas|becher|rollen|rolle)?$/i);
-  if (pieceMatch) {
-    const val = parseFloat(pieceMatch[1].replace(',', '.'));
-    const rawUnit = pieceMatch[2] || 'x';
-    const hasSpace = /^\d+(?:[.,]\d+)?\s+/.test(clean);
-    const hadDecimalZero = /\.0\b/.test(pieceMatch[1]);
-    if (val > 1) {
-      const nextVal = Math.max(1, Math.round(val - 1));
-      const formattedNum = hadDecimalZero ? (nextVal + '.0') : String(nextVal);
-      return { remaining: nextVal, nextQtyStr: formattedNum + (hasSpace ? ' ' : '') + rawUnit };
-    }
-    return { remaining: 0, nextQtyStr: '0' };
-  }
-  return { remaining: 0, nextQtyStr: '0' };
-}
-
-// Akustischer Signalton für Scan-Treffer & Einkaufslisten-Push
-function playMobileBeep(type = 'scan') {
-  try {
-    if (typeof window === 'undefined') return;
-    const AudioCtx = window.AudioContext || window.webkitAudioContext;
-    if (!AudioCtx) return;
-    const ctx = new AudioCtx();
-    const now = ctx.currentTime;
-
-    if (type === 'shopping') {
-      [587.33, 880].forEach((freq, idx) => {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'triangle';
-        osc.frequency.setValueAtTime(freq, now + idx * 0.12);
-        gain.gain.setValueAtTime(0.22, now + idx * 0.12);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.12 + 0.28);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(now + idx * 0.12);
-        osc.stop(now + idx * 0.12 + 0.3);
-      });
-    } else {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(1046.5, now);
-      gain.gain.setValueAtTime(0.12, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(now);
-      osc.stop(now + 0.11);
-    }
-  } catch (e) {}
-}
+import PocketAgenda from './PocketAgenda';
+import PocketTasks from './PocketTasks';
+import PocketScanner from './PocketScanner';
+import PocketShopping from './PocketShopping';
 
 const {
   formatDateStr,
   addDays,
-  getMonday,
-  getISOWeek,
-  WEEKDAYS_SHORT,
-  MONTHS_NAMES,
-  getBWHolidayName,
-  getBWVacationName,
   COLOR_PALETTES,
   DEFAULT_MEMBERS,
   DEFAULT_MEALS,
@@ -198,8 +46,7 @@ const {
   buildMemberStyles,
   pullFromTodoistTwoWay,
   createTodoistTaskItem,
-  closeOrReopenTodoistTask,
-  pushTodoistTaskToPhoneNow
+  closeOrReopenTodoistTask
 } = Cfg;
 
 function writeAuthSession(accountId, authKey, familyName) {
@@ -246,10 +93,6 @@ export default function TouchwallPocketApp() {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   const [activeTab, setActiveTab] = useState('scanner'); // 'agenda' | 'tasks' | 'scanner' | 'shopping'
-  const [calendarSubView, setCalendarSubView] = useState('week');
-  const [calCursorDate, setCalCursorDate] = useState(() => new Date());
-  const [selectedMonthDayStr, setSelectedMonthDayStr] = useState(() => formatDateStr(new Date()));
-
   const [selectedPerson, setSelectedPerson] = useState('all');
   const [currentTheme, setCurrentTheme] = useState('metal');
   const [todayStr] = useState(() => formatDateStr(new Date()));
@@ -270,62 +113,22 @@ export default function TouchwallPocketApp() {
     collaborators: []
   });
 
-  // Benachrichtigungs-Status für Einkaufsliste
+  // Android PWA / APK State & Supermarkt-Offline-Schutz
   const [notifPermission, setNotifPermission] = useState('default');
+  const [installPromptEvent, setInstallPromptEvent] = useState(null);
+  const [isOnline, setIsOnline] = useState(true);
   const knownShoppingTextsRef = useRef(null);
+  const pendingOfflineSaveRef = useRef(false);
 
-  // Sync-Refs für app/sync.tsx
+  // Sync-Refs
   const preservedWallStateRef = useRef({});
   const syncMetaRef = useRef({ deletedPantryIds: {}, deletedTrashIds: {}, deletedTaskIds: {}, deletedEventIds: {} });
   const pendingCalendarOpsRef = useRef({});
   const isNetworkSavingRef = useRef(false);
   const lastLocalEditRef = useRef(0);
 
-  // Scanner-State inkl. Taschenlampe, 2x-Lupe & Schnell-OCR-Worker
-  const [scannerMode, setScannerMode] = useState('barcode');
-  const [cameraActive, setCameraActive] = useState(false);
-  const [torchOn, setTorchOn] = useState(false);
-  const [zoomActive, setZoomActive] = useState(false);
-  const [scannedBarcode, setScannedBarcode] = useState('');
-  const [scanName, setScanName] = useState('');
-  const [scanQty, setScanQty] = useState('1x');
-  const [scanLocation, setScanLocation] = useState('kitchen');
-  const [scanCategory, setScanCategory] = useState('auto');
-  const [scanExpiry, setScanExpiry] = useState('');
-  const [scanImageUrl, setScanImageUrl] = useState('');
-  const [isLookingUpProduct, setIsLookingUpProduct] = useState(false);
-
-  const [detectedMhdCandidate, setDetectedMhdCandidate] = useState('');
-  const [lastOcrRawHint, setLastOcrRawHint] = useState('');
-  const [isReadingMhd, setIsReadingMhd] = useState(false);
-  const [autoMhdScanEnabled, setAutoMhdScanEnabled] = useState(true);
-
-  const [isScanningReceipt, setIsScanningReceipt] = useState(false);
-  const [receiptItems, setReceiptItems] = useState([]);
-  const [editingStockId, setEditingStockId] = useState(null);
-  const [editStockQty, setEditStockQty] = useState('');
-
-  const videoRef = useRef(null);
-  const streamRef = useRef(null);
-  const scanLoopRef = useRef(null);
-  const mhdAutoLoopRef = useRef(null);
-  const ocrWorkerRef = useRef(null);
-  const lastScannedCodeRef = useRef('');
-  const lastScanTimeRef = useRef(0);
-  const isReadingMhdRef = useRef(false);
-
   const [isSyncing, setIsSyncing] = useState(false);
   const [toast, setToast] = useState(null);
-
-  const [newEventModalOpen, setNewEventModalOpen] = useState(false);
-  const [newEvTitle, setNewEvTitle] = useState('');
-  const [newEvDate, setNewEvDate] = useState(() => formatDateStr(new Date()));
-  const [newEvTime, setNewEvTime] = useState('15:00 - 16:00');
-  const [newEvMember, setNewEvMember] = useState('all');
-
-  const [quickTaskText, setQuickTaskText] = useState('');
-  const [quickTaskMember, setQuickTaskMember] = useState('hans');
-  const [quickShopText, setQuickShopText] = useState('');
 
   const showToast = (title, msg, icon = '📲') => {
     setToast({ title, msg, icon });
@@ -352,13 +155,63 @@ export default function TouchwallPocketApp() {
   const safeTrash = useMemo(() => Array.isArray(pantryTrash) ? pantryTrash : [], [pantryTrash]);
 
   // =========================================================
-  // HANDY-BENACHRICHTIGUNG BEI NEUEN ARTIKELN AUF DER EINKAUFSLISTE
+  // ANDROID PWA / APK INITIALISIERUNG (MANIFEST, SERVICE WORKER & OFFLINE-NETZ)
   // =========================================================
   useEffect(() => {
-    if (typeof window !== 'undefined' && 'Notification' in window) {
+    if (typeof window === 'undefined') return;
+
+    if (!document.querySelector('link[rel="manifest"]')) {
+      const link = document.createElement('link');
+      link.rel = 'manifest';
+      link.href = '/manifest.json';
+      document.head.appendChild(link);
+    }
+    if (!document.querySelector('meta[name="theme-color"]')) {
+      const meta = document.createElement('meta');
+      meta.name = 'theme-color';
+      meta.content = '#111418';
+      document.head.appendChild(meta);
+    }
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(() => {});
+    }
+
+    if ('Notification' in window) {
       setNotifPermission(Notification.permission);
     }
+
+    const onBeforeInstall = (e) => {
+      e.preventDefault();
+      setInstallPromptEvent(e);
+    };
+    const onNetOnline = () => {
+      setIsOnline(true);
+      if (pendingOfflineSaveRef.current) {
+        pendingOfflineSaveRef.current = false;
+        saveStateToCloud({});
+        showToast('Wieder online!', 'Offline-Änderungen wurden synchronisiert.', '☁️');
+      }
+    };
+    const onNetOffline = () => setIsOnline(false);
+
+    window.addEventListener('beforeinstallprompt', onBeforeInstall);
+    window.addEventListener('online', onNetOnline);
+    window.addEventListener('offline', onNetOffline);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', onBeforeInstall);
+      window.removeEventListener('online', onNetOnline);
+      window.removeEventListener('offline', onNetOffline);
+    };
   }, []);
+
+  const handleInstallAndroidApp = async () => {
+    if (!installPromptEvent) return;
+    installPromptEvent.prompt();
+    await installPromptEvent.userChoice;
+    setInstallPromptEvent(null);
+  };
 
   const requestShoppingPushPermission = async () => {
     playMobileBeep('shopping');
@@ -370,15 +223,24 @@ export default function TouchwallPocketApp() {
       const perm = await Notification.requestPermission();
       setNotifPermission(perm);
       if (perm === 'granted') {
-        new Notification('🛒 Einkaufslisten-Push aktiv!', {
-          body: 'Du erhältst sofort eine Nachricht, sobald etwas auf der Einkaufsliste landet.'
-        });
-        showToast('Push aktiviert!', 'Handy-Benachrichtigungen für die Einkaufsliste sind scharf.', '🔔');
+        if ('serviceWorker' in navigator) {
+          const reg = await navigator.serviceWorker.ready;
+          await reg.showNotification('🛒 Einkaufslisten-Push aktiv!', {
+            body: 'Du erhältst sofort eine Nachricht in der Statusleiste, sobald etwas auf der Einkaufsliste landet.',
+            vibrate: [180, 90, 220],
+            tag: 'tw-shopping-test'
+          });
+        } else {
+          new Notification('🛒 Einkaufslisten-Push aktiv!', {
+            body: 'Du erhältst sofort eine Nachricht, sobald etwas auf der Einkaufsliste landet.'
+          });
+        }
+        showToast('Push aktiviert!', 'Android-Benachrichtigungen für die Einkaufsliste sind scharf.', '🔔');
       }
     } catch (e) {}
   };
 
-  const triggerShoppingPhoneNotification = (addedNamesList) => {
+  const triggerShoppingPhoneNotification = async (addedNamesList) => {
     if (!Array.isArray(addedNamesList) || addedNamesList.length === 0) return;
     const summaryText = addedNamesList.join(', ');
     playMobileBeep('shopping');
@@ -387,15 +249,22 @@ export default function TouchwallPocketApp() {
 
     if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
       try {
-        new Notification('🛒 Neu auf der Einkaufsliste (' + addedNamesList.length + ')', {
-          body: summaryText,
-          tag: 'tw-shopping-' + Date.now()
-        });
+        if ('serviceWorker' in navigator) {
+          const reg = await navigator.serviceWorker.ready;
+          await reg.showNotification('🛒 Neu auf der Einkaufsliste (' + addedNamesList.length + ')', {
+            body: summaryText,
+            vibrate: [200, 100, 250],
+            tag: 'tw-shopping-' + Date.now()
+          });
+        } else {
+          new Notification('🛒 Neu auf der Einkaufsliste (' + addedNamesList.length + ')', {
+            body: summaryText
+          });
+        }
       } catch (e) {}
     }
   };
 
-  // Überwacht automatisch die Einkaufsliste (safeNotes[0].items) auf Neuzugänge
   useEffect(() => {
     if (!isAuthenticated) return;
     const currentOpenTexts = (Array.isArray(safeNotes?.[0]?.items) ? safeNotes[0].items : [])
@@ -445,9 +314,7 @@ export default function TouchwallPocketApp() {
   };
 
   const pocketStyles = [
-    '.tw-glow-card, .tw-glow-subtle {',
-    '  transition: background-color 0.2s ease, border-color 0.2s ease;',
-    '}',
+    '.tw-glow-card, .tw-glow-subtle { transition: background-color 0.2s ease, border-color 0.2s ease; }',
     '.tw-glow-btn {',
     '  background: linear-gradient(135deg, color-mix(in srgb, var(--tw-btn-from) 28%, var(--tw-btn-rest-base)) 0%, color-mix(in srgb, var(--tw-btn-to) 28%, var(--tw-btn-rest-base)) 100%) !important;',
     '  color: var(--tw-btn-rest-text) !important;',
@@ -457,19 +324,12 @@ export default function TouchwallPocketApp() {
     '.tw-nav-inactive {',
     '  background: linear-gradient(135deg, color-mix(in srgb, var(--tw-btn-from) 12%, var(--tw-btn-rest-base)) 0%, color-mix(in srgb, var(--tw-btn-to) 12%, var(--tw-btn-rest-base)) 100%);',
     '  border: 1px solid rgba(255, 255, 255, 0.14);',
-    '  transition: background 0.16s ease;',
     '}',
     '.tw-active-nav {',
     '  background: linear-gradient(135deg, var(--tw-btn-from) 0%, var(--tw-btn-to) 100%) !important;',
     '  color: #ffffff !important;',
     '  border: 1.5px solid var(--tw-btn-border) !important;',
     '  box-shadow: 0 6px 16px -3px var(--tw-btn-glow) !important;',
-    '}',
-    '.tw-glow-btn:hover, .tw-glow-btn:active, .tw-nav-inactive:active {',
-    '  background: linear-gradient(135deg, var(--tw-btn-from) 0%, var(--tw-btn-to) 100%) !important;',
-    '  color: #ffffff !important;',
-    '  border-color: var(--tw-btn-border) !important;',
-    '  box-shadow: 0 6px 18px -2px var(--tw-btn-glow) !important;',
     '}'
   ].join('\n');
 
@@ -557,10 +417,13 @@ export default function TouchwallPocketApp() {
 
     try { localStorage.setItem('richter_touchwall_v6', JSON.stringify(basePayload)); } catch (e) {}
 
-    if (!accountId || accountId === 'local') {
-      showToast('Nur lokal gespeichert!', 'Bitte mit Familien-Konto anmelden.', '⚠️');
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      pendingOfflineSaveRef.current = true;
+      showToast('Offline gepuffert 📡', 'Wird automatisch gesendet, sobald wieder Empfang da ist.', '💾');
       return;
     }
+
+    if (!accountId || accountId === 'local') return;
 
     isNetworkSavingRef.current = true;
     lastLocalEditRef.current = Date.now();
@@ -596,18 +459,19 @@ export default function TouchwallPocketApp() {
         }
       } catch (e) {}
 
-      const finalPayload = {
-        ...basePayload,
-        pantryItems: mergedStock,
-        pantryTrash: mergedTrash,
-        skillBoardData: latestSkillBoard,
-        syncMeta: syncMetaRef.current,
-        customLogoUrl: latestLogo
-      };
-
-      await callCloudBackend({ action: 'saveState', payload: finalPayload });
+      await callCloudBackend({
+        action: 'saveState',
+        payload: {
+          ...basePayload,
+          pantryItems: mergedStock,
+          pantryTrash: mergedTrash,
+          skillBoardData: latestSkillBoard,
+          syncMeta: syncMetaRef.current,
+          customLogoUrl: latestLogo
+        }
+      });
     } catch (e) {
-      showToast('Sync-Warnung', 'Bitte Internetverbindung prüfen.', '⚠️');
+      pendingOfflineSaveRef.current = true;
     } finally {
       lastLocalEditRef.current = Date.now();
       isNetworkSavingRef.current = false;
@@ -723,391 +587,35 @@ export default function TouchwallPocketApp() {
     return () => clearInterval(interval);
   }, [isAuthenticated, accountId, authKey]);
 
-  const stopCameraStream = () => {
-    if (scanLoopRef.current) clearInterval(scanLoopRef.current);
-    if (mhdAutoLoopRef.current) clearInterval(mhdAutoLoopRef.current);
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(t => t.stop());
-      streamRef.current = null;
-    }
-    setCameraActive(false);
-    setTorchOn(false);
-    setZoomActive(false);
-  };
-
-  useEffect(() => {
-    return () => {
-      stopCameraStream();
-      if (ocrWorkerRef.current) {
-        ocrWorkerRef.current.terminate?.().catch(() => {});
-        ocrWorkerRef.current = null;
-      }
-    };
-  }, []);
-
-  // Taschenlampe (Torch) & 2x-Lupe auf dem Smartphone schalten
-  const toggleCameraTorch = async () => {
-    try {
-      const track = streamRef.current?.getVideoTracks?.()?.[0];
-      if (!track) return;
-      const next = !torchOn;
-      await track.applyConstraints({ advanced: [{ torch: next }] });
-      setTorchOn(next);
-    } catch (e) {
-      showToast('Kameralicht', 'Taschenlampe wird auf diesem Gerät vom Browser nicht unterstützt.', '🔦');
-    }
-  };
-
-  const toggleCameraZoom = async () => {
-    const next = !zoomActive;
-    setZoomActive(next);
-    try {
-      const track = streamRef.current?.getVideoTracks?.()?.[0];
-      if (track) {
-        await track.applyConstraints({ advanced: [{ zoom: next ? 2.0 : 1.0 }] });
-      }
-    } catch (e) {}
-  };
-
   // =========================================================
-  // HOCHPRÄZISER MHD-DATUM-PARSER (FÜR DEUTSCHE & INTERNATIONALE AUFDURCKE)
+  // HANDLER FÜR DIE 4 UNTER-KOMPONENTEN
   // =========================================================
-  const extractExpiryDateFromText = (rawText) => {
-    const clean = String(rawText || '')
-      .replace(/[|lI!]/g, '1')
-      .replace(/[OQ]/g, '0')
-      .replace(/S(?=\d)/g, '5')
-      .replace(/B(?=\d)/g, '8')
-      .replace(/Z(?=\d)/g, '2');
-
-    // 1. Standard: TT.MM.JJJJ oder TT.MM.JJ (auch mit Leerzeichen, Punktmatrix oder Schrägstrich)
-    const dmyRegex = /(0?[1-9]|[12][0-9]|3[01])\s*[.,/\-\s:·•_]+\s*(0?[1-9]|1[0-2])\s*[.,/\-\s:·•_]+\s*(20[2-3][0-9]|2[6-9]|3[0-5])\b/g;
-    let match;
-    while ((match = dmyRegex.exec(clean)) !== null) {
-      const day = String(match[1]).padStart(2, '0');
-      const month = String(match[2]).padStart(2, '0');
-      let year = String(match[3]);
-      if (year.length === 2) year = '20' + year;
-      const numYear = Number(year);
-      if (numYear >= 2025 && numYear <= 2036) {
-        return year + '-' + month + '-' + day;
-      }
-    }
-
-    // 2. Kompaktformat ohne erkannte Punkte: z.B. "210827" oder "27102028"
-    const compactRegex = /\b(0[1-9]|[12][0-9]|3[01])(0[1-9]|1[0-2])(20[2-3][0-9]|2[6-9]|3[0-5])\b/g;
-    while ((match = compactRegex.exec(clean)) !== null) {
-      const day = match[1];
-      const month = match[2];
-      let year = match[3];
-      if (year.length === 2) year = '20' + year;
-      return year + '-' + month + '-' + day;
-    }
-
-    // 3. Monatsformat: MM.JJJJ oder MM/JJ (z.B. "08.2027" oder "08/27")
-    const myRegex = /\b(0?[1-9]|1[0-2])\s*[.,/\-:]+\s*(20[2-3][0-9]|2[6-9]|3[0-5])\b/g;
-    while ((match = myRegex.exec(clean)) !== null) {
-      const month = String(match[1]).padStart(2, '0');
-      let year = String(match[2]);
-      if (year.length === 2) year = '20' + year;
-      return year + '-' + month + '-28';
-    }
-
-    return null;
-  };
-
-  // Initialisiert einmalig einen schnellen, auf Ziffern trainierten Tesseract-Worker
-  const getFastMhdOcrWorker = async () => {
-    if (ocrWorkerRef.current) return ocrWorkerRef.current;
-
-    if (typeof window !== 'undefined' && !window.Tesseract) {
-      await new Promise((resolve, reject) => {
-        const s = document.createElement('script');
-        s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
-        s.onload = resolve;
-        s.onerror = reject;
-        document.head.appendChild(s);
-      });
-    }
-
-    if (window.Tesseract?.createWorker) {
-      const worker = await window.Tesseract.createWorker('eng');
-      await worker.setParameters({
-        tessedit_char_whitelist: '0123456789.,/-:MHDmhd '
-      });
-      ocrWorkerRef.current = worker;
-      return worker;
-    }
-    return null;
-  };
-
-  // =========================================================
-  // TURBO-MHD-SCANNER (4x SCHNELLER DURCH ZIELSTREIFEN & ZIFFERN-WORKER)
-  // =========================================================
-  const captureMhdFromLiveCamera = async (silentMode = false) => {
-    if (!videoRef.current || videoRef.current.readyState < 2) {
-      if (!silentMode) showToast('Kamera nicht bereit', 'Bitte zuerst die Kamera starten.', '⚠️');
-      return;
-    }
-    if (isReadingMhdRef.current) return;
-
-    isReadingMhdRef.current = true;
-    setIsReadingMhd(true);
-
-    try {
-      const vid = videoRef.current;
-      const vw = vid.videoWidth || 640;
-      const vh = vid.videoHeight || 480;
-
-      // Exakter Zuschnitt auf den gelben MHD-Zielstreifen in der Bildmitte
-      const cropX = Math.floor(vw * 0.10);
-      const cropY = Math.floor(vh * 0.28);
-      const cropW = Math.floor(vw * 0.80);
-      const cropH = Math.floor(vh * 0.44);
-
-      const canvas = document.createElement('canvas');
-      canvas.width = cropW;
-      canvas.height = cropH;
-      const ctx = canvas.getContext('2d');
-      ctx.filter = 'contrast(2.1) grayscale(1) brightness(1.12)';
-      ctx.drawImage(vid, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
-
-      const worker = await getFastMhdOcrWorker();
-      const result = worker
-        ? await worker.recognize(canvas)
-        : await window.Tesseract.recognize(canvas, 'eng');
-
-      const detectedText = String(result?.data?.text || '').trim();
-      const singleLineHint = detectedText.replace(/\s+/g, ' ').slice(0, 42);
-      if (singleLineHint) setLastOcrRawHint(singleLineHint);
-
-      const parsedDate = extractExpiryDateFromText(detectedText);
-
-      if (parsedDate) {
-        setDetectedMhdCandidate(parsedDate);
-        setScanExpiry(parsedDate);
-        playMobileBeep('scan');
-        try { navigator.vibrate?.(70); } catch (e) {}
-        const niceDate = parsedDate.slice(8, 10) + '.' + parsedDate.slice(5, 7) + '.' + parsedDate.slice(0, 4);
-        showToast('MHD erkannt: ' + niceDate, 'Tippe unten direkt auf „⚡ Speichern“!', '🎉');
-      } else if (!silentMode) {
-        showToast(
-          'Datum noch unscharf',
-          'Tipp: Nutze oben im Bild „🔍 2x Lupe“ oder „🔦 Licht“.',
-          '🔍'
-        );
-      }
-    } catch (err) {
-      if (!silentMode) showToast('MHD-Scan Hinweis', 'Bitte noch einmal antippen.', '⚠️');
-    } finally {
-      isReadingMhdRef.current = false;
-      setIsReadingMhd(false);
-    }
-  };
-
-  // Schnellerer 1,2-Sekunden Auto-MHD-Intervall
-  useEffect(() => {
-    if (!cameraActive || !autoMhdScanEnabled) {
-      if (mhdAutoLoopRef.current) clearInterval(mhdAutoLoopRef.current);
-      return;
-    }
-    mhdAutoLoopRef.current = setInterval(() => {
-      if (!isReadingMhdRef.current && !detectedMhdCandidate) {
-        captureMhdFromLiveCamera(true);
-      }
-    }, 1250);
-
-    return () => {
-      if (mhdAutoLoopRef.current) clearInterval(mhdAutoLoopRef.current);
-    };
-  }, [cameraActive, autoMhdScanEnabled, detectedMhdCandidate]);
-
-  const lookupBarcodeOnOpenFoodFacts = async (code) => {
-    const cleanCode = String(code || '').trim();
-    if (!cleanCode) return;
-    setScannedBarcode(cleanCode);
-    setIsLookingUpProduct(true);
-    try {
-      const res = await fetch('https://world.openfoodfacts.org/api/v2/product/' + encodeURIComponent(cleanCode) + '.json');
-      const data = await res.json();
-      if (data && data.product) {
-        const p = data.product;
-        const foundName = p.product_name_de || p.product_name || p.generic_name_de || '';
-        const brand = p.brands ? p.brands.split(',')[0].trim() : '';
-        const qty = p.quantity || '1x';
-        const img = p.image_front_small_url || p.image_thumb_url || '';
-        const fullTitle = [brand, foundName].filter(Boolean).join(' ').trim();
-        if (img) setScanImageUrl(img);
-        if (fullTitle) {
-          setScanName(fullTitle);
-          setScanQty(qty);
-          playMobileBeep('scan');
-          try { navigator.vibrate?.(50); } catch (e) {}
-          showToast('Produkt erkannt!', fullTitle + ' – halte jetzt das MHD in den Rahmen!', getFoodEmoji(fullTitle));
-          return;
-        }
-      }
-      showToast('Barcode gescannt', 'Code ' + cleanCode + ' – jetzt MHD scannen.', '📷');
-    } catch (e) {
-      showToast('Barcode erfasst', 'Code: ' + cleanCode, '📷');
-    } finally {
-      setIsLookingUpProduct(false);
-    }
-  };
-
-  const startLiveBarcodeCamera = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: 'environment',
-          width: { ideal: 1920 },
-          height: { ideal: 1080 }
-        }
-      });
-
-      const track = stream.getVideoTracks()[0];
-      if (track && track.applyConstraints) {
-        track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(() => {});
-      }
-
-      streamRef.current = stream;
-      setCameraActive(true);
-      // Worker schon beim Kamerastart im Hintergrund vorwärmen
-      getFastMhdOcrWorker().catch(() => {});
-
-      setTimeout(() => {
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.play().catch(() => {});
-        }
-      }, 150);
-
-      if (typeof window !== 'undefined' && 'BarcodeDetector' in window) {
-        const detector = new window.BarcodeDetector({
-          formats: ['ean_13', 'ean_8', 'qr_code', 'upc_a', 'code_128']
-        });
-        scanLoopRef.current = setInterval(async () => {
-          if (!videoRef.current || videoRef.current.readyState < 2) return;
-          try {
-            const barcodes = await detector.detect(videoRef.current);
-            if (barcodes && barcodes.length > 0) {
-              const rawVal = String(barcodes[0].rawValue || '').trim();
-              const now = Date.now();
-              if (rawVal && (rawVal !== lastScannedCodeRef.current || now - lastScanTimeRef.current > 6000)) {
-                lastScannedCodeRef.current = rawVal;
-                lastScanTimeRef.current = now;
-                lookupBarcodeOnOpenFoodFacts(rawVal);
-              }
-            }
-          } catch (err) {}
-        }, 380);
-      }
-    } catch (err) {
-      showToast('Kamera-Zugriff', 'Bitte erlaube den Kamera-Zugriff im Browser.', '⚠️');
-    }
-  };
-
-  const handleReceiptPhotoUpload = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setIsScanningReceipt(true);
-    showToast('Analysiere Kassenbon...', 'Texterkennung liest deine Einkäufe aus...', '🧾');
-
-    try {
-      if (typeof window !== 'undefined' && !window.Tesseract) {
-        await new Promise((resolve, reject) => {
-          const s = document.createElement('script');
-          s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
-          s.onload = resolve;
-          s.onerror = reject;
-          document.head.appendChild(s);
-        });
-      }
-
-      const result = await window.Tesseract.recognize(file, 'deu');
-      const lines = String(result?.data?.text || '')
-        .split(/\r?\n/)
-        .map(l => l.replace(/[0-9]+[,.][0-9]{2}\s*[AB]?$/g, '').trim())
-        .filter(l =>
-          l.length >= 3 &&
-          !/summe|gesamt|kartenzahlung|steuer|mwst|datum|uhrzeit|vielen dank|filiale|bon|eur|bar|rückgeld/i.test(l)
-        );
-
-      const defaultExp = formatDateStr(addDays(new Date(), 7));
-      const extracted = lines.slice(0, 15).map((txt, idx) => ({
-        id: 'rec_' + Date.now() + '_' + idx,
-        name: txt,
-        quantity: '1x',
-        location: 'fridge',
-        category: detectFoodCategory(txt),
-        expiryDate: defaultExp,
-        selected: true
-      }));
-
-      setReceiptItems(extracted);
-      showToast('Kassenbon gelesen!', extracted.length + ' Positionen erkannt – bitte MHD prüfen.', '✅');
-    } catch (err) {
-      showToast('Kassenbon-Hinweis', 'Bitte Foto bei gutem Licht aufnehmen oder direkt eingeben.', '⚠️');
-    } finally {
-      setIsScanningReceipt(false);
-    }
-  };
-
-  const saveProductDirectly = async (nameVal, barcodeVal, qtyVal, locVal, expVal, imgVal) => {
-    if (!nameVal || !expVal) {
-      showToast('Fehlende Angabe', 'Bitte Produktname und MHD prüfen.', '⚠️');
-      return;
-    }
+  const handleSaveSingleProduct = async (nameVal, barcodeVal, qtyVal, locVal, catVal, expVal, imgVal) => {
     const now = Date.now();
     lastLocalEditRef.current = now;
-    const resolvedCategory = scanCategory === 'auto' ? detectFoodCategory(nameVal) : scanCategory;
-
     const newItem = {
       id: 'p_' + now + '_' + Math.floor(Math.random() * 1000),
       name: nameVal,
       barcode: barcodeVal || '',
       quantity: qtyVal || '1x',
       location: locVal || 'kitchen',
-      category: resolvedCategory,
+      category: catVal || detectFoodCategory(nameVal),
       expiryDate: expVal,
       imageUrl: imgVal || '',
       addedAt: todayStr,
       updatedAt: now,
       fromMobile: true
     };
-
     const nextStock = [newItem, ...safeStock];
     setPantryItems(nextStock);
-
-    setScanName('');
-    setScannedBarcode('');
-    setScanCategory('auto');
-    setScanExpiry('');
-    setScanImageUrl('');
-    setDetectedMhdCandidate('');
-    setLastOcrRawHint('');
-    lastScannedCodeRef.current = '';
-
     await saveStateToCloud({ pantryItems: nextStock });
     showToast('Auf Touchwall übertragen!', newItem.name + ' (MHD: ' + expVal + ')', getFoodEmoji(newItem.name));
   };
 
-  const handleSaveScannedProduct = (e) => {
-    if (e && typeof e.preventDefault === 'function') e.preventDefault();
-    const finalExp = scanExpiry || detectedMhdCandidate;
-    if (!scanName.trim() || !finalExp) {
-      showToast('Pflichtfelder', 'Bitte Name und Ablaufdatum (MHD) wählen.', '⚠️');
-      return;
-    }
-    saveProductDirectly(scanName.trim(), scannedBarcode, scanQty.trim(), scanLocation, finalExp, scanImageUrl);
-  };
-
-  const handleSaveAllReceiptItems = async () => {
-    const selected = receiptItems.filter(it => it.selected && it.name.trim() && it.expiryDate);
-    if (selected.length === 0) return;
+  const handleSaveBatchProducts = async (selectedList) => {
     const now = Date.now();
     lastLocalEditRef.current = now;
-    const newEntries = selected.map((it, idx) => ({
+    const newEntries = selectedList.map((it, idx) => ({
       id: 'p_' + now + '_' + idx + '_' + Math.floor(Math.random() * 1000),
       name: it.name.trim(),
       quantity: it.quantity || '1x',
@@ -1119,12 +627,20 @@ export default function TouchwallPocketApp() {
       updatedAt: now,
       fromMobile: true
     }));
-
     const nextStock = [...newEntries, ...safeStock];
     setPantryItems(nextStock);
-    setReceiptItems([]);
     await saveStateToCloud({ pantryItems: nextStock });
-    showToast('Kassenbon übertragen!', newEntries.length + ' Produkte an Touchwall gesendet.', '🎉');
+    showToast('In Vorrat übernommen!', newEntries.length + ' Produkte an Touchwall gesendet.', '🎉');
+  };
+
+  const handleUpdateStockQty = async (itemId, newQtyStr) => {
+    const now = Date.now();
+    lastLocalEditRef.current = now;
+    const nextStock = safeStock.map(x =>
+      x.id === itemId ? { ...x, quantity: newQtyStr, updatedAt: now, fromMobile: true } : x
+    );
+    setPantryItems(nextStock);
+    await saveStateToCloud({ pantryItems: nextStock });
   };
 
   const handleConsumeFromPocket = async (item) => {
@@ -1147,7 +663,7 @@ export default function TouchwallPocketApp() {
 
     const nextStock = safeStock.filter(x => x.id !== item.id);
     const nextTrash = [
-      { ...item, trashedAt: todayStr, reason: 'consumed', reasonLabel: '🍽️ Verzehrt am ' + todayStr, updatedAt: now, fromMobile: true },
+      { ...item, trashedAt: todayStr, trashedTimestamp: now, reason: 'consumed', reasonLabel: '🍽️ Verzehrt am ' + todayStr, updatedAt: now, fromMobile: true },
       ...safeTrash
     ];
     setPantryItems(nextStock);
@@ -1156,35 +672,29 @@ export default function TouchwallPocketApp() {
     showToast('Komplett verzehrt!', item.name + ' wurde ausgebucht.', '🍽️');
   };
 
-  const handleCreateMobileEvent = async (e) => {
-    e.preventDefault();
-    if (!newEvTitle.trim()) return;
+  const handleCreateMobileEvent = async ({ title, date, time, member }) => {
     lastLocalEditRef.current = Date.now();
-    const targetMem = newEvMember || (selectedPerson === 'all' ? 'all' : selectedPerson);
     const newEv = {
       id: String(Date.now()),
-      title: newEvTitle.trim(),
-      date: newEvDate || todayStr,
-      time: newEvTime.trim() || 'Ganztägig',
-      member: targetMem,
+      title,
+      date,
+      time,
+      member,
       notifyTime: '30m',
       notifyChannel: 'wall_push',
-      notifyUsers: [targetMem],
+      notifyUsers: [member],
       fromGoogle: true,
       fromMobile: true
     };
     registerPendingCalendarOp(pendingCalendarOpsRef, 'create', newEv);
     setEvents(prev => [...(Array.isArray(prev) ? prev : []), newEv]);
-    setNewEvTitle('');
-    setNewEventModalOpen(false);
     showToast('Termin gespeichert', newEv.title, '📅');
 
     if (accountId && accountId !== 'local') {
       try {
         const res = await callCloudBackend({ action: 'createEvent', event: newEv });
         if (res?.result?.events) {
-          const guarded = mergeCalendarEventsSafe(res.result.events, pendingCalendarOpsRef, syncMetaRef.current);
-          setEvents(guarded);
+          setEvents(mergeCalendarEventsSafe(res.result.events, pendingCalendarOpsRef, syncMetaRef.current));
         }
       } catch (err) {}
     }
@@ -1211,12 +721,8 @@ export default function TouchwallPocketApp() {
     }
   };
 
-  const handleAddQuickTask = async (e) => {
-    e.preventDefault();
-    const clean = quickTaskText.trim();
-    if (!clean) return;
+  const handleAddQuickTask = async (cleanTitle, targetMemberId) => {
     lastLocalEditRef.current = Date.now();
-    const targetMemberId = selectedPerson !== 'all' ? selectedPerson : quickTaskMember;
     const memberObj = safeMembers.find(m => m.id === targetMemberId) || safeMembers[1];
     const projId = memberObj?.todoistProjectId || todoistConfig?.tasksProjectId || '';
 
@@ -1226,7 +732,7 @@ export default function TouchwallPocketApp() {
         const created = await createTodoistTaskItem(
           todoistConfig.apiToken,
           projId,
-          clean,
+          cleanTitle,
           memberObj,
           todayStr,
           '18:00',
@@ -1245,7 +751,7 @@ export default function TouchwallPocketApp() {
       todoistId,
       projectId: projId,
       member: targetMemberId,
-      title: clean,
+      title: cleanTitle,
       priority: 3,
       due: 'Heute bis 18:00 Uhr',
       dueDate: todayStr,
@@ -1256,9 +762,8 @@ export default function TouchwallPocketApp() {
     };
     const nextTasks = [newTask, ...safeTasks];
     setFamilyTasks(nextTasks);
-    setQuickTaskText('');
     await saveStateToCloud({ familyTasks: nextTasks });
-    showToast('Aufgabe & Push gesendet!', clean + ' → ' + memberObj.name, '✅');
+    showToast('Aufgabe & Push gesendet!', cleanTitle + ' → ' + memberObj.name, '✅');
   };
 
   const handleToggleMobileTask = async (task) => {
@@ -1272,10 +777,7 @@ export default function TouchwallPocketApp() {
     }
   };
 
-  const handleAddQuickShopItem = async (e) => {
-    e.preventDefault();
-    const clean = quickShopText.trim();
-    if (!clean) return;
+  const handleAddQuickShopItem = async (clean) => {
     lastLocalEditRef.current = Date.now();
     const firstNote = safeNotes[0] || { id: 1, title: '🛒 Einkaufsliste', items: [] };
     const projId = firstNote.todoistProjectId || todoistConfig?.shoppingProjectId || '';
@@ -1309,7 +811,6 @@ export default function TouchwallPocketApp() {
       items: [{ text: clean, done: false, todoistId, fromMobile: true }, ...(Array.isArray(n.items) ? n.items : [])]
     } : n);
     setFamilyNotes(nextNotes);
-    setQuickShopText('');
     triggerShoppingPhoneNotification([clean]);
     await saveStateToCloud({ familyNotes: nextNotes });
   };
@@ -1329,6 +830,60 @@ export default function TouchwallPocketApp() {
     if (item.todoistId && todoistConfig?.apiToken) {
       try { await closeOrReopenTodoistTask(todoistConfig.apiToken, item.todoistId, nextDone); } catch (e) {}
     }
+  };
+
+  // Übernimmt gekaufte Einkaufslisten-Artikel mit 1 Klick in die Speisekammer
+  const handleMoveBoughtItemToPantry = async (shopItem, mhdDays = 7) => {
+    const now = Date.now();
+    lastLocalEditRef.current = now;
+    const expStr = formatDateStr(addDays(new Date(), mhdDays));
+    const newItem = {
+      id: 'p_' + now + '_' + Math.floor(Math.random() * 1000),
+      name: shopItem.text,
+      quantity: '1x',
+      location: 'fridge',
+      category: detectFoodCategory(shopItem.text),
+      expiryDate: expStr,
+      addedAt: todayStr,
+      updatedAt: now,
+      fromMobile: true
+    };
+    const nextStock = [newItem, ...safeStock];
+    const nextNotes = safeNotes.map((n, idx) => idx === 0 ? {
+      ...n,
+      items: (Array.isArray(n.items) ? n.items : []).filter((_, i) => i !== shopItem.origIdx)
+    } : n);
+    setPantryItems(nextStock);
+    setFamilyNotes(nextNotes);
+    await saveStateToCloud({ pantryItems: nextStock, familyNotes: nextNotes });
+    showToast('In Vorrat gebucht!', shopItem.text + ' (MHD: +' + mhdDays + 'T)', getFoodEmoji(shopItem.text));
+  };
+
+  const handleMoveAllBoughtToPantry = async (boughtList, mhdDays = 7) => {
+    if (!Array.isArray(boughtList) || boughtList.length === 0) return;
+    const now = Date.now();
+    lastLocalEditRef.current = now;
+    const expStr = formatDateStr(addDays(new Date(), mhdDays));
+    const newItems = boughtList.map((it, idx) => ({
+      id: 'p_' + now + '_' + idx + '_' + Math.floor(Math.random() * 1000),
+      name: it.text,
+      quantity: '1x',
+      location: 'fridge',
+      category: detectFoodCategory(it.text),
+      expiryDate: expStr,
+      addedAt: todayStr,
+      updatedAt: now,
+      fromMobile: true
+    }));
+    const nextStock = [...newItems, ...safeStock];
+    const nextNotes = safeNotes.map((n, idx) => idx === 0 ? {
+      ...n,
+      items: (Array.isArray(n.items) ? n.items : []).filter(it => !it.done)
+    } : n);
+    setPantryItems(nextStock);
+    setFamilyNotes(nextNotes);
+    await saveStateToCloud({ pantryItems: nextStock, familyNotes: nextNotes });
+    showToast('Einkauf eingelagert!', newItems.length + ' Artikel in Speisekammer übernommen.', '📦');
   };
 
   const handlePocketLogin = async (e) => {
@@ -1364,37 +919,6 @@ export default function TouchwallPocketApp() {
     }
   };
 
-  const navigateCalendarCursor = (dir) => {
-    if (calendarSubView === 'month') {
-      const next = new Date(calCursorDate.getFullYear(), calCursorDate.getMonth() + dir, 1);
-      setCalCursorDate(next);
-      setSelectedMonthDayStr(formatDateStr(next));
-    } else {
-      setCalCursorDate(addDays(calCursorDate, dir * 7));
-    }
-  };
-
-  const weekMonday = useMemo(() => getMonday(calCursorDate), [calCursorDate]);
-  const weekDaysList = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekMonday, i)), [weekMonday]);
-
-  const monthGridCells = useMemo(() => {
-    const year = calCursorDate.getFullYear();
-    const month = calCursorDate.getMonth();
-    const firstDayOfMonth = new Date(year, month, 1);
-    const lastDayOfMonth = new Date(year, month + 1, 0);
-    const startOffset = (firstDayOfMonth.getDay() + 6) % 7;
-    const totalDays = lastDayOfMonth.getDate();
-
-    const cells = [];
-    for (let i = 0; i < startOffset; i++) {
-      cells.push(null);
-    }
-    for (let d = 1; d <= totalDays; d++) {
-      cells.push(new Date(year, month, d));
-    }
-    return cells;
-  }, [calCursorDate]);
-
   if (isCheckingAuth) {
     return (
       <div className="h-screen w-screen bg-[#111418] text-white flex items-center justify-center p-6">
@@ -1413,7 +937,7 @@ export default function TouchwallPocketApp() {
             </div>
             <div>
               <span className="px-2.5 py-0.5 rounded-full bg-sky-500/20 text-sky-300 text-[10px] font-extrabold">
-                📱 Touchwall Pocket • 4-Kanal Sync & Scanner
+                📱 Touchwall Pocket • Android App & Scanner
               </span>
               <h1 className="text-xl font-black mt-0.5">Handy-Anmeldung</h1>
             </div>
@@ -1465,10 +989,6 @@ export default function TouchwallPocketApp() {
   const openShop = shopItems.map((it, idx) => ({ ...it, origIdx: idx })).filter(it => !it.done);
   const doneShop = shopItems.map((it, idx) => ({ ...it, origIdx: idx })).filter(it => it.done);
 
-  const detectedScanCatObj = FOOD_CATEGORIES.find(
-    c => c.id === (scanCategory === 'auto' ? detectFoodCategory(scanName) : scanCategory)
-  ) || FOOD_CATEGORIES[1];
-
   return (
     <div
       style={{
@@ -1483,27 +1003,33 @@ export default function TouchwallPocketApp() {
     >
       <style>{pocketStyles}</style>
 
-      {/* =========================================================
-          OBERER HEADER (WIRD IM SCANNER-TAB KOMPLETT AUSGEBLENDET!)
-         ========================================================= */}
+      {/* OBERER HEADER (IM SCANNER-TAB KOMPLETT AUSGEBLENDET FÜR MAXIMALEN FOKUS) */}
       {activeTab !== 'scanner' && (
         <header className={'shrink-0 z-30 px-3.5 pt-2.5 pb-2 border-b shadow-md ' + themeStyles.header}>
           <div className="flex items-center justify-between gap-2 mb-2">
             <div className="flex items-center gap-2 min-w-0">
               <span className="px-2 py-0.5 rounded-lg bg-sky-500 text-white text-[10px] font-black">POCKET</span>
               <h1 className="font-extrabold text-sm sm:text-base truncate">{familyName}</h1>
-              {accountId && accountId !== 'local' ? (
+              {!isOnline ? (
+                <span className="px-2 py-0.5 rounded-full bg-amber-500/25 text-amber-300 text-[10px] font-black flex items-center gap-1 shrink-0">
+                  <WifiOff className="w-3 h-3" /> Offline-Puffer
+                </span>
+              ) : accountId && accountId !== 'local' ? (
                 <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-extrabold border border-emerald-400/30 flex items-center gap-1 shrink-0">
                   <Cloud className="w-3 h-3" /> {accountId}
                 </span>
-              ) : (
-                <span className="px-2 py-0.5 rounded-full bg-rose-500/25 text-rose-300 text-[10px] font-extrabold shrink-0">
-                  ⚠️ Lokal
-                </span>
-              )}
+              ) : null}
             </div>
 
             <div className="flex items-center gap-1.5">
+              {installPromptEvent && (
+                <button
+                  onClick={handleInstallAndroidApp}
+                  className="tw-active-nav px-2.5 py-2 rounded-xl text-[10px] font-black flex items-center gap-1"
+                >
+                  <Download className="w-3.5 h-3.5" /> App
+                </button>
+              )}
               <button
                 onClick={requestShoppingPushPermission}
                 title="Einkaufslisten-Push aktivieren"
@@ -1547,7 +1073,6 @@ export default function TouchwallPocketApp() {
                   key={m.id}
                   onClick={() => {
                     setSelectedPerson(m.id);
-                    setQuickTaskMember(m.id);
                     try { localStorage.setItem('richter_tw_pocket_person', m.id); } catch (e) {}
                   }}
                   className={'pr-3 pl-1.5 py-1 rounded-xl flex items-center gap-1.5 text-xs font-extrabold shrink-0 ' + (isSel ? 'tw-active-nav' : 'tw-nav-inactive')}
@@ -1561,1011 +1086,67 @@ export default function TouchwallPocketApp() {
         </header>
       )}
 
-      {/* HAUPT-SCROLLBEREICH */}
+      {/* HAUPT-CONTENT MIT DEN 4 AUSGELAGERTEN MODULEN */}
       <main className={'flex-1 overflow-y-auto overflow-x-hidden px-3 pt-2.5 pb-6 ' + themeStyles.viewport}>
         <div className="max-w-lg w-full mx-auto space-y-3">
-
-          {/* TAB 1: KALENDER */}
           {activeTab === 'agenda' && (
-            <div className="space-y-3">
-              <div className={'p-2.5 rounded-2xl border space-y-2.5 ' + themeStyles.card}>
-                <div className="flex items-center justify-between gap-2">
-                  <div className="grid grid-cols-3 gap-1 flex-1 p-1 rounded-xl bg-black/25">
-                    {[
-                      { id: 'week',  label: '📆 Woche' },
-                      { id: 'month', label: '🗓️ Monat' },
-                      { id: 'list',  label: '📋 Übersicht' }
-                    ].map(v => (
-                      <button
-                        key={v.id}
-                        type="button"
-                        onClick={() => setCalendarSubView(v.id)}
-                        className={'py-2 rounded-lg text-xs font-extrabold ' + (calendarSubView === v.id ? 'tw-active-nav' : 'opacity-75')}
-                      >
-                        {v.label}
-                      </button>
-                    ))}
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setNewEvDate(selectedMonthDayStr || todayStr);
-                      setNewEvMember(selectedPerson === 'all' ? 'all' : selectedPerson);
-                      setNewEventModalOpen(true);
-                    }}
-                    className="tw-glow-btn px-3.5 py-2.5 rounded-xl text-xs font-black flex items-center gap-1 shrink-0"
-                  >
-                    <Plus className="w-4 h-4 stroke-[3]" /> Termin
-                  </button>
-                </div>
-
-                <div className="flex items-center justify-between gap-2 pt-0.5">
-                  <div className="flex items-center gap-1.5">
-                    <button onClick={() => navigateCalendarCursor(-1)} className="tw-glow-btn w-8 h-8 rounded-xl flex items-center justify-center">
-                      <ChevronLeft className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => {
-                        const now = new Date();
-                        setCalCursorDate(now);
-                        setSelectedMonthDayStr(formatDateStr(now));
-                      }}
-                      className="tw-glow-btn px-3 py-1.5 rounded-xl text-xs font-extrabold"
-                    >
-                      Heute
-                    </button>
-                    <button onClick={() => navigateCalendarCursor(1)} className="tw-glow-btn w-8 h-8 rounded-xl flex items-center justify-center">
-                      <ChevronRight className="w-4 h-4" />
-                    </button>
-                  </div>
-
-                  <span className="text-xs font-black">
-                    {calendarSubView === 'month'
-                      ? (MONTHS_NAMES[calCursorDate.getMonth()] + ' ' + calCursorDate.getFullYear())
-                      : ('KW ' + getISOWeek(weekMonday) + ' • ' + weekDaysList[0].getDate() + '.' + (weekDaysList[0].getMonth() + 1) + '. – ' + weekDaysList[6].getDate() + '.' + (weekDaysList[6].getMonth() + 1) + '.')}
-                  </span>
-                </div>
-              </div>
-
-              {calendarSubView === 'week' && (
-                <div className="space-y-2">
-                  {weekDaysList.map(dayObj => {
-                    const dStr = formatDateStr(dayObj);
-                    const isToday = dStr === todayStr;
-                    const hol = getBWHolidayName(dStr);
-                    const vac = getBWVacationName(dStr);
-                    const dayEvs = filteredEvents.filter(e => e.date === dStr);
-
-                    return (
-                      <div
-                        key={dStr}
-                        className={'p-3 rounded-2xl border space-y-2 ' + themeStyles.card + (isToday ? ' ring-2 ring-orange-400' : '')}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <span className={'w-8 h-8 rounded-xl text-xs font-black flex items-center justify-center ' + (isToday ? 'bg-orange-500 text-white' : 'bg-black/30')}>
-                              {WEEKDAYS_SHORT[dayObj.getDay()]}
-                            </span>
-                            <div>
-                              <div className="font-extrabold text-xs sm:text-sm">
-                                {dayObj.getDate()}. {MONTHS_NAMES[dayObj.getMonth()]}
-                              </div>
-                              {(hol || vac) && (
-                                <div className="text-[10px] font-extrabold text-emerald-400">
-                                  {hol ? ('🎌 ' + hol) : ('🏖️ ' + vac)}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-
-                          <button
-                            onClick={() => {
-                              setNewEvDate(dStr);
-                              setNewEvMember(selectedPerson === 'all' ? 'all' : selectedPerson);
-                              setNewEventModalOpen(true);
-                            }}
-                            className="tw-glow-btn w-8 h-8 rounded-xl font-black text-base flex items-center justify-center"
-                          >
-                            +
-                          </button>
-                        </div>
-
-                        {dayEvs.length === 0 ? (
-                          <div className="text-[11px] opacity-45 pl-10">Keine Termine</div>
-                        ) : (
-                          <div className="space-y-1.5 pl-1">
-                            {dayEvs.map(ev => {
-                              const mem = safeMembers.find(m => m.id === ev.member) || safeMembers[0];
-                              const st = getMemberStyles(mem);
-                              return (
-                                <div
-                                  key={ev.id}
-                                  style={st.cardStyle}
-                                  className="px-3 py-2.5 rounded-xl flex items-center justify-between gap-2 shadow-xs"
-                                >
-                                  <div className="min-w-0">
-                                    <div className="font-extrabold text-xs leading-snug break-words">{ev.title}</div>
-                                    <div className="text-[10px] font-bold opacity-90">
-                                      ⏰ {ev.time || 'Ganztägig'} • {mem.name.split(' ')[0]}
-                                    </div>
-                                  </div>
-                                  <button
-                                    onClick={() => handleDeleteMobileEvent(ev)}
-                                    className="p-2 rounded-lg bg-black/25 text-white/80 shrink-0"
-                                  >
-                                    <Trash2 className="w-4 h-4" />
-                                  </button>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              {calendarSubView === 'month' && (
-                <div className="space-y-3">
-                  <div className={'p-3 rounded-3xl border ' + themeStyles.card}>
-                    <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-black uppercase opacity-70 mb-1.5">
-                      {['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].map(w => (
-                        <div key={w}>{w}</div>
-                      ))}
-                    </div>
-
-                    <div className="grid grid-cols-7 gap-1">
-                      {monthGridCells.map((cellDate, idx) => {
-                        if (!cellDate) {
-                          return <div key={'empty_' + idx} className="h-12 rounded-xl bg-black/10" />;
-                        }
-                        const dStr = formatDateStr(cellDate);
-                        const isToday = dStr === todayStr;
-                        const isSelected = dStr === selectedMonthDayStr;
-                        const hol = getBWHolidayName(dStr);
-                        const vac = getBWVacationName(dStr);
-                        const dayEvs = filteredEvents.filter(e => e.date === dStr);
-
-                        return (
-                          <button
-                            key={dStr}
-                            type="button"
-                            onClick={() => setSelectedMonthDayStr(dStr)}
-                            className={'h-13 p-1 rounded-xl border flex flex-col items-center justify-between transition-all ' +
-                              (isSelected ? 'ring-2 ring-sky-400 bg-sky-500/20 border-sky-400' : isToday ? 'border-orange-400 bg-orange-500/15' : themeStyles.subtle)}
-                          >
-                            <span className={'text-xs font-black ' + (isToday ? 'text-orange-400' : hol ? 'text-rose-400' : vac ? 'text-emerald-400' : '')}>
-                              {cellDate.getDate()}
-                            </span>
-
-                            <div className="w-full flex flex-col gap-0.5 overflow-hidden">
-                              {dayEvs.slice(0, 2).map(ev => {
-                                const mem = safeMembers.find(m => m.id === ev.member) || safeMembers[0];
-                                const hex = COLOR_PALETTES[mem.color]?.hex || '#0ea5e9';
-                                return (
-                                  <span
-                                    key={ev.id}
-                                    style={{ backgroundColor: hex }}
-                                    className="w-full px-1 rounded text-[8px] font-black text-white truncate leading-tight"
-                                  >
-                                    {ev.title}
-                                  </span>
-                                );
-                              })}
-                              {dayEvs.length > 2 && (
-                                <span className="text-[8px] font-black text-sky-300">+{dayEvs.length - 2}</span>
-                              )}
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <div className={'p-3.5 rounded-3xl border space-y-2 ' + themeStyles.card}>
-                    <div className="flex items-center justify-between">
-                      <span className="font-extrabold text-xs text-sky-400">
-                        📅 Termine am {selectedMonthDayStr.slice(8, 10)}.{selectedMonthDayStr.slice(5, 7)}.{selectedMonthDayStr.slice(0, 4)}
-                      </span>
-                      <button
-                        onClick={() => {
-                          setNewEvDate(selectedMonthDayStr);
-                          setNewEvMember(selectedPerson === 'all' ? 'all' : selectedPerson);
-                          setNewEventModalOpen(true);
-                        }}
-                        className="tw-glow-btn px-3 py-1.5 rounded-xl text-xs font-black"
-                      >
-                        + Termin hier
-                      </button>
-                    </div>
-
-                    {filteredEvents.filter(e => e.date === selectedMonthDayStr).length === 0 ? (
-                      <div className="text-xs opacity-50 py-2">Keine Termine an diesem Tag.</div>
-                    ) : (
-                      filteredEvents
-                        .filter(e => e.date === selectedMonthDayStr)
-                        .map(ev => {
-                          const mem = safeMembers.find(m => m.id === ev.member) || safeMembers[0];
-                          const st = getMemberStyles(mem);
-                          return (
-                            <div
-                              key={ev.id}
-                              style={st.cardStyle}
-                              className="p-3 rounded-2xl flex items-center justify-between gap-2"
-                            >
-                              <div>
-                                <div className="font-extrabold text-sm">{ev.title}</div>
-                                <div className="text-xs opacity-90">⏰ {ev.time} • {mem.name}</div>
-                              </div>
-                              <button onClick={() => handleDeleteMobileEvent(ev)} className="p-2 rounded-xl bg-black/25">
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                          );
-                        })
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {calendarSubView === 'list' && (
-                <div className={'p-3.5 rounded-3xl border space-y-2.5 ' + themeStyles.card}>
-                  <h3 className="font-extrabold text-sm">📋 Alle kommenden Termine</h3>
-                  {filteredEvents
-                    .filter(e => e.date >= todayStr)
-                    .sort((a, b) => String(a.date).localeCompare(String(b.date)))
-                    .slice(0, 25)
-                    .map(ev => {
-                      const mem = safeMembers.find(m => m.id === ev.member) || safeMembers[0];
-                      const st = getMemberStyles(mem);
-                      return (
-                        <div
-                          key={ev.id}
-                          style={st.cardStyle}
-                          className="p-3 rounded-2xl flex items-center justify-between gap-3"
-                        >
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            {renderAvatar(mem, 'w-8 h-8', 'text-xs')}
-                            <div className="min-w-0">
-                              <div className="font-extrabold text-xs sm:text-sm truncate">{ev.title}</div>
-                              <div className="text-[11px] font-bold opacity-90">
-                                📅 {ev.date.slice(8, 10)}.{ev.date.slice(5, 7)}. • ⏰ {ev.time} • {mem.name.split(' ')[0]}
-                              </div>
-                            </div>
-                          </div>
-                          <button onClick={() => handleDeleteMobileEvent(ev)} className="p-2 rounded-xl bg-black/25 shrink-0">
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      );
-                    })}
-                </div>
-              )}
-            </div>
+            <PocketAgenda
+              safeMembers={safeMembers}
+              filteredEvents={filteredEvents}
+              selectedPerson={selectedPerson}
+              todayStr={todayStr}
+              themeStyles={themeStyles}
+              getMemberStyles={getMemberStyles}
+              renderAvatar={renderAvatar}
+              onCreateEvent={handleCreateMobileEvent}
+              onDeleteEvent={handleDeleteMobileEvent}
+            />
           )}
 
-          {/* TAB 2: AUFGABEN */}
           {activeTab === 'tasks' && (
-            <div className="space-y-3.5">
-              <form onSubmit={handleAddQuickTask} className={'p-3.5 rounded-3xl border space-y-2.5 shadow-sm ' + themeStyles.card}>
-                <div className="text-xs font-black uppercase text-sky-400">
-                  ⚡ Neue Aufgabe (mit Sofort-Push aufs Handy)
-                </div>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={quickTaskText}
-                    onChange={(e) => setQuickTaskText(e.target.value)}
-                    placeholder="Aufgabe eingeben..."
-                    className={'flex-1 px-3.5 py-3 rounded-2xl border text-sm font-bold ' + themeStyles.input}
-                  />
-                  <button
-                    type="submit"
-                    className="tw-glow-btn px-5 rounded-2xl font-black text-xs flex items-center gap-1.5 shrink-0"
-                  >
-                    <Send className="w-4 h-4" /> Push
-                  </button>
-                </div>
-
-                {selectedPerson === 'all' && (
-                  <div className="flex items-center gap-1.5 overflow-x-auto pt-1">
-                    <span className="text-[10px] font-bold opacity-70 shrink-0">Für:</span>
-                    {safeMembers.filter(m => m.id !== 'all').map(m => (
-                      <button
-                        key={m.id}
-                        type="button"
-                        onClick={() => setQuickTaskMember(m.id)}
-                        className={'px-3 py-1.5 rounded-xl text-xs font-extrabold shrink-0 ' + (quickTaskMember === m.id ? 'tw-active-nav' : 'tw-nav-inactive')}
-                      >
-                        {m.name.split(' ')[0]}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </form>
-
-              <div className={'rounded-3xl border p-4 space-y-2.5 ' + themeStyles.card}>
-                <div className="font-extrabold text-sm">✅ Offene Aufgaben ({openTasks.length})</div>
-
-                {openTasks.length === 0 ? (
-                  <div className="py-6 text-center text-xs font-bold opacity-50">
-                    🎉 Alles erledigt! Keine offenen Aufgaben.
-                  </div>
-                ) : (
-                  openTasks.map(task => {
-                    const mem = safeMembers.find(m => m.id === task.member) || safeMembers[1];
-                    return (
-                      <div
-                        key={task.id}
-                        onClick={() => handleToggleMobileTask(task)}
-                        className={'p-3.5 rounded-2xl border flex items-center justify-between gap-3 cursor-pointer ' + themeStyles.subtle}
-                      >
-                        <div className="flex items-center gap-3 min-w-0">
-                          <input type="checkbox" checked={false} readOnly className="w-5 h-5 accent-indigo-600 rounded shrink-0" />
-                          <div className="min-w-0">
-                            <div className="font-bold text-sm break-words">{task.title}</div>
-                            <div className="text-[11px] font-semibold opacity-75">
-                              👤 {mem.name.split(' ')[0]} • ⏳ {task.due || 'Offen'}
-                            </div>
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (task.todoistId && todoistConfig?.apiToken) {
-                              pushTodoistTaskToPhoneNow(todoistConfig.apiToken, task.todoistId, task.title, mem.todoistUserId, todoistConfig.collaborators);
-                              showToast('Handy-Ping gesendet!', task.title, '📲');
-                            }
-                          }}
-                          className="tw-glow-btn px-3 py-2 rounded-xl text-xs font-black shrink-0"
-                        >
-                          📲 Ping
-                        </button>
-                      </div>
-                    );
-                  })
-                )}
-
-                {doneTasks.length > 0 && (
-                  <div className="pt-3 mt-3 border-t border-white/10 space-y-1.5">
-                    <div className="text-xs font-extrabold opacity-60">☑️ Erledigt ({doneTasks.length})</div>
-                    {doneTasks.slice(0, 5).map(task => (
-                      <div
-                        key={task.id}
-                        onClick={() => handleToggleMobileTask(task)}
-                        className={'p-2.5 rounded-xl border flex items-center gap-2.5 opacity-55 ' + themeStyles.subtle}
-                      >
-                        <input type="checkbox" checked={true} readOnly className="w-4 h-4 accent-emerald-500 rounded" />
-                        <span className="text-xs font-bold line-through truncate">{task.title}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
+            <PocketTasks
+              safeMembers={safeMembers}
+              openTasks={openTasks}
+              doneTasks={doneTasks}
+              selectedPerson={selectedPerson}
+              todoistConfig={todoistConfig}
+              themeStyles={themeStyles}
+              onAddQuickTask={handleAddQuickTask}
+              onToggleTask={handleToggleMobileTask}
+              showToast={showToast}
+            />
           )}
 
-          {/* =====================================================
-              TAB 3: VOLLFOKUS-SCANNER (OHNE OBEREN HEADER!)
-              INKL. TURBO-MHD-OCR, TASCHENLAMPE, 2X-LUPE & GROSSEN TOUCH-TASTEN
-             ===================================================== */}
           {activeTab === 'scanner' && (
-            <div className="space-y-3">
-              {/* KOMPAKTE, EINHÄNDIGE MODUS- & KAMERA-LEISTE GANZ OBEN */}
-              <div className="flex items-center gap-1.5">
-                <div className="grid grid-cols-2 gap-1.5 flex-1 p-1 rounded-2xl bg-black/35 border border-white/10">
-                  <button
-                    type="button"
-                    onClick={() => setScannerMode('barcode')}
-                    className={'py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 ' + (scannerMode === 'barcode' ? 'tw-active-nav' : 'tw-nav-inactive')}
-                  >
-                    <ScanLine className="w-4 h-4" />
-                    <span>Barcode & MHD</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { stopCameraStream(); setScannerMode('receipt'); }}
-                    className={'py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 ' + (scannerMode === 'receipt' ? 'tw-active-nav' : 'tw-nav-inactive')}
-                  >
-                    <FileText className="w-4 h-4" />
-                    <span>🧾 Kassenbon</span>
-                  </button>
-                </div>
-
-                {scannerMode === 'barcode' && (
-                  !cameraActive ? (
-                    <button
-                      type="button"
-                      onClick={startLiveBarcodeCamera}
-                      className="tw-active-nav px-4 py-3 rounded-2xl text-xs font-black flex items-center gap-1.5 shrink-0 shadow-lg"
-                    >
-                      <Camera className="w-4 h-4" /> Kamera an
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={stopCameraStream}
-                      className="px-3.5 py-3 rounded-2xl bg-rose-600 text-white text-xs font-black shrink-0 shadow-lg"
-                    >
-                      ✕ Aus
-                    </button>
-                  )
-                )}
-              </div>
-
-              {scannerMode === 'barcode' ? (
-                <div className={'p-3.5 rounded-3xl border space-y-3 shadow-lg ' + themeStyles.card}>
-                  {/* VOLLFOKUS-KAMERAFENSTER MIT LICHT, 2X-LUPE & MHD-ZIELSTREIFEN */}
-                  {cameraActive && (
-                    <div className="space-y-2">
-                      <div
-                        onClick={() => captureMhdFromLiveCamera(false)}
-                        className="relative rounded-2xl overflow-hidden border-2 border-sky-400 bg-black aspect-[16/10] cursor-pointer"
-                      >
-                        <video
-                          ref={videoRef}
-                          style={zoomActive ? { transform: 'scale(1.85)', transformOrigin: 'center center' } : undefined}
-                          className="w-full h-full object-cover transition-transform duration-200"
-                          playsInline
-                          muted
-                        />
-
-                        {/* OBERE KAMERA-WERKZEUGE: 2X-LUPE & TASCHENLAMPE */}
-                        <div className="absolute top-2 left-2 right-2 flex items-center justify-between gap-2 z-10">
-                          <span className="text-[10px] font-black bg-black/75 text-amber-300 px-2.5 py-1 rounded-lg border border-amber-400/40">
-                            🎯 MHD-Datum in den gelben Rahmen halten
-                          </span>
-                          <div className="flex items-center gap-1.5">
-                            <button
-                              type="button"
-                              onClick={(e) => { e.stopPropagation(); toggleCameraZoom(); }}
-                              className={'px-2.5 py-1.5 rounded-xl text-[11px] font-black flex items-center gap-1 border ' +
-                                (zoomActive ? 'bg-sky-500 text-white border-white' : 'bg-black/75 text-white border-white/20')}
-                            >
-                              <ZoomIn className="w-3.5 h-3.5" /> 2x Lupe
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(e) => { e.stopPropagation(); toggleCameraTorch(); }}
-                              className={'px-2.5 py-1.5 rounded-xl text-[11px] font-black flex items-center gap-1 border ' +
-                                (torchOn ? 'bg-amber-400 text-slate-950 border-white' : 'bg-black/75 text-white border-white/20')}
-                            >
-                              <Zap className="w-3.5 h-3.5" /> Licht
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* SCHMALER, KONTRASTREICHER MHD-ZIELSTREIFEN IN DER MITTE */}
-                        <div className="absolute inset-x-6 top-[28%] bottom-[28%] border-2 border-amber-400 rounded-xl pointer-events-none shadow-[0_0_0_9999px_rgba(0,0,0,0.38)] flex flex-col justify-center">
-                          <div className="w-full h-0.5 bg-rose-500/90 shadow-[0_0_10px_#f43f5e] animate-pulse" />
-                        </div>
-
-                        <div className="absolute bottom-1.5 inset-x-0 text-center pointer-events-none">
-                          <span className="text-[10px] font-extrabold bg-black/75 text-white px-2.5 py-0.5 rounded-full">
-                            👆 Aufs Bild tippen = Sofort MHD ablesen
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* GROSSER DAUMEN-BUTTON ZUM MHD-SCANNEN */}
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => captureMhdFromLiveCamera(false)}
-                          disabled={isReadingMhd}
-                          className="tw-active-nav flex-1 min-h-[48px] py-3 px-4 rounded-2xl text-xs sm:text-sm font-black flex items-center justify-center gap-2 shadow-lg"
-                        >
-                          <ScanLine className={'w-4 h-4 ' + (isReadingMhd ? 'animate-spin' : '')} />
-                          <span>{isReadingMhd ? '⏳ Lese MHD-Ziffern...' : '📸 MHD-Datum jetzt erfassen'}</span>
-                        </button>
-
-                        <label className="min-h-[48px] px-3 rounded-2xl bg-black/35 border border-white/15 text-[11px] font-extrabold flex items-center gap-1.5 shrink-0 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={autoMhdScanEnabled}
-                            onChange={(e) => setAutoMhdScanEnabled(e.target.checked)}
-                            className="w-4 h-4 accent-emerald-500 rounded"
-                          />
-                          <span>Auto</span>
-                        </label>
-                      </div>
-
-                      {lastOcrRawHint && !detectedMhdCandidate && (
-                        <div className="text-[10px] text-slate-400 font-mono px-2 truncate">
-                          Erkannte Zeichen: „{lastOcrRawHint}“
-                        </div>
-                      )}
-
-                      {/* GRÜNES BESTÄTIGUNGS-BANNER BEI ERKANNTEM MHD */}
-                      {detectedMhdCandidate && (
-                        <div className="p-3 rounded-2xl bg-emerald-500/20 border-2 border-emerald-400 space-y-2 shadow-lg">
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm font-black text-emerald-300">
-                              📅 MHD erkannt: {detectedMhdCandidate.slice(8, 10)}.{detectedMhdCandidate.slice(5, 7)}.{detectedMhdCandidate.slice(0, 4)}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => setDetectedMhdCandidate('')}
-                              className="text-xs font-extrabold text-rose-300 px-2.5 py-1 rounded-lg bg-black/35"
-                            >
-                              Neu
-                            </button>
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-2">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setScanExpiry(detectedMhdCandidate);
-                                showToast('MHD übernommen!', 'Datum steht im Pflichtfeld.', '✅');
-                              }}
-                              className="min-h-[44px] py-2.5 px-3 rounded-xl bg-emerald-600 text-white text-xs font-black flex items-center justify-center gap-1 shadow-md"
-                            >
-                              <Check className="w-4 h-4" /> ✓ Übernehmen
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => {
-                                saveProductDirectly(
-                                  scanName.trim() || 'Gescanntes Produkt',
-                                  scannedBarcode,
-                                  scanQty.trim(),
-                                  scanLocation,
-                                  detectedMhdCandidate,
-                                  scanImageUrl
-                                );
-                              }}
-                              className="tw-active-nav min-h-[44px] py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1 shadow-md"
-                            >
-                              <span>⚡ Direkt speichern</span>
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* PRODUKTNAME + EMOJI + BARCODE-SUCHE */}
-                  <form onSubmit={handleSaveScannedProduct} className="space-y-3">
-                    <div className="flex items-center gap-2">
-                      <span className="w-12 h-12 rounded-2xl bg-black/30 border border-white/10 flex items-center justify-center text-2xl shrink-0">
-                        {getFoodEmoji(scanName)}
-                      </span>
-                      <input
-                        type="text"
-                        required
-                        value={scanName}
-                        onChange={(e) => setScanName(e.target.value)}
-                        placeholder="Produktname (oder Barcode scannen)..."
-                        className={'w-full min-h-[48px] px-3.5 py-2.5 rounded-2xl border text-sm font-extrabold ' + themeStyles.input}
-                      />
-                    </div>
-
-                    {/* HANDLICHE MENGEN-WIPPE (- / +) & KATEGORIE */}
-                    <div className="grid grid-cols-12 gap-2 items-center">
-                      <div className="col-span-5 flex items-center gap-1 bg-black/25 p-1 rounded-2xl border border-white/10">
-                        <button
-                          type="button"
-                          onClick={() => setScanQty(stepMobileQty(scanQty, -1))}
-                          className="tw-nav-inactive w-10 h-10 rounded-xl font-black text-base flex items-center justify-center shrink-0"
-                        >
-                          -
-                        </button>
-                        <input
-                          type="text"
-                          value={scanQty}
-                          onChange={(e) => setScanQty(e.target.value)}
-                          className="w-full bg-transparent text-center text-xs font-black focus:outline-none"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setScanQty(stepMobileQty(scanQty, 1))}
-                          className="tw-glow-btn w-10 h-10 rounded-xl font-black text-base flex items-center justify-center shrink-0"
-                        >
-                          +
-                        </button>
-                      </div>
-
-                      <select
-                        value={scanCategory}
-                        onChange={(e) => setScanCategory(e.target.value)}
-                        className={'col-span-7 min-h-[48px] px-3 py-2.5 rounded-2xl border text-xs font-extrabold ' + themeStyles.input}
-                      >
-                        <option value="auto" className="bg-slate-800 text-amber-300">
-                          ✨ {detectedScanCatObj.icon} {detectedScanCatObj.title}
-                        </option>
-                        {FOOD_CATEGORIES.map(cat => (
-                          <option key={cat.id} value={cat.id} className="bg-slate-800 text-white">
-                            {cat.icon} {cat.title}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    {/* GROSSE TOUCH-PILLS FÜR DEN LAGERORT (STATT DROPDOWN) */}
-                    <div className="grid grid-cols-4 gap-1.5">
-                      {STORAGE_PILLS.map(loc => (
-                        <button
-                          key={loc.id}
-                          type="button"
-                          onClick={() => setScanLocation(loc.id)}
-                          className={'min-h-[44px] py-2 px-1.5 rounded-xl text-xs font-extrabold ' +
-                            (scanLocation === loc.id ? 'tw-active-nav' : 'tw-nav-inactive')}
-                        >
-                          {loc.label}
-                        </button>
-                      ))}
-                    </div>
-
-                    {/* GROSSE DAUMEN-FREUNDLICHE MHD-SCHNELLTASTEN */}
-                    <div className="p-3 rounded-2xl bg-amber-500/15 border border-amber-400/50 space-y-2.5">
-                      <div className="flex items-center justify-between">
-                        <label className="text-[11px] font-black uppercase text-amber-300">
-                          📅 Pflicht-Ablaufdatum (MHD)
-                        </label>
-                        {scanExpiry && (
-                          <span className="text-xs font-black text-emerald-400">
-                            ✓ {scanExpiry.slice(8, 10)}.{scanExpiry.slice(5, 7)}.{scanExpiry.slice(0, 4)}
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="grid grid-cols-4 gap-1.5">
-                        {[
-                          { l: '+3 Tage', d: 3 },
-                          { l: '+1 Woche', d: 7 },
-                          { l: '+2 Wo.', d: 14 },
-                          { l: '+1 Monat', d: 30 },
-                          { l: '+3 Mon.', d: 90 },
-                          { l: '+6 Mon.', d: 180 },
-                          { l: '+1 Jahr', d: 365 },
-                          { l: '+2 Jahre', d: 730 }
-                        ].map(b => (
-                          <button
-                            key={b.d}
-                            type="button"
-                            onClick={() => {
-                              const d = formatDateStr(addDays(new Date(), b.d));
-                              setScanExpiry(d);
-                              setDetectedMhdCandidate(d);
-                            }}
-                            className="tw-glow-btn min-h-[42px] py-2 rounded-xl text-[11px] font-black"
-                          >
-                            {b.l}
-                          </button>
-                        ))}
-                      </div>
-
-                      <input
-                        type="date"
-                        required
-                        min={todayStr}
-                        value={scanExpiry}
-                        onChange={(e) => {
-                          setScanExpiry(e.target.value);
-                          setDetectedMhdCandidate(e.target.value);
-                        }}
-                        className={'w-full min-h-[46px] px-3.5 py-2 rounded-xl border text-sm font-black ' + themeStyles.input}
-                      />
-                    </div>
-
-                    <button
-                      type="submit"
-                      disabled={isSyncing || !scanName.trim() || (!scanExpiry && !detectedMhdCandidate)}
-                      className={'w-full min-h-[54px] py-3.5 rounded-2xl font-black text-sm shadow-xl ' +
-                        (!scanName.trim() || (!scanExpiry && !detectedMhdCandidate) ? 'bg-slate-700 text-slate-400 opacity-50' : 'tw-active-nav')}
-                    >
-                      {isSyncing
-                        ? '⏳ Übertrage an Touchwall...'
-                        : (scanExpiry || detectedMhdCandidate)
-                        ? ('🥫 In Speisekammer speichern (' + (scanExpiry || detectedMhdCandidate).slice(8, 10) + '.' + (scanExpiry || detectedMhdCandidate).slice(5, 7) + '.)')
-                        : '⚠️ Erst Ablaufdatum (MHD) wählen'}
-                    </button>
-                  </form>
-                </div>
-              ) : (
-                /* KASSENBON-SCANNER MIT TOUCH-SCHNELLTASTEN */
-                <div className={'p-4 rounded-3xl border space-y-3.5 shadow-md ' + themeStyles.card}>
-                  <h2 className="font-black text-base">🧾 Kassenbon abfotografieren</h2>
-                  <label className="tw-active-nav w-full min-h-[52px] py-3.5 rounded-2xl font-black text-xs flex items-center justify-center gap-2 cursor-pointer shadow-lg">
-                    <Camera className="w-5 h-5" />
-                    <span>{isScanningReceipt ? '⏳ Lese Kassenbon aus...' : '📸 Kassenbon jetzt fotografieren'}</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      capture="environment"
-                      className="hidden"
-                      onChange={handleReceiptPhotoUpload}
-                    />
-                  </label>
-
-                  {receiptItems.length > 0 && (
-                    <div className="space-y-2.5 pt-2">
-                      {receiptItems.map((rit, idx) => (
-                        <div key={rit.id} className={'p-3 rounded-2xl border space-y-2 ' + themeStyles.subtle}>
-                          <div className="flex items-center gap-2.5">
-                            <input
-                              type="checkbox"
-                              checked={rit.selected}
-                              onChange={() => {
-                                const next = [...receiptItems];
-                                next[idx].selected = !next[idx].selected;
-                                setReceiptItems(next);
-                              }}
-                              className="w-5 h-5 accent-emerald-500 rounded"
-                            />
-                            <input
-                              type="text"
-                              value={rit.name}
-                              onChange={(e) => {
-                                const next = [...receiptItems];
-                                next[idx].name = e.target.value;
-                                setReceiptItems(next);
-                              }}
-                              className="flex-1 bg-transparent text-xs font-extrabold focus:outline-none"
-                            />
-                          </div>
-
-                          <div className="flex flex-wrap items-center justify-between gap-1.5 pl-7">
-                            <div className="flex gap-1">
-                              {[
-                                { l: '+1W', d: 7 },
-                                { l: '+1M', d: 30 },
-                                { l: '+6M', d: 180 }
-                              ].map(b => (
-                                <button
-                                  key={b.d}
-                                  type="button"
-                                  onClick={() => {
-                                    const next = [...receiptItems];
-                                    next[idx].expiryDate = formatDateStr(addDays(new Date(), b.d));
-                                    setReceiptItems(next);
-                                  }}
-                                  className="tw-glow-btn px-2 py-1 rounded-lg text-[10px] font-black"
-                                >
-                                  {b.l}
-                                </button>
-                              ))}
-                            </div>
-
-                            <input
-                              type="date"
-                              required
-                              value={rit.expiryDate}
-                              onChange={(e) => {
-                                const next = [...receiptItems];
-                                next[idx].expiryDate = e.target.value;
-                                setReceiptItems(next);
-                              }}
-                              className={'px-2.5 py-1 rounded-lg border text-xs font-bold ' + themeStyles.input}
-                            />
-                          </div>
-                        </div>
-                      ))}
-
-                      <button
-                        type="button"
-                        onClick={handleSaveAllReceiptItems}
-                        className="tw-active-nav w-full min-h-[50px] py-3 rounded-2xl font-black text-xs shadow-lg"
-                      >
-                        ✓ Alle markierten Produkte an Touchwall senden
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* SCHLANKE BESTANDS-LISTE UNTER DEM SCANNER */}
-              <div className={'p-3 rounded-3xl border space-y-1.5 ' + themeStyles.card}>
-                <div className="flex items-center justify-between pb-1">
-                  <span className="font-extrabold text-xs uppercase text-sky-400">
-                    🥫 Aktueller Vorrat ({safeStock.length})
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => syncAllNow(true)}
-                    className="text-xs font-extrabold text-emerald-400 flex items-center gap-1"
-                  >
-                    <RefreshCw className={'w-3.5 h-3.5 ' + (isSyncing ? 'animate-spin' : '')} /> Sync
-                  </button>
-                </div>
-
-                <div className="space-y-1.5">
-                  {safeStock.slice(0, 12).map(item => {
-                    const decPreview = decrementItemPieceCount(item.quantity);
-                    return (
-                      <div key={item.id} className={'px-3 py-2 rounded-xl border flex items-center justify-between gap-2 ' + themeStyles.subtle}>
-                        <div className="flex items-center gap-2 min-w-0 flex-1">
-                          <span className="text-lg shrink-0">{getFoodEmoji(item.name)}</span>
-                          <div className="min-w-0 flex-1">
-                            <div className="font-extrabold text-xs truncate">{item.name}</div>
-                            <div className="text-[10px] text-amber-400 font-bold">
-                              {item.quantity} • MHD: {item.expiryDate.slice(8, 10)}.{item.expiryDate.slice(5, 7)}.{item.expiryDate.slice(2, 4)}
-                            </div>
-                          </div>
-                        </div>
-
-                        {editingStockId === item.id ? (
-                          <div className="flex items-center gap-1">
-                            <input
-                              type="text"
-                              value={editStockQty}
-                              onChange={(e) => setEditStockQty(e.target.value)}
-                              className={'w-16 px-2 py-1.5 rounded-lg border text-xs font-bold ' + themeStyles.input}
-                            />
-                            <button
-                              onClick={async () => {
-                                const now = Date.now();
-                                lastLocalEditRef.current = now;
-                                const nextStock = safeStock.map(x =>
-                                  x.id === item.id
-                                    ? { ...x, quantity: editStockQty || '1x', updatedAt: now, fromMobile: true }
-                                    : x
-                                );
-                                setPantryItems(nextStock);
-                                setEditingStockId(null);
-                                await saveStateToCloud({ pantryItems: nextStock });
-                              }}
-                              className="tw-glow-btn p-2 rounded-lg"
-                            >
-                              <Check className="w-4 h-4" />
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            <button
-                              onClick={() => {
-                                setEditingStockId(item.id);
-                                setEditStockQty(item.quantity);
-                              }}
-                              className="tw-nav-inactive p-2 rounded-xl text-sky-300"
-                            >
-                              <Pencil className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              onClick={() => handleConsumeFromPocket(item)}
-                              className="tw-glow-btn px-3 py-2 rounded-xl text-xs font-black"
-                            >
-                              {decPreview.remaining > 0 ? '🍽️ -1' : '🍽️ Weg'}
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
+            <PocketScanner
+              safeStock={safeStock}
+              todayStr={todayStr}
+              isSyncing={isSyncing}
+              themeStyles={themeStyles}
+              onSaveSingleProduct={handleSaveSingleProduct}
+              onSaveBatchProducts={handleSaveBatchProducts}
+              onUpdateStockQty={handleUpdateStockQty}
+              onConsumeItem={handleConsumeFromPocket}
+              onSyncNow={() => syncAllNow(true)}
+              showToast={showToast}
+            />
           )}
 
-          {/* TAB 4: EINKAUFSLISTE INKL. PUSH-BENACHRICHTIGUNGS-SCHALTER */}
           {activeTab === 'shopping' && (
-            <div className="space-y-3.5">
-              <div className={'p-3 rounded-2xl border flex items-center justify-between gap-2 ' + themeStyles.card}>
-                <div className="text-xs font-extrabold">
-                  🔔 Handy-Alarm bei neuen Einkäufen
-                </div>
-                <button
-                  type="button"
-                  onClick={requestShoppingPushPermission}
-                  className={'px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 ' +
-                    (notifPermission === 'granted' ? 'bg-emerald-500/25 text-emerald-300 border border-emerald-400/40' : 'tw-active-nav')}
-                >
-                  <BellRing className="w-3.5 h-3.5" />
-                  <span>{notifPermission === 'granted' ? 'Push-Alarm aktiv ✓' : 'Push jetzt aktivieren'}</span>
-                </button>
-              </div>
-
-              <form onSubmit={handleAddQuickShopItem} className="flex gap-2">
-                <input
-                  type="text"
-                  value={quickShopText}
-                  onChange={(e) => setQuickShopText(e.target.value)}
-                  placeholder="Artikel zur Einkaufsliste..."
-                  className={'flex-1 min-h-[48px] px-4 py-3 rounded-2xl border text-sm font-bold ' + themeStyles.input}
-                />
-                <button type="submit" className="tw-active-nav min-h-[48px] px-5 rounded-2xl font-black text-base">
-                  +
-                </button>
-              </form>
-
-              <div className={'rounded-3xl border p-4 space-y-2 ' + themeStyles.card}>
-                <div className="font-extrabold text-sm">🛒 Einkaufsliste ({openShop.length} offen)</div>
-                {openShop.length === 0 ? (
-                  <div className="py-6 text-center text-xs opacity-50 font-bold">🛒 Einkaufsliste ist leer!</div>
-                ) : (
-                  openShop.map(item => (
-                    <div
-                      key={item.origIdx}
-                      onClick={() => handleToggleShopItem(item.origIdx)}
-                      className={'p-3.5 rounded-2xl border flex items-center gap-3 cursor-pointer ' + themeStyles.subtle}
-                    >
-                      <input type="checkbox" checked={false} readOnly className="w-5 h-5 accent-amber-500 rounded shrink-0" />
-                      <span className="font-bold text-sm break-words">{item.text}</span>
-                    </div>
-                  ))
-                )}
-
-                {doneShop.length > 0 && (
-                  <div className="pt-3 mt-3 border-t border-white/10 space-y-1.5">
-                    <div className="text-xs font-extrabold opacity-60">Im Einkaufswagen ({doneShop.length})</div>
-                    {doneShop.map(item => (
-                      <div
-                        key={item.origIdx}
-                        onClick={() => handleToggleShopItem(item.origIdx)}
-                        className={'p-2.5 rounded-xl border flex items-center gap-2.5 opacity-50 ' + themeStyles.subtle}
-                      >
-                        <input type="checkbox" checked={true} readOnly className="w-4 h-4 accent-emerald-500 rounded" />
-                        <span className="text-xs font-bold line-through">{item.text}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
+            <PocketShopping
+              openShop={openShop}
+              doneShop={doneShop}
+              notifPermission={notifPermission}
+              themeStyles={themeStyles}
+              onRequestPushPermission={requestShoppingPushPermission}
+              onAddShopItem={handleAddQuickShopItem}
+              onToggleShopItem={handleToggleShopItem}
+              onMoveBoughtItemToPantry={handleMoveBoughtItemToPantry}
+              onMoveAllBoughtToPantry={handleMoveAllBoughtToPantry}
+            />
           )}
         </div>
       </main>
-
-      {/* MODAL: NEUER TERMIN AUF DEM HANDY */}
-      {newEventModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 flex items-end sm:items-center justify-center p-4">
-          <form onSubmit={handleCreateMobileEvent} className={'w-full max-w-md rounded-3xl border-2 p-5 space-y-3.5 ' + themeStyles.modal}>
-            <div className="flex items-center justify-between">
-              <h3 className="font-black text-base">📅 Neuer Termin</h3>
-              <button type="button" onClick={() => setNewEventModalOpen(false)} className="tw-nav-inactive p-2 rounded-full">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <input
-              type="text"
-              required
-              value={newEvTitle}
-              onChange={(e) => setNewEvTitle(e.target.value)}
-              placeholder="Was steht an? (z.B. Training, Zahnarzt)"
-              className={'w-full px-4 py-3 rounded-2xl border text-sm font-bold ' + themeStyles.input}
-            />
-
-            <div className="grid grid-cols-2 gap-2.5">
-              <input
-                type="date"
-                value={newEvDate}
-                onChange={(e) => setNewEvDate(e.target.value)}
-                className={'px-3 py-2.5 rounded-2xl border text-xs font-bold ' + themeStyles.input}
-              />
-              <input
-                type="text"
-                value={newEvTime}
-                onChange={(e) => setNewEvTime(e.target.value)}
-                placeholder="15:00 - 16:00"
-                className={'px-3 py-2.5 rounded-2xl border text-xs font-bold ' + themeStyles.input}
-              />
-            </div>
-
-            <div className="flex items-center gap-1.5 overflow-x-auto py-1">
-              {safeMembers.map(m => (
-                <button
-                  key={m.id}
-                  type="button"
-                  onClick={() => setNewEvMember(m.id)}
-                  className={'px-3 py-1.5 rounded-xl text-xs font-extrabold shrink-0 ' + (newEvMember === m.id ? 'tw-active-nav' : 'tw-nav-inactive')}
-                >
-                  {m.id === 'all' ? 'Familie' : m.name.split(' ')[0]}
-                </button>
-              ))}
-            </div>
-
-            <button type="submit" className="tw-glow-btn w-full py-3 rounded-2xl font-black text-sm">
-              💾 Termin speichern
-            </button>
-          </form>
-        </div>
-      )}
 
       {/* UNTERE DAUMEN-NAVIGATION */}
       <nav className={'shrink-0 z-40 border-t px-2.5 py-2 flex items-center justify-around gap-1.5 shadow-2xl ' + themeStyles.header}>
@@ -2580,10 +1161,7 @@ export default function TouchwallPocketApp() {
           return (
             <button
               key={tab.id}
-              onClick={() => {
-                if (tab.id !== 'scanner') stopCameraStream();
-                setActiveTab(tab.id);
-              }}
+              onClick={() => setActiveTab(tab.id)}
               className={'relative flex-1 py-2.5 rounded-2xl flex flex-col items-center gap-1 text-[11px] font-extrabold ' + (active ? 'tw-active-nav' : 'tw-nav-inactive opacity-80')}
             >
               <Icon className="w-5 h-5" />
