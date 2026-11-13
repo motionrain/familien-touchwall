@@ -3,17 +3,21 @@
 'use client';
 
 import React, { useState } from 'react';
-import { BellRing, PackagePlus } from 'lucide-react';
+import { BellRing, PackagePlus, ShoppingCart, Trash2, Check } from 'lucide-react';
 import { getFoodEmoji } from '../foodUtils';
 
 export default function PocketShopping({
   openShop,
   doneShop,
+  cartItems,
   notifPermission,
   themeStyles,
   onRequestPushPermission,
   onAddShopItem,
   onToggleShopItem,
+  onRemoveCartItem,
+  onTransferSingleCartItemToStock,
+  onTransferAllCartToStock,
   onMoveBoughtItemToPantry,
   onMoveAllBoughtToPantry
 }) {
@@ -26,6 +30,16 @@ export default function PocketShopping({
     onAddShopItem(quickShopText.trim());
     setQuickShopText('');
   };
+
+  // Gescannte Einkaufswagen-Artikel: Zuletzt gescanntes Produkt immer ganz oben!
+  const sortedCart = Array.isArray(cartItems)
+    ? [...cartItems].sort((a, b) => Number(b.scannedAt || 0) - Number(a.scannedAt || 0))
+    : [];
+
+  // Abgehakte Einkaufslisten-Artikel: Zuletzt abgehaktes Produkt immer ganz oben!
+  const sortedDoneShop = Array.isArray(doneShop)
+    ? [...doneShop].sort((a, b) => Number(b.doneAt || 0) - Number(a.doneAt || 0))
+    : [];
 
   return (
     <div className="space-y-3.5">
@@ -44,12 +58,95 @@ export default function PocketShopping({
         </button>
       </div>
 
+      {/* =========================================================
+          BEREICH 1: EINKAUFSWAGEN (GESCANNTE PRODUKTE & BON-ARTIKEL)
+          ZULETZT GESCANNTES PRODUKT STEHT IMMER GANZ OBEN!
+         ========================================================= */}
+      <div className={'rounded-3xl border-2 border-amber-400/40 p-4 space-y-2.5 ' + themeStyles.card}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h3 className="font-black text-sm text-amber-300 flex items-center gap-1.5">
+              <ShoppingCart className="w-4 h-4" />
+              <span>🛒 Einkaufswagen – Gescannte Produkte ({sortedCart.length})</span>
+            </h3>
+            <p className="text-[10px] opacity-75 font-semibold">
+              Neuestes gescanntes Produkt steht immer ganz oben
+            </p>
+          </div>
+
+          {sortedCart.length > 0 && (
+            <button
+              type="button"
+              onClick={onTransferAllCartToStock}
+              className="tw-active-nav px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-lg"
+            >
+              <PackagePlus className="w-4 h-4" />
+              <span>📦 Alle in Bestand buchen</span>
+            </button>
+          )}
+        </div>
+
+        {sortedCart.length === 0 ? (
+          <div className="py-3 text-center text-xs opacity-55 font-bold">
+            Noch keine Produkte im Scanner-Einkaufswagen.
+          </div>
+        ) : (
+          <div className="space-y-1.5">
+            {sortedCart.map((cItem, idx) => (
+              <div
+                key={cItem.id}
+                className={'px-3 py-2.5 rounded-2xl border flex items-center justify-between gap-2 ' +
+                  (idx === 0 ? 'border-amber-400/70 bg-amber-500/10' : themeStyles.subtle)}
+              >
+                <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                  <span className="text-xl shrink-0">{getFoodEmoji(cItem.name)}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      {idx === 0 && (
+                        <span className="px-1.5 py-0.2 rounded bg-amber-500 text-slate-950 text-[9px] font-black shrink-0">
+                          ZULETZT GESCANNT
+                        </span>
+                      )}
+                      <span className="font-extrabold text-xs truncate">{cItem.name}</span>
+                    </div>
+                    <div className="text-[10px] text-amber-300 font-bold">
+                      {cItem.quantity} • MHD: {cItem.expiryDate.slice(8, 10)}.{cItem.expiryDate.slice(5, 7)}.{cItem.expiryDate.slice(2, 4)}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => onTransferSingleCartItemToStock(cItem)}
+                    className="tw-glow-btn px-2.5 py-1.5 rounded-xl text-[10px] font-black flex items-center gap-1"
+                  >
+                    <Check className="w-3.5 h-3.5 text-emerald-300" />
+                    <span>Bestand</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onRemoveCartItem(cItem.id)}
+                    className="tw-nav-inactive p-1.5 rounded-xl text-rose-400"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* =========================================================
+          BEREICH 2: EINKAUFSLISTE & ABGEHAKTE ARTIKEL
+         ========================================================= */}
       <form onSubmit={handleSubmit} className="flex gap-2">
         <input
           type="text"
           value={quickShopText}
           onChange={(e) => setQuickShopText(e.target.value)}
-          placeholder="Artikel zur Einkaufsliste..."
+          placeholder="Artikel auf die Einkaufsliste setzen..."
           className={'flex-1 min-h-[48px] px-4 py-3 rounded-2xl border text-sm font-bold ' + themeStyles.input}
         />
         <button type="submit" className="tw-active-nav min-h-[48px] px-5 rounded-2xl font-black text-base">
@@ -58,9 +155,9 @@ export default function PocketShopping({
       </form>
 
       <div className={'rounded-3xl border p-4 space-y-2 ' + themeStyles.card}>
-        <div className="font-extrabold text-sm">🛒 Einkaufsliste ({openShop.length} offen)</div>
+        <div className="font-extrabold text-sm">📝 Offene Einkaufsliste ({openShop.length})</div>
         {openShop.length === 0 ? (
-          <div className="py-6 text-center text-xs opacity-50 font-bold">🛒 Einkaufsliste ist leer!</div>
+          <div className="py-5 text-center text-xs opacity-50 font-bold">🛒 Einkaufsliste ist leer!</div>
         ) : (
           openShop.map(item => (
             <div
@@ -77,15 +174,14 @@ export default function PocketShopping({
           ))
         )}
 
-        {/* ABGEHAKTE EINKÄUFE DIREKT IN DIE SPEISEKAMMER ÜBERNEHMEN */}
-        {doneShop.length > 0 && (
+        {sortedDoneShop.length > 0 && (
           <div className="pt-3.5 mt-3.5 border-t border-white/10 space-y-2.5">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="text-xs font-black uppercase text-emerald-400">
-                🛍️ Im Einkaufswagen ({doneShop.length}) → In Vorrat buchen:
+                🛍️ Abgehakt im Einkaufswagen ({sortedDoneShop.length}):
               </span>
               <div className="flex items-center gap-1">
-                <span className="text-[10px] font-bold opacity-75">Standard-MHD:</span>
+                <span className="text-[10px] font-bold opacity-75">MHD:</span>
                 {[
                   { l: '+5T', d: 5 },
                   { l: '+1W', d: 7 },
@@ -104,14 +200,14 @@ export default function PocketShopping({
               </div>
             </div>
 
-            {doneShop.map(item => (
+            {sortedDoneShop.map(item => (
               <div
                 key={item.origIdx}
                 className={'p-2.5 rounded-xl border flex items-center justify-between gap-2 ' + themeStyles.subtle}
               >
                 <div
                   onClick={() => onToggleShopItem(item.origIdx)}
-                  className="flex items-center gap-2.5 min-w-0 flex-1 opacity-65 cursor-pointer"
+                  className="flex items-center gap-2.5 min-w-0 flex-1 opacity-75 cursor-pointer"
                 >
                   <input type="checkbox" checked={true} readOnly className="w-4 h-4 accent-emerald-500 rounded shrink-0" />
                   <span className="text-xs font-bold line-through truncate">{item.text}</span>
@@ -123,22 +219,22 @@ export default function PocketShopping({
                   className="tw-glow-btn px-2.5 py-1.5 rounded-xl text-[10px] font-black flex items-center gap-1 shrink-0"
                 >
                   <PackagePlus className="w-3.5 h-3.5 text-emerald-300" />
-                  <span>In Vorrat (+{quickMhdDays}T)</span>
+                  <span>Bestand (+{quickMhdDays}T)</span>
                 </button>
               </div>
             ))}
 
             <button
               type="button"
-              onClick={() => onMoveAllBoughtToPantry(doneShop, quickMhdDays)}
+              onClick={() => onMoveAllBoughtToPantry(sortedDoneShop, quickMhdDays)}
               className="tw-active-nav w-full py-3 rounded-2xl text-xs font-black flex items-center justify-center gap-2 shadow-lg"
             >
               <PackagePlus className="w-4 h-4" />
-              <span>📦 Alle {doneShop.length} gekauften Artikel in Speisekammer übernehmen</span>
+              <span>📦 Alle {sortedDoneShop.length} abgehakten Artikel in Bestand übernehmen</span>
             </button>
           </div>
         )}
       </div>
     </div>
   );
-}
+                      }
