@@ -53,7 +53,7 @@ export function detectFoodCategory(nameStr, customCategory = '') {
 }
 
 // ============================================================================
-// INTELLIGENTE GLUTENFREI-ERKENNUNG (INKL. MANUELLEM OVERRIDE)
+// INTELLIGENTE GLUTENFREI-ERKENNUNG ( INKL. MANUELLEM OVERRIDE )
 // ============================================================================
 export function isProductGlutenFree(itemOrName, customCategory = '', manualFlag = undefined) {
   const isObj = itemOrName && typeof itemOrName === 'object';
