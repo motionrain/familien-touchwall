@@ -8,7 +8,7 @@ import {
   Package, Trash2, Utensils, Plus, CheckCircle2,
   ShoppingCart, Sparkles, RotateCcw, Globe, Clock,
   Wand2, ExternalLink, ChefHat, Pencil, Check, X,
-  Table as TableIcon, LayoutGrid
+  Table as TableIcon, LayoutGrid, ArrowUpDown
 } from 'lucide-react';
 import { formatDateStr, addDays } from './touchwallConfig';
 
@@ -81,31 +81,24 @@ export function detectFoodCategory(nameStr, customCategory = '') {
   }
   const n = String(nameStr || '').toLowerCase();
 
-  // 1. Öle, Fette, Essig & Würzsoßen zuerst prüfen (damit "Weinwürziger Essig" nicht bei Getränken landet)
   if (/butter|kräuterbutter|meggle|margarine|öl|sonnenblumenöl|olivenöl|rapsöl|kokosöl|fett|schmalz|essig|hengstenberg|senf|thomy|ketchup|mayo|mayonnaise|dressing|burger sauce|heinz|soße|sauce|pesto/.test(n)) {
     return 'oils_fats';
   }
-  // 2. Süßwaren & Schoko-Snacks prüfen
   if (/schokolade|choco|schoko|nutella|keks|cookie|gummibär|chips|flips|eis|bonbon|praline|zuckerware/.test(n)) {
     return 'sweets_snacks';
   }
-  // 3. Getränke
   if (/wasser|mineralwasser|kaffee|espresso|tee|saft|apfelsaft|orangensaft|schorle|cola|limo|getränk|sirup|kakao|\bbier\b|\bwein\b/.test(n)) {
     return 'drinks';
   }
-  // 4. Milch & Käse
   if (/milch|vollmilch|schwarzwaldmilch|landfein|joghurt|quark|käse|frischkäse|philadelphia|scheibenkäse|gouda|mozzarella|parmesan|emmentaler|camembert|feta|schlagsahne|sahne|schmand|creme fraiche|mascarpone|ayran|kefir/.test(n)) {
     return 'dairy';
   }
-  // 5. Fleisch, Fisch, Wurst & Eier
   if (/fleisch|hackfleisch|rinderhack|rind|schwein|hähnchen|huhn|pute|geflügel|schnitzel|steak|gulasch|wurst|bratwurst|rostbratwurst|leberwurst|würstchen|wiener|lyoner|salami|schinken|speck|aufschnitt|fisch|lachs|thunfisch|fischstäbchen|forelle|garnele|\bei\b|eier/.test(n)) {
     return 'meat_fish_eggs';
   }
-  // 6. Getreide, Brot, Pasta, Reis & Kartoffeln
   if (/brot|landbrot|mehrkorn|brötchen|toast|baguette|croissant|nudel|spaghetti|pasta|penne|rigatoni|tortellini|ravioli|spätzle|reis|spitzenreis|langkorn|basmati|jasmin|milchreis|getreide|haferflocken|müsli|cornflakes|mehl|grieß|stärke|wraps|wrap|tortilla|taco|schär|kartoffel|kartoffelpüree|pfanni|gnocchi|schupfnudel|pommes|knödel/.test(n)) {
     return 'grains';
   }
-  // 7. Obst, Gemüse & Salate
   if (/obst|apfel|äpfel|elstar|apfelmus|banane|clementine|mandarine|orange|susi|beere|erdbeer|himbeer|heidelbeer|traube|birne|zitrone|limette|kiwi|mango|ananas|melone|gemüse|salat|eisberg|mâche|mache|feldsalat|rucola|spinat|gurke|tomate|tomatenmark|passierte|oro di parma|paprika|karotte|möhre|zwiebel|knoblauch|brokkoli|blumenkohl|spargel|stangenspargel|rotkohl|kraut|pilz|champignon|avocado|mais|erbse|bohne|linse|kichererbse|chili sin carne|gefro/.test(n)) {
     return 'produce';
   }
@@ -154,6 +147,22 @@ export function getFoodEmoji(nameStr, customEmoji = '') {
   if (/schokolade|choco|schoko|nutella|keks|gummibär|chips|eis/.test(n)) return '🍫';
   if (/wasser|saft|cola|limo|bier|wein|kaffee|tee/.test(n)) return '🧃';
   return '🥫';
+}
+
+// Ermittelt den exakten Scan-/Hinzufüge-Zeitstempel eines Produkts
+function getItemAddedTimestamp(item) {
+  if (!item) return 0;
+  if (item.addedTimestamp && Number(item.addedTimestamp) > 0) {
+    return Number(item.addedTimestamp);
+  }
+  const idMatch = String(item.id || '').match(/^p_(\d{10,15})/);
+  if (idMatch) {
+    return Number(idMatch[1]);
+  }
+  if (item.updatedAt && Number(item.updatedAt) > 0) {
+    return Number(item.updatedAt);
+  }
+  return 0;
 }
 
 function decrementItemPieceCount(rawQtyStr) {
@@ -316,6 +325,7 @@ export default function PantrySection({
 }) {
   const [activeSubTab, setActiveSubTab] = useState('stock');
   const [viewMode, setViewMode] = useState('table'); // 'table' | 'cards'
+  const [sortMode, setSortMode] = useState('newest'); // 'newest' (Zuletzt gescannt oben) | 'expiry' (MHD)
   const [locationFilter, setLocationFilter] = useState('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [recipeFilter, setRecipeFilter] = useState('all');
@@ -356,9 +366,11 @@ export default function PantrySection({
     const expiredNow = safeStock.filter(item => item.expiryDate && item.expiryDate < todayStr);
     if (expiredNow.length > 0) {
       const remainingStock = safeStock.filter(item => !item.expiryDate || item.expiryDate >= todayStr);
-      const movedToTrash = expiredNow.map(item => ({
+      const now = Date.now();
+      const movedToTrash = expiredNow.map((item, idx) => ({
         ...item,
         trashedAt: todayStr,
+        trashedTimestamp: now + idx,
         reason: 'expired',
         reasonLabel: '⚠️ Automatisch abgelaufen am ' + item.expiryDate
       }));
@@ -388,10 +400,11 @@ export default function PantrySection({
       return;
     }
 
+    const now = Date.now();
     const finalCat = itemCategory === 'auto' ? detectFoodCategory(cleanName) : itemCategory;
 
     const newItem = {
-      id: 'p_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+      id: 'p_' + now + '_' + Math.floor(Math.random() * 1000),
       name: cleanName,
       quantity: itemQty.trim() || '1x',
       location: itemLocation,
@@ -399,7 +412,8 @@ export default function PantrySection({
       expiryDate: itemExpiry,
       customEmoji: '',
       addedAt: todayStr,
-      updatedAt: Date.now()
+      addedTimestamp: now,
+      updatedAt: now
     };
 
     setPantryItems(prev => [newItem, ...(Array.isArray(prev) ? prev : [])]);
@@ -477,10 +491,12 @@ export default function PantrySection({
   };
 
   const MoveItemToTrash = (item, reasonType) => {
+    const now = Date.now();
     setPantryItems(prev => (Array.isArray(prev) ? prev : []).filter(x => x.id !== item.id));
     const trashEntry = {
       ...item,
       trashedAt: todayStr,
+      trashedTimestamp: now,
       reason: reasonType,
       reasonLabel:
         reasonType === 'consumed'
@@ -500,10 +516,11 @@ export default function PantrySection({
     const newExp = prompt('Neues Ablaufdatum (JJJJ-MM-TT) für ' + trashItem.name + ':', formatDateStr(addDays(new Date(), 7)));
     if (!newExp || !/^\d{4}-\d{2}-\d{2}$/.test(newExp.trim())) return;
 
+    const now = Date.now();
     setPantryTrash(prev => (Array.isArray(prev) ? prev : []).filter(x => x.id !== trashItem.id));
     setPantryItems(prev => [
       {
-        id: 'p_' + Date.now(),
+        id: 'p_' + now,
         name: trashItem.name,
         quantity: trashItem.quantity || '1x',
         location: trashItem.location || 'pantry',
@@ -511,37 +528,69 @@ export default function PantrySection({
         expiryDate: newExp.trim(),
         customEmoji: trashItem.customEmoji || '',
         addedAt: todayStr,
-        updatedAt: Date.now()
+        addedTimestamp: now,
+        updatedAt: now
       },
       ...(Array.isArray(prev) ? prev : [])
     ]);
-    showToast('Wiederhergestellt', trashItem.name + ' ist wieder im Bestand.', '↩️');
+    showToast('Wiederhergestellt', trashItem.name + ' ist wieder im Bestand (ganz oben).', '↩️');
   };
+
+  // =========================================================
+  // ERMITTELT DAS ZULETZT GESCANNTE / ERFASSTE PRODUKT IM GESAMTEN VORRAT
+  // =========================================================
+  const latestOverallItem = useMemo(() => {
+    if (safeStock.length === 0) return null;
+    let best = safeStock[0];
+    let bestTs = getItemAddedTimestamp(best);
+    safeStock.forEach(it => {
+      const ts = getItemAddedTimestamp(it);
+      if (ts > bestTs) {
+        best = it;
+        bestTs = ts;
+      }
+    });
+    return best;
+  }, [safeStock]);
 
   const filteredStock = useMemo(() => {
     return safeStock
       .map(it => ({
         ...it,
-        resolvedCategory: detectFoodCategory(it.name, it.category)
+        resolvedCategory: detectFoodCategory(it.name, it.category),
+        resolvedAddedTs: getItemAddedTimestamp(it)
       }))
       .filter(it => locationFilter === 'all' || it.location === locationFilter)
       .filter(it => categoryFilter === 'all' || it.resolvedCategory === categoryFilter)
-      .sort((a, b) => String(a.expiryDate || '9999').localeCompare(String(b.expiryDate || '9999')));
-  }, [safeStock, locationFilter, categoryFilter]);
+      .sort((a, b) => {
+        if (sortMode === 'newest') {
+          return b.resolvedAddedTs - a.resolvedAddedTs;
+        }
+        return String(a.expiryDate || '9999').localeCompare(String(b.expiryDate || '9999'));
+      });
+  }, [safeStock, locationFilter, categoryFilter, sortMode]);
 
   const groupedByCategory = useMemo(() => {
-    return FOOD_CATEGORIES.map(cat => {
+    const groups = FOOD_CATEGORIES.map(cat => {
       const items = filteredStock.filter(it => it.resolvedCategory === cat.id);
+      const newestCategoryTs = items.length > 0
+        ? Math.max(...items.map(i => i.resolvedAddedTs || 0))
+        : 0;
       return {
         ...cat,
-        items
+        items,
+        newestCategoryTs
       };
     }).filter(group => categoryFilter === 'all' ? group.items.length > 0 : group.id === categoryFilter);
-  }, [filteredStock, categoryFilter]);
 
-  // =========================================================
-  // LÜCKENLOSE 2-SPALTEN-VERTEILUNG (KEINE LEEREN LÖCHER MEHR!)
-  // =========================================================
+    // Im Modus "Neueste oben" steht die Kategorie mit dem zuletzt gescannten Produkt automatisch ganz oben!
+    if (sortMode === 'newest' && categoryFilter === 'all') {
+      return [...groups].sort((a, b) => b.newestCategoryTs - a.newestCategoryTs);
+    }
+    return groups;
+  }, [filteredStock, categoryFilter, sortMode]);
+
+  // Lückenlose 2-Spalten-Verteilung (Masonry)
   const balancedCategoryColumns = useMemo(() => {
     const leftCol = [];
     const rightCol = [];
@@ -837,235 +886,265 @@ export default function PantrySection({
     '}'
   ].join('\n');
 
-  const renderCategoryGroupCard = (group) => (
-    <div
-      key={group.id}
-      className={'rounded-2xl border overflow-hidden shadow-md flex flex-col ' + themeStyles.card + ' ' + themeStyles.divider}
-    >
-      {/* ULTRA-SCHLANKE KATEGORIE-KOPFZEILE (1 ZEILE) */}
-      <div className={'px-3 py-2 border-b flex items-center justify-between gap-2 ' + themeStyles.banner + ' ' + themeStyles.divider}>
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="w-7 h-7 rounded-lg bg-black/30 border border-white/15 flex items-center justify-center text-base shrink-0">
-            {group.icon}
-          </span>
-          <h3 className="font-black text-xs sm:text-sm truncate">{group.title}</h3>
-          <span className="px-2 py-0.2 rounded-full bg-sky-500/25 text-sky-300 border border-sky-400/30 text-[10px] font-black shrink-0">
-            {group.items.length}
-          </span>
-          <span className={'text-[10px] font-semibold truncate hidden 2xl:inline ' + themeStyles.textMuted}>
-            • {group.desc}
-          </span>
-        </div>
-      </div>
+  const renderCategoryGroupCard = (group) => {
+    const hasOverallNewest = latestOverallItem && group.items.some(it => it.id === latestOverallItem.id);
 
-      {viewMode === 'table' ? (
-        <div className="p-1.5 space-y-1">
-          {/* Schlanker Spalten-Kopf */}
-          <div className="grid grid-cols-12 items-center gap-1.5 px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider opacity-60">
-            <div className="col-span-4">Produkt</div>
-            <div className="col-span-2 text-center">Menge & Ort</div>
-            <div className="col-span-4 text-center">MHD & Verfallstag</div>
-            <div className="col-span-2 text-right">Aktion</div>
+    return (
+      <div
+        key={group.id}
+        className={'rounded-2xl border overflow-hidden shadow-md flex flex-col ' + themeStyles.card + ' ' +
+          (hasOverallNewest && sortMode === 'newest' ? 'border-sky-400/70' : themeStyles.divider)}
+      >
+        {/* ULTRA-SCHLANKE KATEGORIE-KOPFZEILE (1 ZEILE) */}
+        <div className={'px-3 py-2 border-b flex items-center justify-between gap-2 ' + themeStyles.banner + ' ' + themeStyles.divider}>
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="w-7 h-7 rounded-lg bg-black/30 border border-white/15 flex items-center justify-center text-base shrink-0">
+              {group.icon}
+            </span>
+            <h3 className="font-black text-xs sm:text-sm truncate">{group.title}</h3>
+            <span className="px-2 py-0.2 rounded-full bg-sky-500/25 text-sky-300 border border-sky-400/30 text-[10px] font-black shrink-0">
+              {group.items.length}
+            </span>
+            {hasOverallNewest && sortMode === 'newest' && (
+              <span className="px-2 py-0.5 rounded-full bg-emerald-500/25 text-emerald-300 border border-emerald-400/40 text-[9px] font-black shrink-0">
+                📲 Zuletzt gescannt
+              </span>
+            )}
+            <span className={'text-[10px] font-semibold truncate hidden 2xl:inline ' + themeStyles.textMuted}>
+              • {group.desc}
+            </span>
           </div>
-
-          {group.items.map(item => {
-            const daysLeft = getDaysUntil(item.expiryDate, todayStr);
-            const locObj = STORAGE_LOCATIONS.find(l => l.id === item.location) || STORAGE_LOCATIONS[3];
-            const isUrgentRed = daysLeft <= 3;
-            const isWarningOrange = daysLeft > 3 && daysLeft <= 7;
-            const emojiIcon = getFoodEmoji(item.name, item.customEmoji);
-            const decPreview = decrementItemPieceCount(item.quantity);
-
-            const rowGlowClass = isUrgentRed
-              ? ' tw-pantry-urgent-red bg-rose-950/30'
-              : isWarningOrange
-              ? ' tw-pantry-warn-orange bg-amber-950/25'
-              : themeStyles.subtle;
-
-            const daysText = daysLeft <= 0
-              ? '🔴 HEUTE!'
-              : daysLeft === 1
-              ? '🔴 1 Tag'
-              : (daysLeft + ' T.');
-
-            return (
-              <div
-                key={item.id}
-                className={'tw-pantry-row grid grid-cols-12 items-center gap-1.5 px-2.5 py-1.5 rounded-xl border ' + rowGlowClass}
-              >
-                {/* SPALTE 1 (4/12): EMOJI + PRODUKTNAME */}
-                <div
-                  onClick={() => openEditProductModal(item)}
-                  className="col-span-4 flex items-center gap-2 min-w-0 cursor-pointer"
-                >
-                  <span className="w-7 h-7 rounded-lg bg-black/35 border border-white/10 flex items-center justify-center text-base shrink-0">
-                    {emojiIcon}
-                  </span>
-                  <span
-                    title={item.name}
-                    className="font-extrabold text-xs leading-tight truncate hover:text-sky-300"
-                  >
-                    {item.name}
-                  </span>
-                </div>
-
-                {/* SPALTE 2 (2/12): MENGE & ORT NEBENEINANDER/KOMPAKT */}
-                <div
-                  onClick={() => openEditProductModal(item)}
-                  className="col-span-2 flex items-center justify-center gap-1 cursor-pointer min-w-0"
-                >
-                  <span className="px-1.5 py-0.5 rounded bg-black/40 border border-amber-400/30 text-[10px] font-black text-amber-300 truncate">
-                    {item.quantity}
-                  </span>
-                  <span className="text-[10px] font-bold opacity-75 hidden sm:inline truncate">
-                    {locObj.short}
-                  </span>
-                </div>
-
-                {/* SPALTE 3 (4/12): GRÖSSERES MHD-DATUM MIT VERFALLSTAG DAHINTER */}
-                <div
-                  onClick={() => openEditProductModal(item)}
-                  className="col-span-4 flex items-center justify-center cursor-pointer"
-                >
-                  <div
-                    className={'px-2.5 py-1 rounded-lg border flex items-center gap-1.5 text-xs sm:text-[13px] font-black whitespace-nowrap ' +
-                      (isUrgentRed
-                        ? 'bg-rose-500/30 border-rose-400 text-rose-100'
-                        : isWarningOrange
-                        ? 'bg-amber-500/30 border-amber-400 text-amber-100'
-                        : 'bg-black/25 border-white/10')}
-                  >
-                    <span>{item.expiryDate.slice(8, 10)}.{item.expiryDate.slice(5, 7)}.{item.expiryDate.slice(2, 4)}</span>
-                    <span className="opacity-50">•</span>
-                    <span className={isUrgentRed ? 'text-rose-300' : isWarningOrange ? 'text-amber-300' : 'text-emerald-400'}>
-                      {daysText}
-                    </span>
-                  </div>
-                </div>
-
-                {/* SPALTE 4 (2/12): KOMPAKTE TOUCH-BUTTONS */}
-                <div className="col-span-2 flex items-center justify-end gap-1">
-                  <button
-                    type="button"
-                    onClick={() => handleConsumeClick(item)}
-                    title={decPreview.remaining > 0 ? ('1 Stück abziehen (Rest: ' + decPreview.nextQtyStr + ')') : 'Komplett verzehrt'}
-                    className="tw-glow-btn px-2 py-1 rounded-lg text-[10px] font-black flex items-center gap-1 cursor-pointer shrink-0"
-                  >
-                    <CheckCircle2 className="w-3 h-3 shrink-0" />
-                    <span>{decPreview.remaining > 0 ? '-1' : 'Weg'}</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => openEditProductModal(item)}
-                    title="Produkt bearbeiten"
-                    className="tw-nav-inactive p-1.5 rounded-lg text-sky-300 cursor-pointer shrink-0"
-                  >
-                    <Pencil className="w-3 h-3" />
-                  </button>
-
-                  <button
-                    type="button"
-                    title="Auf die Einkaufsliste setzen"
-                    onClick={() => {
-                      addShoppingItem(item.name);
-                      showToast('Auf Einkaufsliste', item.name + ' wurde zur Einkaufsliste hinzugefügt.', '🛒');
-                    }}
-                    className="tw-nav-inactive p-1.5 rounded-lg text-amber-300 cursor-pointer shrink-0"
-                  >
-                    <ShoppingCart className="w-3 h-3" />
-                  </button>
-                </div>
-              </div>
-            );
-          })}
         </div>
-      ) : (
-        /* ANSICHT B: KOMPAKT-KACHELN MIT VERFALLSTAG HINTER DEM MHD */
-        <div className="p-2 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-          {group.items.map(item => {
-            const daysLeft = getDaysUntil(item.expiryDate, todayStr);
-            const locObj = STORAGE_LOCATIONS.find(l => l.id === item.location) || STORAGE_LOCATIONS[3];
-            const isUrgentRed = daysLeft <= 3;
-            const isWarningOrange = daysLeft > 3 && daysLeft <= 7;
-            const emojiIcon = getFoodEmoji(item.name, item.customEmoji);
-            const decPreview = decrementItemPieceCount(item.quantity);
 
-            const glowClass = isUrgentRed
-              ? ' tw-pantry-urgent-red bg-rose-950/25'
-              : isWarningOrange
-              ? ' tw-pantry-warn-orange bg-amber-950/20'
-              : themeStyles.subtle;
+        {viewMode === 'table' ? (
+          <div className="p-1.5 space-y-1">
+            {/* Schlanker Spalten-Kopf */}
+            <div className="grid grid-cols-12 items-center gap-1.5 px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider opacity-60">
+              <div className="col-span-4">Produkt</div>
+              <div className="col-span-2 text-center">Menge & Ort</div>
+              <div className="col-span-4 text-center">MHD & Verfallstag</div>
+              <div className="col-span-2 text-right">Aktion</div>
+            </div>
 
-            return (
-              <div
-                key={item.id}
-                className={'tw-pantry-tile p-2.5 rounded-2xl border flex flex-col justify-between gap-2 ' + glowClass}
-              >
-                <div className="flex items-start gap-2">
-                  <button
-                    type="button"
+            {group.items.map((item, idx) => {
+              const daysLeft = getDaysUntil(item.expiryDate, todayStr);
+              const locObj = STORAGE_LOCATIONS.find(l => l.id === item.location) || STORAGE_LOCATIONS[3];
+              const isUrgentRed = daysLeft <= 3;
+              const isWarningOrange = daysLeft > 3 && daysLeft <= 7;
+              const emojiIcon = getFoodEmoji(item.name, item.customEmoji);
+              const decPreview = decrementItemPieceCount(item.quantity);
+              const isLatestOverall = latestOverallItem && item.id === latestOverallItem.id;
+              const isTopInCategory = sortMode === 'newest' && idx === 0;
+
+              const rowGlowClass = isUrgentRed
+                ? ' tw-pantry-urgent-red bg-rose-950/30'
+                : isWarningOrange
+                ? ' tw-pantry-warn-orange bg-amber-950/25'
+                : isLatestOverall && sortMode === 'newest'
+                ? ' border-sky-400/80 bg-sky-500/10'
+                : themeStyles.subtle;
+
+              const daysText = daysLeft <= 0
+                ? '🔴 HEUTE!'
+                : daysLeft === 1
+                ? '🔴 1 Tag'
+                : (daysLeft + ' T.');
+
+              return (
+                <div
+                  key={item.id}
+                  className={'tw-pantry-row grid grid-cols-12 items-center gap-1.5 px-2.5 py-1.5 rounded-xl border ' + rowGlowClass}
+                >
+                  {/* SPALTE 1 (4/12): EMOJI + PRODUKTNAME + NEU-BADGE */}
+                  <div
                     onClick={() => openEditProductModal(item)}
-                    className="w-8 h-8 rounded-xl bg-black/35 border border-white/10 flex items-center justify-center text-base shrink-0 cursor-pointer"
+                    className="col-span-4 flex items-center gap-2 min-w-0 cursor-pointer"
                   >
-                    {emojiIcon}
-                  </button>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center justify-between gap-1">
-                      <span className="text-[9px] font-bold opacity-75 truncate">{locObj.short}</span>
-                      <span className="px-1.5 py-0.2 rounded bg-black/40 text-[10px] font-black text-amber-300 shrink-0">
-                        {item.quantity}
+                    <span className="w-7 h-7 rounded-lg bg-black/35 border border-white/10 flex items-center justify-center text-base shrink-0">
+                      {emojiIcon}
+                    </span>
+                    <div className="min-w-0 flex-1 flex items-center gap-1.5">
+                      {isLatestOverall && sortMode === 'newest' ? (
+                        <span className="px-1.5 py-0.2 rounded bg-sky-500 text-white text-[8px] font-black shrink-0">
+                          {item.fromMobile ? '📲 ZULETZT ERFASST' : '🆕 NEU'}
+                        </span>
+                      ) : isTopInCategory ? (
+                        <span className="px-1 py-0.2 rounded bg-white/10 text-sky-300 text-[8px] font-black shrink-0">
+                          NEU
+                        </span>
+                      ) : null}
+                      <span
+                        title={item.name}
+                        className="font-extrabold text-xs leading-tight truncate hover:text-sky-300"
+                      >
+                        {item.name}
                       </span>
                     </div>
-                    <h4
-                      onClick={() => openEditProductModal(item)}
-                      title={item.name}
-                      className="font-extrabold text-xs leading-tight truncate mt-0.5 cursor-pointer hover:text-sky-300"
-                    >
-                      {item.name}
-                    </h4>
                   </div>
-                </div>
 
-                <div className="flex items-center justify-between gap-1 pt-1 border-t border-white/10">
-                  <span
+                  {/* SPALTE 2 (2/12): MENGE & ORT */}
+                  <div
                     onClick={() => openEditProductModal(item)}
-                    className={'text-xs font-black cursor-pointer ' + (isUrgentRed ? 'text-rose-300' : isWarningOrange ? 'text-amber-300' : 'text-emerald-400')}
+                    className="col-span-2 flex items-center justify-center gap-1 cursor-pointer min-w-0"
                   >
-                    {item.expiryDate.slice(8, 10)}.{item.expiryDate.slice(5, 7)}.{item.expiryDate.slice(2, 4)} • {daysLeft}T
-                  </span>
+                    <span className="px-1.5 py-0.5 rounded bg-black/40 border border-amber-400/30 text-[10px] font-black text-amber-300 truncate">
+                      {item.quantity}
+                    </span>
+                    <span className="text-[10px] font-bold opacity-75 hidden sm:inline truncate">
+                      {locObj.short}
+                    </span>
+                  </div>
 
-                  <div className="flex items-center gap-1">
+                  {/* SPALTE 3 (4/12): GRÖSSERES MHD-DATUM MIT VERFALLSTAG DAHINTER */}
+                  <div
+                    onClick={() => openEditProductModal(item)}
+                    className="col-span-4 flex items-center justify-center cursor-pointer"
+                  >
+                    <div
+                      className={'px-2.5 py-1 rounded-lg border flex items-center gap-1.5 text-xs sm:text-[13px] font-black whitespace-nowrap ' +
+                        (isUrgentRed
+                          ? 'bg-rose-500/30 border-rose-400 text-rose-100'
+                          : isWarningOrange
+                          ? 'bg-amber-500/30 border-amber-400 text-amber-100'
+                          : 'bg-black/25 border-white/10')}
+                    >
+                      <span>{item.expiryDate.slice(8, 10)}.{item.expiryDate.slice(5, 7)}.{item.expiryDate.slice(2, 4)}</span>
+                      <span className="opacity-50">•</span>
+                      <span className={isUrgentRed ? 'text-rose-300' : isWarningOrange ? 'text-amber-300' : 'text-emerald-400'}>
+                        {daysText}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* SPALTE 4 (2/12): KOMPAKTE TOUCH-BUTTONS */}
+                  <div className="col-span-2 flex items-center justify-end gap-1">
                     <button
                       type="button"
                       onClick={() => handleConsumeClick(item)}
-                      className="tw-glow-btn px-2 py-1 rounded-lg text-[10px] font-black cursor-pointer"
+                      title={decPreview.remaining > 0 ? ('1 Stück abziehen (Rest: ' + decPreview.nextQtyStr + ')') : 'Komplett verzehrt'}
+                      className="tw-glow-btn px-2 py-1 rounded-lg text-[10px] font-black flex items-center gap-1 cursor-pointer shrink-0"
                     >
-                      {decPreview.remaining > 0 ? '🍽️ -1' : '🍽️ Weg'}
+                      <CheckCircle2 className="w-3 h-3 shrink-0" />
+                      <span>{decPreview.remaining > 0 ? '-1' : 'Weg'}</span>
                     </button>
+
                     <button
                       type="button"
                       onClick={() => openEditProductModal(item)}
-                      className="tw-nav-inactive p-1 rounded-lg text-sky-300 cursor-pointer"
+                      title="Produkt bearbeiten"
+                      className="tw-nav-inactive p-1.5 rounded-lg text-sky-300 cursor-pointer shrink-0"
                     >
                       <Pencil className="w-3 h-3" />
                     </button>
+
+                    <button
+                      type="button"
+                      title="Auf die Einkaufsliste setzen"
+                      onClick={() => {
+                        addShoppingItem(item.name);
+                        showToast('Auf Einkaufsliste', item.name + ' wurde zur Einkaufsliste hinzugefügt.', '🛒');
+                      }}
+                      className="tw-nav-inactive p-1.5 rounded-lg text-amber-300 cursor-pointer shrink-0"
+                    >
+                      <ShoppingCart className="w-3 h-3" />
+                    </button>
                   </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
+              );
+            })}
+          </div>
+        ) : (
+          /* ANSICHT B: KOMPAKT-KACHELN MIT VERFALLSTAG HINTER DEM MHD */
+          <div className="p-2 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+            {group.items.map((item, idx) => {
+              const daysLeft = getDaysUntil(item.expiryDate, todayStr);
+              const locObj = STORAGE_LOCATIONS.find(l => l.id === item.location) || STORAGE_LOCATIONS[3];
+              const isUrgentRed = daysLeft <= 3;
+              const isWarningOrange = daysLeft > 3 && daysLeft <= 7;
+              const emojiIcon = getFoodEmoji(item.name, item.customEmoji);
+              const decPreview = decrementItemPieceCount(item.quantity);
+              const isLatestOverall = latestOverallItem && item.id === latestOverallItem.id;
+
+              const glowClass = isUrgentRed
+                ? ' tw-pantry-urgent-red bg-rose-950/25'
+                : isWarningOrange
+                ? ' tw-pantry-warn-orange bg-amber-950/20'
+                : isLatestOverall && sortMode === 'newest'
+                ? ' border-sky-400/80 bg-sky-500/10'
+                : themeStyles.subtle;
+
+              return (
+                <div
+                  key={item.id}
+                  className={'tw-pantry-tile p-2.5 rounded-2xl border flex flex-col justify-between gap-2 ' + glowClass}
+                >
+                  <div className="flex items-start gap-2">
+                    <button
+                      type="button"
+                      onClick={() => openEditProductModal(item)}
+                      className="w-8 h-8 rounded-xl bg-black/35 border border-white/10 flex items-center justify-center text-base shrink-0 cursor-pointer"
+                    >
+                      {emojiIcon}
+                    </button>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="text-[9px] font-bold opacity-75 truncate">
+                          {isLatestOverall && sortMode === 'newest' ? '📲 ZULETZT ERFASST' : idx === 0 && sortMode === 'newest' ? '🆕 NEU • ' + locObj.short : locObj.short}
+                        </span>
+                        <span className="px-1.5 py-0.2 rounded bg-black/40 text-[10px] font-black text-amber-300 shrink-0">
+                          {item.quantity}
+                        </span>
+                      </div>
+                      <h4
+                        onClick={() => openEditProductModal(item)}
+                        title={item.name}
+                        className="font-extrabold text-xs leading-tight truncate mt-0.5 cursor-pointer hover:text-sky-300"
+                      >
+                        {item.name}
+                      </h4>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-1 pt-1 border-t border-white/10">
+                    <span
+                      onClick={() => openEditProductModal(item)}
+                      className={'text-xs font-black cursor-pointer ' + (isUrgentRed ? 'text-rose-300' : isWarningOrange ? 'text-amber-300' : 'text-emerald-400')}
+                    >
+                      {item.expiryDate.slice(8, 10)}.{item.expiryDate.slice(5, 7)}.{item.expiryDate.slice(2, 4)} • {daysLeft}T
+                    </span>
+
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => handleConsumeClick(item)}
+                        className="tw-glow-btn px-2 py-1 rounded-lg text-[10px] font-black cursor-pointer"
+                      >
+                        {decPreview.remaining > 0 ? '🍽️ -1' : '🍽️ Weg'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => openEditProductModal(item)}
+                        className="tw-nav-inactive p-1 rounded-lg text-sky-300 cursor-pointer"
+                      >
+                        <Pencil className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="p-3 sm:p-4 flex flex-col gap-2.5 overflow-x-hidden">
       <style>{pantryAnimationStyles}</style>
 
       {/* =========================================================
-          ULTRA-SCHLANKER KOPFBEREICH (ALLES IN EINER FLACHEN LEISTE)
+          ULTRA-SCHLANKER KOPFBEREICH MIT SORTIER-UMSCHALTER & SCAN-ANZEIGE
          ========================================================= */}
       <div className={'px-3.5 py-2.5 rounded-2xl border shadow-xs flex flex-wrap items-center justify-between gap-2 ' + themeStyles.card}>
         <div className="flex items-center gap-2 flex-wrap">
@@ -1073,6 +1152,16 @@ export default function PantrySection({
           <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-[10px] font-extrabold">
             🌱 Quote: {trashStats.score}% ({trashStats.consumed} verzehrt / {trashStats.wasted} abgelaufen)
           </span>
+
+          {latestOverallItem && (
+            <button
+              type="button"
+              onClick={() => openEditProductModal(latestOverallItem)}
+              className="px-2.5 py-0.5 rounded-full bg-sky-500/20 text-sky-300 border border-sky-400/40 text-[10px] font-black flex items-center gap-1 cursor-pointer"
+            >
+              <span>📲 Zuletzt erfasst: {getFoodEmoji(latestOverallItem.name, latestOverallItem.customEmoji)} {latestOverallItem.name} ({latestOverallItem.quantity})</span>
+            </button>
+          )}
 
           {/* Lagerort-Schnellwahl direkt im Header */}
           <div className="flex items-center gap-1 ml-1">
@@ -1089,6 +1178,18 @@ export default function PantrySection({
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5">
+          {activeSubTab === 'stock' && (
+            <button
+              type="button"
+              onClick={() => setSortMode(prev => prev === 'newest' ? 'expiry' : 'newest')}
+              title="Zwischen 'Zuletzt gescannt oben' und 'Nach Ablaufdatum (MHD)' umschalten"
+              className="tw-glow-btn px-3 py-1.5 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer"
+            >
+              <ArrowUpDown className="w-3.5 h-3.5 text-sky-300" />
+              <span>{sortMode === 'newest' ? '🕒 Neueste oben' : '📅 Nach MHD'}</span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={() => {
@@ -1160,7 +1261,6 @@ export default function PantrySection({
          ========================================================= */}
       {activeSubTab === 'stock' && (
         <div className="space-y-2.5">
-          {/* AUFKLAPPBARES SCHNELL-FORMULAR ZUM EINBUCHEN */}
           {showAddForm && (
             <form onSubmit={handleAddProduct} className={'p-3 rounded-2xl border space-y-2 ' + themeStyles.card}>
               <div className="grid grid-cols-1 md:grid-cols-12 gap-2">
@@ -1296,9 +1396,7 @@ export default function PantrySection({
             })}
           </div>
 
-          {/* =========================================================
-              2 AUSANCALIERTE SPALTEN OHNE LEERE LÜCKEN!
-             ========================================================= */}
+          {/* 2 AUSBALANCIERTE SPALTEN OHNE LEERE LÜCKEN */}
           {groupedByCategory.length === 0 ? (
             <div className={'p-8 rounded-3xl border text-center space-y-1 ' + themeStyles.card}>
               <div className="text-2xl">🥫</div>
@@ -1520,7 +1618,7 @@ export default function PantrySection({
                 type="button"
                 onClick={() => {
                   setPantryTrash([]);
-                  showToast('Mülleimer geleert', 'Alle Einträge wurden entfernt.', '🗑️');
+                  showToast('Mülleimer geleert', 'Alle Einträge wurden dauerhaft entfernt.', '🗑️');
                 }}
                 className="px-3.5 py-2 rounded-xl bg-rose-600 text-white text-xs font-extrabold cursor-pointer"
               >
@@ -1546,9 +1644,21 @@ export default function PantrySection({
                     <div className="flex items-start gap-2">
                       <span className="text-xl">{getFoodEmoji(tItem.name, tItem.customEmoji)}</span>
                       <div className="min-w-0 flex-1">
-                        <span className={'inline-block px-1.5 py-0.5 rounded-md text-[9px] font-black ' + (isWasted ? 'bg-rose-500/25 text-rose-300' : 'bg-emerald-500/25 text-emerald-300')}>
-                          {tItem.reasonLabel}
-                        </span>
+                        <div className="flex items-center justify-between gap-1">
+                          <span className={'inline-block px-1.5 py-0.5 rounded-md text-[9px] font-black truncate ' + (isWasted ? 'bg-rose-500/25 text-rose-300' : 'bg-emerald-500/25 text-emerald-300')}>
+                            {tItem.reasonLabel}
+                          </span>
+                          <button
+                            type="button"
+                            title="Einzeln dauerhaft löschen"
+                            onClick={() => {
+                              setPantryTrash(prev => (Array.isArray(prev) ? prev : []).filter(x => x.id !== tItem.id));
+                            }}
+                            className="text-rose-400 hover:text-rose-200 text-xs font-black px-1 cursor-pointer"
+                          >
+                            ✕
+                          </button>
+                        </div>
                         <h4 className="font-extrabold text-xs mt-1 truncate">{tItem.name}</h4>
                         <div className="text-[10px] opacity-65">{tItem.quantity} • MHD: {tItem.expiryDate}</div>
                       </div>
