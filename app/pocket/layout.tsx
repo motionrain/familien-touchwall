@@ -10,15 +10,14 @@ export const metadata = {
     capable: true,
     statusBarStyle: 'black-translucent',
     title: 'TW Pocket'
+  },
+  // In Next.js 13.x werden Viewport-Einstellungen noch direkt hier definiert:
+  viewport: {
+    width: 'device-width',
+    initialScale: 1,
+    maximumScale: 1,
+    userScalable: false
   }
-};
-
-export const viewport = {
-  themeColor: '#111418',
-  width: 'device-width',
-  initialScale: 1,
-  maximumScale: 1,
-  userScalable: false
 };
 
 export default function PocketLayout({ children }) {
