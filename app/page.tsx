@@ -7,8 +7,8 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Calendar, GraduationCap, CheckSquare, Utensils, FileText,
   Palette, Cloud, Plus, ChevronLeft, ChevronRight, Maximize2,
-  Smartphone, RefreshCw, X, Volume2, BellRing, Copy, ClipboardPaste,
-  Clock, Lock, LogOut, KeyRound, Sparkles, ShieldCheck, Share2, UserPlus, Package
+  Smartphone, RefreshCw, BellRing, ClipboardPaste,
+  Lock, LogOut, Sparkles, Package
 } from 'lucide-react';
 
 import * as Cfg from './touchwallConfig';
@@ -17,6 +17,13 @@ import TasksTodoistSection from './TasksTodoistSection';
 import OtherSections from './OtherSections';
 import PantrySection from './PantrySection';
 import QuestSection from './quest';
+import AuthScreen, {
+  TOUCHWALL_GLOBAL_STYLES,
+  writeAuthSession,
+  readAuthSession,
+  clearAuthSession
+} from './AuthScreen';
+import TouchwallModals from './TouchwallModals';
 import {
   PUBLIC_CLOUD_BACKEND_URL,
   hasJsonChanged,
@@ -49,56 +56,10 @@ const {
   discoverTodoistWorkspace,
   pullFromTodoistTwoWay,
   createTodoistTaskItem,
-  updateTodoistTaskItem,
   closeOrReopenTodoistTask,
   deleteTodoistTask,
   pushTodoistTaskToPhoneNow
 } = Cfg;
-
-function writeAuthSession(accountId, authKey, familyName) {
-  try {
-    const maxAge = 60 * 60 * 24 * 365;
-    if (typeof document !== 'undefined') {
-      document.cookie = 'tw_auth_session=1; path=/; max-age=' + maxAge + '; SameSite=Lax';
-      document.cookie = 'tw_account_id=' + encodeURIComponent(accountId || 'local') + '; path=/; max-age=' + maxAge + '; SameSite=Lax';
-    }
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem('richter_tw_auth_active', '1');
-      localStorage.setItem('richter_tw_account_id', accountId || 'local');
-      localStorage.setItem('richter_tw_auth_key', authKey || '');
-      if (familyName) localStorage.setItem('richter_tw_family_name', familyName);
-    }
-  } catch (e) {}
-}
-
-function readAuthSession() {
-  try {
-    if (typeof localStorage === 'undefined') return { active: false, accountId: '', authKey: '' };
-    const cookieActive = typeof document !== 'undefined' && document.cookie.split(';').some(c => c.trim().startsWith('tw_auth_session=1'));
-    const storageActive = localStorage.getItem('richter_tw_auth_active') === '1';
-    return {
-      active: Boolean(cookieActive || storageActive),
-      accountId: localStorage.getItem('richter_tw_account_id') || '',
-      authKey: localStorage.getItem('richter_tw_auth_key') || ''
-    };
-  } catch (e) {
-    return { active: false, accountId: '', authKey: '' };
-  }
-}
-
-function clearAuthSession() {
-  try {
-    if (typeof document !== 'undefined') {
-      document.cookie = 'tw_auth_session=; path=/; max-age=0; SameSite=Lax';
-      document.cookie = 'tw_account_id=; path=/; max-age=0; SameSite=Lax';
-    }
-    if (typeof localStorage !== 'undefined') {
-      localStorage.removeItem('richter_tw_auth_active');
-      localStorage.removeItem('richter_tw_account_id');
-      localStorage.removeItem('richter_tw_auth_key');
-    }
-  } catch (e) {}
-}
 
 export default function TouchwallApp() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -169,7 +130,7 @@ export default function TouchwallApp() {
   const lastThemeChangeRef = useRef(0);
   const autoSaveTimer = useRef(null);
   const lastSavedPayloadHashRef = useRef('');
-  const syncMetaRef = useRef({ deletedPantryIds: {}, deletedTaskIds: {}, deletedEventIds: {} });
+  const syncMetaRef = useRef({ deletedPantryIds: {}, deletedTrashIds: {}, deletedTaskIds: {}, deletedEventIds: {} });
   const pendingCalendarOpsRef = useRef({});
 
   const [members, setMembers] = useState(DEFAULT_MEMBERS);
@@ -201,7 +162,7 @@ export default function TouchwallApp() {
     setTimeout(() => setToast(null), 3800);
   };
 
-  // Geschützte Setter für Kanal 3 (Speisekammer) & Kanal 4 (Skill Board)
+  // Geschützte Setter für Kanal 3 (Speisekammer & Mülleimer) & Kanal 4 (Skill Board)
   const setPantryItems = (updater) => {
     lastLocalEditTimeRef.current = Date.now();
     setPantryItemsRaw(prev => applyPantryStateChangeWithMeta(prev, updater, syncMetaRef, false));
@@ -213,7 +174,7 @@ export default function TouchwallApp() {
   };
 
   const setSkillBoardData = (nextSb) => {
-    setSkillBoardDataRaw(prev => mergeSkillBoardSafe( nextSb, prev ));
+    setSkillBoardDataRaw(prev => mergeSkillBoardSafe(nextSb, prev));
   };
 
   const handleSelectTheme = (nextThemeId) => {
@@ -544,7 +505,6 @@ export default function TouchwallApp() {
 
       const pulled = await pullFromTodoistTwoWay(activeCfg.apiToken, activeCfg, safeTasks, safeNotes, safeMembers);
       if (pulled) {
-        // WICHTIG: Nur State ändern, wenn sich in Todoist wirklich eine Aufgabe verändert hat!
         if (Array.isArray(pulled.tasks) && hasJsonChanged(safeTasks, pulled.tasks)) {
           setFamilyTasks(pulled.tasks);
         }
@@ -578,7 +538,6 @@ export default function TouchwallApp() {
       syncTodoistRef.current?.(false);
     }, 2500);
 
-    // Ruhiger 18-Sekunden-Intervall für Todoist
     const todoistInterval = setInterval(() => {
       if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
         syncTodoistRef.current?.(false);
@@ -606,7 +565,6 @@ export default function TouchwallApp() {
     if (bundle?.state) {
       const s = bundle.state;
 
-      // Sync-Metadaten (Lösch-Gedächtnis vom Handy & der Touchwall) zusammenführen
       if (s.syncMeta) {
         syncMetaRef.current = mergeSyncMetaMaps(syncMetaRef.current, s.syncMeta);
         saveLocalSyncMeta(syncMetaRef.current);
@@ -688,7 +646,6 @@ export default function TouchwallApp() {
     const activeKey = customAuthKey !== undefined ? customAuthKey : authKey;
     if (!activeAcc || activeAcc === 'local') return false;
 
-    // WICHTIG: Niemals während eines laufenden Speicher-Vorgangs oder kurz nach einer lokalen Eingabe dazwischenfunken!
     if (!showFeedback && (isNetworkSavingRef.current || Date.now() - lastLocalEditTimeRef.current < 7500)) {
       return false;
     }
@@ -704,7 +661,6 @@ export default function TouchwallApp() {
         return false;
       }
 
-      // Nochmals prüfen, ob der Nutzer während der Netzwerk-Ladezeit etwas getippt hat
       if (!showFeedback && (isNetworkSavingRef.current || Date.now() - lastLocalEditTimeRef.current < 5000)) {
         return false;
       }
@@ -867,7 +823,6 @@ export default function TouchwallApp() {
     if (!isInitialLoadDone.current) return;
     if (!accountId || accountId === 'local') return;
 
-    // Prüfen, ob sich überhaupt etwas an den Kerndaten geändert hat
     const currentHash = JSON.stringify({
       familyName,
       members: safeMembers,
@@ -887,7 +842,6 @@ export default function TouchwallApp() {
     autoSaveTimer.current = setTimeout(async () => {
       isNetworkSavingRef.current = true;
       try {
-        // Vor dem Speichern kurz mit der Cloud mergen, damit neue Handy-Scans erhalten bleiben!
         let mergedStock = safePantryItems;
         let mergedTrash = safePantryTrash;
         let mergedSkill = skillBoardData;
@@ -1632,7 +1586,43 @@ export default function TouchwallApp() {
     a.remove();
   };
 
+  // =========================================================
+  // AUSGELAGERTER ANMELDE- & REGISTRIERUNGS-BILDSCHIRM
+  // =========================================================
+  if (isCheckingAuth || !isAuthenticated) {
+    return (
+      <AuthScreen
+        isCheckingAuth={isCheckingAuth}
+        spawnTouchRipple={spawnTouchRipple}
+        themeStyles={themeStyles}
+        authTab={authTab}
+        setAuthTab={setAuthTab}
+        loginError={loginError}
+        setLoginError={setLoginError}
+        formUsername={formUsername}
+        setFormUsername={setFormUsername}
+        formPassword={formPassword}
+        setFormPassword={setFormPassword}
+        loginFamilyName={loginFamilyName}
+        setLoginFamilyName={setLoginFamilyName}
+        setupMemberNames={setupMemberNames}
+        setSetupMemberNames={setSetupMemberNames}
+        isLoggingIn={isLoggingIn}
+        handleAccountLoginSubmit={handleAccountLoginSubmit}
+        handleRegisterSubmit={handleRegisterSubmit}
+        handleInstantLocalStart={handleInstantLocalStart}
+      />
+    );
+  }
+
   const syncIconClass = isSyncing ? 'w-3.5 h-3.5 animate-spin' : 'w-3.5 h-3.5';
+
+  const qrShareUrl = typeof window !== 'undefined'
+    ? window.location.origin + '/pocket' +
+      (accountId && accountId !== 'local'
+        ? '?account=' + encodeURIComponent(accountId) + '&key=' + encodeURIComponent(authKey) + '&family=' + encodeURIComponent(familyName)
+        : '')
+    : 'https://vercel.com';
 
   const calendarProps = {
     currentView,
@@ -1733,273 +1723,6 @@ export default function TouchwallApp() {
     showToast
   };
 
-  const globalStyles = [
-    '@keyframes twShockwave {',
-    '  0% { transform: translate(-50%, -50%) scale(0.15); opacity: 0.9; }',
-    '  100% { transform: translate(-50%, -50%) scale(2.8); opacity: 0; }',
-    '}',
-    '.tw-glow-card, .tw-glow-subtle {',
-    '  transition: background-color 0.2s ease, border-color 0.2s ease;',
-    '}',
-    '.tw-glow-subtle.cursor-pointer {',
-    '  transition: transform 0.18s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.18s ease, border-color 0.18s ease;',
-    '}',
-    '.tw-glow-subtle.cursor-pointer:hover {',
-    '  transform: translateY(-1.5px) scale(1.01);',
-    '  border-color: var(--tw-btn-border) !important;',
-    '  box-shadow: 0 6px 18px -4px var(--tw-btn-glow), inset 0 1px 1px rgba(255, 255, 255, 0.2);',
-    '}',
-    '.tw-glow-subtle.cursor-pointer:active {',
-    '  transform: scale(0.965) translateY(1px) !important;',
-    '  box-shadow: inset 0 5px 14px rgba(0, 0, 0, 0.6), 0 0 10px var(--tw-btn-glow) !important;',
-    '}',
-    '.tw-glow-btn, .tw-theme-btn, button.bg-indigo-600, button.bg-sky-500, button.bg-emerald-600, button.bg-emerald-500, label.tw-glow-btn {',
-    '  background: linear-gradient(135deg, color-mix(in srgb, var(--tw-btn-from) 24%, var(--tw-btn-rest-base)) 0%, color-mix(in srgb, var(--tw-btn-to) 24%, var(--tw-btn-rest-base)) 100%) !important;',
-    '  color: var(--tw-btn-rest-text) !important;',
-    '  border: 1px solid color-mix(in srgb, var(--tw-btn-border) 32%, transparent) !important;',
-    '  box-shadow: none !important;',
-    '  transition: transform 0.18s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.18s cubic-bezier(0.22, 1, 0.36, 1), background 0.18s ease, border-color 0.18s ease, color 0.18s ease !important;',
-    '}',
-    '.tw-nav-inactive {',
-    '  background: linear-gradient(135deg, color-mix(in srgb, var(--tw-btn-from) 12%, var(--tw-btn-rest-base)) 0%, color-mix(in srgb, var(--tw-btn-to) 12%, var(--tw-btn-rest-base)) 100%);',
-    '  border: 1px solid rgba(255, 255, 255, 0.12);',
-    '  box-shadow: none !important;',
-    '  transition: transform 0.18s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.18s ease, background 0.18s ease, border-color 0.18s ease, color 0.18s ease;',
-    '}',
-    '.tw-active-nav {',
-    '  background: linear-gradient(135deg, color-mix(in srgb, var(--tw-btn-from) 46%, var(--tw-btn-rest-base)) 0%, color-mix(in srgb, var(--tw-btn-to) 46%, var(--tw-btn-rest-base)) 100%) !important;',
-    '  color: #ffffff !important;',
-    '  border: 1.5px solid color-mix(in srgb, var(--tw-btn-border) 70%, transparent) !important;',
-    '  box-shadow: none !important;',
-    '  transition: transform 0.18s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.18s ease, background 0.18s ease, border-color 0.18s ease !important;',
-    '}',
-    '.tw-glow-btn:hover, .tw-theme-btn:hover, .tw-nav-inactive:hover, .tw-active-nav:hover, button.bg-indigo-600:hover, button.bg-sky-500:hover, button.bg-emerald-600:hover, button.bg-emerald-500:hover, label.tw-glow-btn:hover {',
-    '  background: linear-gradient(135deg, var(--tw-btn-from) 0%, var(--tw-btn-to) 100%) !important;',
-    '  color: #ffffff !important;',
-    '  border-color: var(--tw-btn-border) !important;',
-    '  transform: translateY(-2px) scale(1.035);',
-    '  box-shadow: 0 10px 24px -2px var(--tw-btn-glow), 0 0 18px var(--tw-btn-glow), inset 0 1px 3px rgba(255, 255, 255, 0.5) !important;',
-    '}',
-    'button:active, .tw-glow-btn:active, .tw-nav-inactive:active, .tw-active-nav:active, label.tw-glow-btn:active {',
-    '  background: linear-gradient(135deg, var(--tw-btn-from) 0%, var(--tw-btn-to) 100%) !important;',
-    '  color: #ffffff !important;',
-    '  transform: scale(0.94) translateY(1.5px) !important;',
-    '  box-shadow: inset 0 5px 14px rgba(0, 0, 0, 0.65), 0 0 14px var(--tw-btn-glow) !important;',
-    '  transition: transform 0.06s ease-out, box-shadow 0.06s ease-out !important;',
-    '}'
-  ].join('\n');
-
-  if (isCheckingAuth) {
-    return (
-      <div className="w-screen h-screen bg-[#15181c] text-slate-100 flex items-center justify-center">
-        <div className="text-sm font-extrabold opacity-70 animate-pulse">🔒 Prüfe Anmeldung...</div>
-      </div>
-    );
-  }
-
-  if (!isAuthenticated) {
-    return (
-      <div
-        onPointerDown={spawnTouchRipple}
-        style={{
-          '--tw-btn-from': themeStyles.btnFrom || '#0ea5e9',
-          '--tw-btn-to': themeStyles.btnTo || '#4f46e5',
-          '--tw-btn-border': themeStyles.btnBorder || '#38bdf8',
-          '--tw-btn-glow': themeStyles.btnGlow || 'rgba(56, 189, 248, 0.5)',
-          '--tw-btn-rest-base': '#1e222d',
-          '--tw-btn-rest-text': '#e2e8f0'
-        }}
-        className="w-screen h-screen bg-[#12151a] text-slate-100 flex items-center justify-center p-4 overflow-y-auto select-none"
-      >
-        <style>{globalStyles}</style>
-
-        <div className="w-full max-w-xl rounded-3xl border-2 border-slate-700/80 bg-[#1c2128] p-6 sm:p-8 shadow-2xl space-y-6 my-auto">
-          <div className="flex items-center justify-between gap-4 border-b border-slate-700/80 pb-5">
-            <div className="flex items-center gap-3.5">
-              <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-sky-500 to-indigo-600 flex items-center justify-center shadow-lg shrink-0">
-                <Lock className="w-7 h-7 text-white" />
-              </div>
-              <div>
-                <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[11px] font-extrabold border border-emerald-400/30">
-                  ☁️ Familien-Touchwall Cloud • Kostenlos & Privat
-                </span>
-                <h1 className="text-2xl font-black mt-1">Anmelden oder Registrieren</h1>
-                <p className="text-xs text-slate-400 font-semibold">
-                  Jede Familie erhält ihren eigenen, passwortgeschützten Bereich. Keine Einrichtung von Google-Skripten nötig!
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2.5 p-1.5 rounded-2xl bg-[#13171c] border border-slate-700/70">
-            <button
-              type="button"
-              onClick={() => { setAuthTab('login'); setLoginError(''); }}
-              className={'py-3 px-4 rounded-xl text-xs sm:text-sm font-extrabold flex items-center justify-center gap-2 cursor-pointer ' + (authTab === 'login' ? 'tw-active-nav' : 'tw-nav-inactive text-slate-400')}
-            >
-              <KeyRound className="w-4 h-4" />
-              <span>🔑 Anmelden</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => { setAuthTab('register'); setLoginError(''); }}
-              className={'py-3 px-4 rounded-xl text-xs sm:text-sm font-extrabold flex items-center justify-center gap-2 cursor-pointer ' + (authTab === 'register' ? 'tw-active-nav' : 'tw-nav-inactive text-slate-400')}
-            >
-              <UserPlus className="w-4 h-4" />
-              <span>✨ Neu registrieren</span>
-            </button>
-          </div>
-
-          {loginError && (
-            <div className="p-3.5 rounded-2xl bg-rose-500/20 border border-rose-400/50 text-rose-200 text-xs font-extrabold">
-              ⚠️ {loginError}
-            </div>
-          )}
-
-          {authTab === 'login' ? (
-            <form onSubmit={handleAccountLoginSubmit} className="space-y-4">
-              <div className="p-4 sm:p-5 rounded-2xl bg-[#151920] border border-slate-700/70 space-y-4">
-                <div>
-                  <label className="block text-xs font-extrabold uppercase text-sky-400 mb-1">
-                    👤 Familien-Benutzername
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={formUsername}
-                    onChange={(e) => setFormUsername(e.target.value)}
-                    placeholder="z.B. familie-richter oder mueller"
-                    className="w-full px-4 py-3 rounded-xl bg-[#0e1116] border border-slate-700 text-sm font-bold text-white placeholder-slate-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-extrabold uppercase text-amber-400 mb-1">
-                    🔒 Passwort / Familien-PIN
-                  </label>
-                  <input
-                    type="password"
-                    required
-                    value={formPassword}
-                    onChange={(e) => setFormPassword(e.target.value)}
-                    placeholder="Dein Passwort..."
-                    className="w-full px-4 py-3 rounded-xl bg-[#0e1116] border border-slate-700 text-sm font-bold text-white placeholder-slate-500"
-                  />
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                disabled={isLoggingIn}
-                className="tw-glow-btn w-full py-3.5 rounded-2xl font-black text-sm flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <ShieldCheck className="w-5 h-5" />
-                <span>{isLoggingIn ? 'Melde an & lade eure Touchwall...' : '🔓 Jetzt anmelden'}</span>
-              </button>
-
-              <div className="pt-2 border-t border-slate-800 flex items-center justify-between gap-2 text-xs">
-                <span className="text-slate-400 font-semibold">Noch kein Konto? Oben auf „Neu registrieren“ klicken.</span>
-                <button
-                  type="button"
-                  onClick={handleInstantLocalStart}
-                  className="text-sky-400 hover:underline font-extrabold cursor-pointer"
-                >
-                  🚀 Nur lokal ohne Konto testen
-                </button>
-              </div>
-            </form>
-          ) : (
-            <form onSubmit={handleRegisterSubmit} className="space-y-4">
-              <div className="p-4 sm:p-5 rounded-2xl bg-[#151920] border border-slate-700/70 space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-extrabold uppercase text-sky-400 mb-1">
-                      1. Gewünschter Login-Name
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={formUsername}
-                      onChange={(e) => setFormUsername(e.target.value)}
-                      placeholder="z.B. familie-mueller"
-                      className="w-full px-4 py-3 rounded-xl bg-[#0e1116] border border-slate-700 text-sm font-bold text-white placeholder-slate-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-extrabold uppercase text-amber-400 mb-1">
-                      2. Passwort / PIN festlegen
-                    </label>
-                    <input
-                      type="password"
-                      required
-                      value={formPassword}
-                      onChange={(e) => setFormPassword(e.target.value)}
-                      placeholder="Mindestens 4 Zeichen"
-                      className="w-full px-4 py-3 rounded-xl bg-[#0e1116] border border-slate-700 text-sm font-bold text-white placeholder-slate-500"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-extrabold uppercase text-emerald-400 mb-1">
-                    3. Anzeigename eurer Touchwall
-                  </label>
-                  <input
-                    type="text"
-                    value={loginFamilyName}
-                    onChange={(e) => setLoginFamilyName(e.target.value)}
-                    placeholder="z.B. Familie Müller"
-                    className="w-full px-4 py-2.5 rounded-xl bg-[#0e1116] border border-slate-700 text-sm font-bold text-white placeholder-slate-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-extrabold uppercase text-purple-300 mb-1.5">
-                    4. Eure Familienmitglieder (Später jederzeit anpassbar)
-                  </label>
-                  <div className="grid grid-cols-2 gap-2.5">
-                    {setupMemberNames.map((mName, idx) => (
-                      <div key={idx} className="flex items-center gap-2 px-3 py-2 rounded-xl bg-[#0e1116] border border-slate-700">
-                        <span className="text-base">{['👨', '👩', '👦', '👧'][idx % 4]}</span>
-                        <input
-                          type="text"
-                          value={mName}
-                          onChange={(e) => {
-                            const next = [...setupMemberNames];
-                            next[idx] = e.target.value;
-                            setSetupMemberNames(next);
-                          }}
-                          placeholder={'Person ' + (idx + 1)}
-                          className="w-full bg-transparent text-xs font-bold text-white placeholder-slate-500 focus:outline-none"
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                disabled={isLoggingIn}
-                className="tw-glow-btn w-full py-3.5 rounded-2xl font-black text-sm flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <Sparkles className="w-5 h-5" />
-                <span>{isLoggingIn ? 'Erstelle euer Familien-Konto...' : '✨ Kostenloses Konto erstellen & sofort starten'}</span>
-              </button>
-            </form>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  const qrShareUrl = typeof window !== 'undefined'
-    ? window.location.origin + '/pocket' +
-      (accountId && accountId !== 'local'
-        ? '?account=' + encodeURIComponent(accountId) + '&key=' + encodeURIComponent(authKey) + '&family=' + encodeURIComponent(familyName)
-        : '')
-    : 'https://vercel.com';
-
   return (
     <div
       onPointerDown={spawnTouchRipple}
@@ -2013,7 +1736,7 @@ export default function TouchwallApp() {
       }}
       className={'w-screen h-screen overflow-hidden flex flex-col p-1.5 sm:p-2.5 select-none transition-colors duration-300 ' + themeStyles.outer}
     >
-      <style>{globalStyles}</style>
+      <style>{TOUCHWALL_GLOBAL_STYLES}</style>
 
       {touchRipples.map(r => (
         <span
@@ -2284,420 +2007,43 @@ export default function TouchwallApp() {
         themeStyles={themeStyles}
       />
 
-      {/* MODAL 1: TERMIN ERSTELLEN / BEARBEITEN / KOPIEREN */}
-      {eventModal.open && (
-        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-          <form onSubmit={saveEventModal} className={'w-full max-w-xl rounded-3xl border-2 p-6 shadow-2xl space-y-4 my-auto ' + themeStyles.modal}>
-            <div className="flex items-center justify-between">
-              <h3 className="text-2xl font-extrabold">{eventModal.id ? 'Termin bearbeiten & kopieren' : 'Neuer Familientermin'}</h3>
-              <button type="button" onClick={() => setEventModal({ ...eventModal, open: false })} className="tw-nav-inactive w-10 h-10 rounded-full flex items-center justify-center cursor-pointer"><X className="w-5 h-5" /></button>
-            </div>
-            <input
-              type="text"
-              required
-              value={eventModal.title}
-              onChange={(e) => setEventModal({ ...eventModal, title: e.target.value })}
-              placeholder="z.B. ⚽ Fußballtraining oder 🦷 Zahnarzt"
-              className={'w-full px-4 py-3 rounded-2xl border font-bold text-base ' + themeStyles.input}
-            />
-            <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
-              {safeMembers.map(m => (
-                <button
-                  key={m.id}
-                  type="button"
-                  onClick={() => setEventModal({ ...eventModal, member: m.id, notifyUsers: m.id === 'all' ? safeMembers.filter(x => x.id !== 'all').map(x => x.id) : [m.id] })}
-                  className={'p-2.5 rounded-2xl flex flex-col items-center gap-1 cursor-pointer ' + (eventModal.member === m.id ? 'tw-active-nav' : 'tw-nav-inactive ' + themeStyles.subtle)}
-                >
-                  {renderAvatar(m, 'w-8 h-8', 'text-xs')}
-                  <span className="text-xs font-extrabold truncate max-w-full">{m.id === 'all' ? 'Familie' : m.name.split(' ')[0]}</span>
-                </button>
-              ))}
-            </div>
-
-            {eventModal.title.trim() && (
-              <div className={'p-3.5 rounded-2xl border space-y-2.5 ' + themeStyles.subtle}>
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <span className="text-xs font-black uppercase flex items-center gap-1.5 text-amber-400">
-                    <Copy className="w-4 h-4" /> Termin sofort kopieren für:
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCopiedEvent(eventModal);
-                      setEventModal({ ...eventModal, open: false });
-                      showToast('Kopier-Modus aktiv!', 'Tippe jetzt im Kalender auf beliebige Tage zum Einfügen!', '📋');
-                    }}
-                    className="tw-glow-btn px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <ClipboardPaste className="w-4 h-4" /> Im Kalender frei einfügen...
-                  </button>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {safeMembers.map(tm => (
-                    <button
-                      key={tm.id}
-                      type="button"
-                      onClick={() => duplicateEventToTarget(eventModal, tm.id, eventModal.date)}
-                      className="tw-glow-btn px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer min-h-[38px]"
-                    >
-                      <Copy className="w-3.5 h-3.5" /> + {tm.id === 'all' ? 'Familie' : tm.name.split(' ')[0]}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div className="grid grid-cols-2 gap-3">
-              <input type="date" value={eventModal.date} onChange={(e) => setEventModal({ ...eventModal, date: e.target.value })} className={'px-4 py-2.5 rounded-2xl border font-bold text-sm ' + themeStyles.input} />
-              <input type="text" value={eventModal.time} onChange={(e) => setEventModal({ ...eventModal, time: e.target.value })} className={'px-4 py-2.5 rounded-2xl border font-bold text-sm ' + themeStyles.input} />
-            </div>
-            <div className={'p-4 rounded-2xl border space-y-3 ' + themeStyles.subtle}>
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-black uppercase">🔔 Erinnerung</span>
-                <button type="button" onClick={() => triggerEventAlarmNow(eventModal, true)} className="tw-glow-btn px-3 py-1.5 rounded-xl text-xs font-extrabold flex items-center gap-1 cursor-pointer">
-                  <Volume2 className="w-3.5 h-3.5" /> Test-Alarm
-                </button>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <select value={eventModal.notifyTime} onChange={(e) => setEventModal({ ...eventModal, notifyTime: e.target.value })} className={'px-3 py-2 rounded-xl border text-xs font-bold ' + themeStyles.input}>
-                  <option value="none" className="bg-slate-800 text-white">Keine</option>
-                  <option value="0m" className="bg-slate-800 text-white">Pünktlich</option>
-                  <option value="15m" className="bg-slate-800 text-white">15 Min. vorher</option>
-                  <option value="30m" className="bg-slate-800 text-white">30 Min. vorher</option>
-                  <option value="1h" className="bg-slate-800 text-white">1 Std. vorher</option>
-                  <option value="1d" className="bg-slate-800 text-white">1 Tag vorher</option>
-                </select>
-                <select value={eventModal.notifyChannel} onChange={(e) => setEventModal({ ...eventModal, notifyChannel: e.target.value })} className={'px-3 py-2 rounded-xl border text-xs font-bold ' + themeStyles.input}>
-                  <option value="wall_push" className="bg-slate-800 text-white">Touchwall + Handy Push</option>
-                  <option value="wall" className="bg-slate-800 text-white">Nur Touchwall</option>
-                  <option value="mail" className="bg-slate-800 text-white">E-Mail & Push</option>
-                </select>
-              </div>
-            </div>
-            <div className="flex items-center justify-between pt-2">
-              {eventModal.id ? <button type="button" onClick={() => deleteEventById(eventModal.id)} className="px-4 py-2.5 rounded-2xl bg-rose-600 text-white text-xs font-extrabold cursor-pointer">🗑️ Löschen</button> : <div />}
-              <div className="flex gap-2">
-                <button type="button" onClick={() => setEventModal({ ...eventModal, open: false })} className="tw-nav-inactive px-5 py-2.5 rounded-2xl text-xs font-bold cursor-pointer">Abbrechen</button>
-                <button type="submit" className="tw-glow-btn px-6 py-2.5 rounded-2xl text-xs font-extrabold cursor-pointer">Speichern</button>
-              </div>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {/* MODAL 1B: AUFGABEN-FRIST BEARBEITEN */}
-      {taskModal.open && (
-        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
-          <form
-            onSubmit={async (e) => {
-              e.preventDefault();
-              lastLocalEditTimeRef.current = Date.now();
-              const dueLabel = taskModal.dueDate
-                ? 'Bis ' + taskModal.dueDate.slice(8, 10) + '.' + taskModal.dueDate.slice(5, 7) + '.' + (taskModal.dueTime ? ' ' + taskModal.dueTime + ' Uhr' : '')
-                : (taskModal.dueTime ? 'Heute bis ' + taskModal.dueTime + ' Uhr' : 'Offen');
-
-              setFamilyTasks(prev => (Array.isArray(prev) ? prev : []).map(t => t.id === taskModal.id ? {
-                ...t,
-                title: taskModal.title,
-                description: taskModal.description,
-                member: taskModal.member,
-                priority: Number(taskModal.priority || 1),
-                due: dueLabel,
-                dueDate: taskModal.dueDate,
-                dueTime: taskModal.dueTime,
-                notifyTime: taskModal.notifyTime
-              } : t));
-
-              const targetMemberObj = safeMembers.find(m => m.id === taskModal.member);
-              if (taskModal.todoistId && safeTodoistConfig.apiToken) {
-                try {
-                  await updateTodoistTaskItem(safeTodoistConfig.apiToken, taskModal.todoistId, {
-                    title: taskModal.title,
-                    description: taskModal.description,
-                    priority: taskModal.priority,
-                    assigneeId: targetMemberObj?.todoistUserId,
-                    dueDate: taskModal.dueDate,
-                    dueTime: taskModal.dueTime,
-                    notifyTime: taskModal.notifyTime
-                  });
-                } catch (err) {}
-              }
-
-              if (taskModal.syncToCalendar) {
-                const calEv = {
-                  id: String(Date.now()),
-                  title: '✅ Aufgabe: ' + taskModal.title,
-                  date: taskModal.dueDate || todayStr,
-                  time: taskModal.dueTime ? taskModal.dueTime + ' - ' + taskModal.dueTime : 'Ganztägig',
-                  member: taskModal.member,
-                  notifyTime: taskModal.notifyTime === 'none' ? '15m' : taskModal.notifyTime,
-                  notifyChannel: 'push',
-                  notifyUsers: [taskModal.member],
-                  fromGoogle: true
-                };
-                registerPendingCalendarOp(pendingCalendarOpsRef, 'create', calEv);
-                setEvents(prev => [...(Array.isArray(prev) ? prev : []), calEv]);
-                await sendCalendarApiAction({ action: 'createEvent', event: calEv });
-              }
-
-              setTaskModal({ ...taskModal, open: false });
-              showToast('Frist & Erinnerung gespeichert', taskModal.title + ' (' + dueLabel + ')', '⏰');
-            }}
-            className={'w-full max-w-lg rounded-3xl border-2 p-6 shadow-2xl space-y-4 ' + themeStyles.modal}
-          >
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-extrabold flex items-center gap-2">
-                <Clock className="w-5 h-5 text-amber-400" />
-                Aufgabe: Bis wann erledigen & Erinnerung
-              </h3>
-              <button type="button" onClick={() => setTaskModal({ ...taskModal, open: false })} className="tw-nav-inactive w-10 h-10 rounded-full flex items-center justify-center cursor-pointer">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="space-y-2">
-              <input
-                type="text"
-                required
-                value={taskModal.title}
-                onChange={(e) => setTaskModal({ ...taskModal, title: e.target.value })}
-                className={'w-full px-4 py-2.5 rounded-xl border text-sm font-bold ' + themeStyles.input}
-              />
-              <input
-                type="text"
-                value={taskModal.description}
-                onChange={(e) => setTaskModal({ ...taskModal, description: e.target.value })}
-                placeholder="Notiz / Beschreibung zur Aufgabe..."
-                className={'w-full px-4 py-2 rounded-xl border text-xs font-semibold ' + themeStyles.input}
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className={'block text-[11px] font-extrabold uppercase mb-1 ' + themeStyles.textMuted}>Zuständig</label>
-                <select
-                  value={taskModal.member}
-                  onChange={(e) => setTaskModal({ ...taskModal, member: e.target.value })}
-                  className={'w-full px-3 py-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
-                >
-                  {safeMembers.filter(m => m.id !== 'all').map(m => (
-                    <option key={m.id} value={m.id} className="bg-slate-800 text-white">👤 {m.name}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className={'block text-[11px] font-extrabold uppercase mb-1 ' + themeStyles.textMuted}>Priorität</label>
-                <select
-                  value={taskModal.priority}
-                  onChange={(e) => setTaskModal({ ...taskModal, priority: Number(e.target.value) })}
-                  className={'w-full px-3 py-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
-                >
-                  <option value={4} className="bg-slate-800 text-white">🔥 P1 - Sehr dringend</option>
-                  <option value={3} className="bg-slate-800 text-white">🟠 P2 - Wichtig</option>
-                  <option value={2} className="bg-slate-800 text-white">🔵 P3 - Mittel</option>
-                  <option value={1} className="bg-slate-800 text-white">⚪ P4 - Normal</option>
-                </select>
-              </div>
-            </div>
-
-            <div className={'p-3.5 rounded-2xl border space-y-2.5 ' + themeStyles.subtle}>
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-black uppercase text-amber-400">⏳ Bis wann muss es erledigt sein?</span>
-                <div className="flex gap-1.5">
-                  <button type="button" onClick={() => setTaskModal({ ...taskModal, dueDate: todayStr, dueTime: '18:00' })} className="tw-glow-btn px-2.5 py-1 rounded-xl text-[11px] font-bold cursor-pointer">Heute</button>
-                  <button type="button" onClick={() => setTaskModal({ ...taskModal, dueDate: formatDateStr(addDays(new Date(), 1)), dueTime: '17:00' })} className="tw-glow-btn px-2.5 py-1 rounded-xl text-[11px] font-bold cursor-pointer">Morgen</button>
-                  <button type="button" onClick={() => setTaskModal({ ...taskModal, dueDate: formatDateStr(addDays(new Date(), 7)), dueTime: '17:00' })} className="tw-glow-btn px-2.5 py-1 rounded-xl text-[11px] font-bold cursor-pointer">+1 Woche</button>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <input type="date" value={taskModal.dueDate} onChange={(e) => setTaskModal({ ...taskModal, dueDate: e.target.value })} className={'px-3 py-2 rounded-xl border text-xs font-bold ' + themeStyles.input} />
-                <input type="time" value={taskModal.dueTime} onChange={(e) => setTaskModal({ ...taskModal, dueTime: e.target.value })} className={'px-3 py-2 rounded-xl border text-xs font-bold ' + themeStyles.input} />
-              </div>
-            </div>
-
-            <div className={'p-3.5 rounded-2xl border space-y-2.5 ' + themeStyles.subtle}>
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-black uppercase">🔔 Wann erinnern?</span>
-                <button
-                  type="button"
-                  onClick={() => triggerEventAlarmNow({
-                    title: '✅ Aufgabe: ' + taskModal.title,
-                    time: 'Bis ' + (taskModal.dueTime || '17:00') + ' Uhr',
-                    date: taskModal.dueDate || todayStr,
-                    notifyTime: taskModal.notifyTime,
-                    notifyUsers: [taskModal.member]
-                  }, true)}
-                  className="tw-glow-btn px-3 py-1 rounded-xl text-xs font-extrabold flex items-center gap-1 cursor-pointer"
-                >
-                  <Volume2 className="w-3.5 h-3.5" /> Test-Alarm
-                </button>
-              </div>
-              <select
-                value={taskModal.notifyTime}
-                onChange={(e) => setTaskModal({ ...taskModal, notifyTime: e.target.value })}
-                className={'w-full px-3 py-2 rounded-xl border text-xs font-bold ' + themeStyles.input}
-              >
-                <option value="none" className="bg-slate-800 text-white">🔕 Keine Erinnerung</option>
-                <option value="0m" className="bg-slate-800 text-white">🔔 Pünktlich zur Frist</option>
-                <option value="5m" className="bg-slate-800 text-white">🔔 5 Min. vorher</option>
-                <option value="15m" className="bg-slate-800 text-white">🔔 15 Min. vorher</option>
-                <option value="30m" className="bg-slate-800 text-white">🔔 30 Min. vorher</option>
-                <option value="1h" className="bg-slate-800 text-white">🔔 1 Std. vorher</option>
-                <option value="1d" className="bg-slate-800 text-white">🔔 1 Tag vorher</option>
-              </select>
-            </div>
-
-            <div className="flex justify-end gap-2">
-              <button type="button" onClick={() => setTaskModal({ ...taskModal, open: false })} className="tw-nav-inactive px-4 py-2.5 rounded-xl text-xs font-bold cursor-pointer">Abbrechen</button>
-              <button type="submit" className="tw-glow-btn px-6 py-2.5 rounded-xl text-xs font-extrabold cursor-pointer">💾 Speichern & Synchronisieren</button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {/* MODAL 2: JAHRESWAND TAGES-DETAILS */}
-      {yearDayModal.open && (() => {
-        const dayEvents = safeEvents.filter(e => e.date === yearDayModal.dateStr);
-        return (
-          <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
-            <div className={'w-full max-w-xl rounded-3xl border-2 p-6 shadow-2xl space-y-4 ' + themeStyles.modal}>
-              <div className="flex items-center justify-between">
-                <h3 className="text-xl font-extrabold">📅 Tagesübersicht: {yearDayModal.dateStr}</h3>
-                <button onClick={() => setYearDayModal({ ...yearDayModal, open: false })} className="tw-nav-inactive w-10 h-10 rounded-full flex items-center justify-center cursor-pointer"><X className="w-5 h-5" /></button>
-              </div>
-              <div className="space-y-2.5 max-h-64 overflow-y-auto">
-                {dayEvents.length === 0 ? (
-                  <div className={'p-6 text-center rounded-2xl border border-dashed text-xs font-bold opacity-60 ' + themeStyles.divider}>
-                    Keine Termine an diesem Tag.
-                  </div>
-                ) : (
-                  dayEvents.map(ev => {
-                    const mem = safeMembers.find(m => m.id === ev.member) || safeMembers[0];
-                    return (
-                      <div key={ev.id} style={getMemberStyles(mem).headerStyle} className="p-3.5 rounded-2xl border flex flex-wrap items-center justify-between gap-2">
-                        <span className="font-extrabold text-sm">{ev.title} ({mem.name})</span>
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setCopiedEvent(ev);
-                              setYearDayModal({ ...yearDayModal, open: false });
-                              showToast('Termin kopiert!', 'Tippe jetzt auf einen beliebigen Tag zum Einfügen!', '📋');
-                            }}
-                            className="tw-glow-btn px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
-                          >
-                            <Copy className="w-4 h-4" /> Kopieren
-                          </button>
-                          <button onClick={() => deleteEventById(ev.id)} className="px-3 py-2 rounded-xl bg-rose-600 text-white text-xs font-extrabold cursor-pointer">🗑️</button>
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </div>
-          </div>
-        );
-      })()}
-
-      {/* MODAL 3: SCHULSTUNDE */}
-      {schoolModal.open && (
-        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              const key = schoolModal.dayIdx + '-' + schoolModal.periodIdx;
-              setSchoolData(prev => {
-                const base = prev && typeof prev === 'object' ? prev : DEFAULT_SCHOOL;
-                const childObj = base[activeSchoolChild] || DEFAULT_SCHOOL[activeSchoolChild];
-                const nextSlots = { ...(childObj.slots || {}) };
-                if (!schoolModal.subject.trim()) delete nextSlots[key];
-                else nextSlots[key] = { subject: schoolModal.subject.trim(), room: schoolModal.room.trim(), status: schoolModal.status };
-                return { ...base, [activeSchoolChild]: { ...childObj, slots: nextSlots } };
-              });
-              setSchoolModal({ ...schoolModal, open: false });
-            }}
-            className={'w-full max-w-md rounded-3xl border-2 p-6 shadow-2xl space-y-4 ' + themeStyles.modal}
-          >
-            <h3 className="text-lg font-extrabold">Schulstunde anpassen</h3>
-            <input type="text" value={schoolModal.subject} onChange={(e) => setSchoolModal({ ...schoolModal, subject: e.target.value })} placeholder="Fach..." className={'w-full px-4 py-2.5 rounded-xl border text-sm font-bold ' + themeStyles.input} />
-            <input type="text" value={schoolModal.room} onChange={(e) => setSchoolModal({ ...schoolModal, room: e.target.value })} placeholder="Raum / Lehrer..." className={'w-full px-4 py-2.5 rounded-xl border text-sm font-bold ' + themeStyles.input} />
-            <select value={schoolModal.status} onChange={(e) => setSchoolModal({ ...schoolModal, status: e.target.value })} className={'w-full px-4 py-2.5 rounded-xl border text-sm font-bold ' + themeStyles.input}>
-              <option value="normal" className="bg-slate-800 text-white">Regulär</option>
-              <option value="change" className="bg-slate-800 text-white">Vertretung / Änderung</option>
-              <option value="exam" className="bg-slate-800 text-white">Arbeit / Test</option>
-              <option value="cancel" className="bg-slate-800 text-white">Entfall</option>
-            </select>
-            <div className="flex justify-end gap-2">
-              <button type="button" onClick={() => setSchoolModal({ ...schoolModal, open: false })} className="tw-nav-inactive px-4 py-2 rounded-xl text-xs font-bold cursor-pointer">Abbrechen</button>
-              <button type="submit" className="tw-glow-btn px-5 py-2 rounded-xl text-xs font-extrabold cursor-pointer">Speichern</button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {/* MODAL 4: QR CODE & 1-KLICK EINLADUNGS-LINK FÜR FAMILIEN-SMARTPHONES */}
-      {qrModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className={'w-full max-w-md rounded-3xl border-2 p-6 shadow-2xl text-center space-y-4 ' + themeStyles.modal}>
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-extrabold">📱 Smartphone Direkt-Einladung</h3>
-              <button onClick={() => setQrModalOpen(false)} className="tw-nav-inactive w-9 h-9 rounded-full flex items-center justify-center cursor-pointer"><X className="w-5 h-5" /></button>
-            </div>
-            <p className={'text-xs font-semibold ' + themeStyles.textMuted}>
-              Scanne diesen QR-Code oder teile den Einladungs-Link – die Touchwall meldet sich auf dem Smartphone sofort automatisch in eurem Familien-Konto an!
-            </p>
-            <div className="bg-white p-4 rounded-2xl inline-block mx-auto shadow-md">
-              <img src={'https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=' + encodeURIComponent(qrShareUrl)} alt="QR" className="w-48 h-48" />
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-2">
-              <button
-                type="button"
-                onClick={() => {
-                  navigator.clipboard?.writeText(qrShareUrl);
-                  showToast('Link kopiert!', 'Einladungs-Link befindet sich in der Zwischenablage.', '📋');
-                }}
-                className="tw-glow-btn py-2.5 px-4 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                <Copy className="w-4 h-4" /> Link kopieren
-              </button>
-              <a
-                href={'https://wa.me/?text=' + encodeURIComponent('📲 Hier ist unser direkter Familien-Touchwall Login-Link: ' + qrShareUrl)}
-                target="_blank"
-                rel="noreferrer"
-                className="tw-glow-btn py-2.5 px-4 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer no-underline"
-              >
-                <Share2 className="w-4 h-4" /> Per WhatsApp teilen
-              </a>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ALARM BANNER */}
-      {activeAlarmBanner && (
-        <div className="fixed inset-0 z-[60] bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className={'w-full max-w-md rounded-3xl border-2 border-amber-400 p-6 shadow-2xl space-y-4 text-center ' + themeStyles.modal}>
-            <h3 className="text-2xl font-extrabold">🔔 {activeAlarmBanner.title}</h3>
-            <p className="text-sm font-bold">{activeAlarmBanner.time} ({activeAlarmBanner.date})</p>
-            <p className="text-xs font-extrabold text-sky-400">👤 Für: {activeAlarmBanner.who}</p>
-            <div className="flex gap-2 justify-center">
-              <button onClick={() => playTouchwallAlarmSound()} className="tw-nav-inactive px-4 py-2.5 rounded-2xl text-xs font-extrabold cursor-pointer">🔊 Ton testen</button>
-              <button onClick={() => setActiveAlarmBanner(null)} className="tw-glow-btn px-6 py-2.5 rounded-2xl text-sm font-black cursor-pointer">✅ Verstanden</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {toast && (
-        <div className={'fixed bottom-5 right-5 z-50 px-5 py-3.5 rounded-2xl shadow-2xl border-2 flex items-center gap-3 ' + themeStyles.modal} style={{ borderColor: themeStyles.btnBorder }}>
-          <span className="text-2xl">{toast.icon}</span>
-          <div>
-            <div className="font-extrabold text-xs text-amber-400 uppercase">{toast.title}</div>
-            <div className="font-semibold text-sm">{toast.message}</div>
-          </div>
-        </div>
-      )}
+      {/* AUSGELAGERTE POP-UP-FENSTER, QR-MODAL, ALARM-BANNER & TOASTS */}
+      <TouchwallModals
+        eventModal={eventModal}
+        setEventModal={setEventModal}
+        saveEventModal={saveEventModal}
+        deleteEventById={deleteEventById}
+        duplicateEventToTarget={duplicateEventToTarget}
+        setCopiedEvent={setCopiedEvent}
+        taskModal={taskModal}
+        setTaskModal={setTaskModal}
+        setFamilyTasks={setFamilyTasks}
+        setEvents={setEvents}
+        pendingCalendarOpsRef={pendingCalendarOpsRef}
+        sendCalendarApiAction={sendCalendarApiAction}
+        lastLocalEditTimeRef={lastLocalEditTimeRef}
+        safeTodoistConfig={safeTodoistConfig}
+        yearDayModal={yearDayModal}
+        setYearDayModal={setYearDayModal}
+        safeEvents={safeEvents}
+        schoolModal={schoolModal}
+        setSchoolModal={setSchoolModal}
+        setSchoolData={setSchoolData}
+        activeSchoolChild={activeSchoolChild}
+        qrModalOpen={qrModalOpen}
+        setQrModalOpen={setQrModalOpen}
+        qrShareUrl={qrShareUrl}
+        activeAlarmBanner={activeAlarmBanner}
+        setActiveAlarmBanner={setActiveAlarmBanner}
+        toast={toast}
+        safeMembers={safeMembers}
+        todayStr={todayStr}
+        themeStyles={themeStyles}
+        getMemberStyles={getMemberStyles}
+        renderAvatar={renderAvatar}
+        triggerEventAlarmNow={triggerEventAlarmNow}
+        showToast={showToast}
+      />
     </div>
   );
 }
