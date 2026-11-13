@@ -59,7 +59,7 @@ export default function PocketShopping({
       </div>
 
       {/* =========================================================
-          BEREICH 1: EINKAUFSWAGEN (GESCANNTE PRODUKTE & BON-ARTIKEL)
+          BEREICH 1: EINKAUFSWAGEN (GESCANNTE- PRODUKTE & BON-ARTIKEL)
           ZULETZT GESCANNTES PRODUKT STEHT IMMER GANZ OBEN!
          ========================================================= */}
       <div className={'rounded-3xl border-2 border-amber-400/40 p-4 space-y-2.5 ' + themeStyles.card}>
