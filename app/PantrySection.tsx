@@ -52,9 +52,6 @@ export function detectFoodCategory(nameStr, customCategory = '') {
   return 'sweets_snacks';
 }
 
-// ============================================================================
-// INTELLIGENTE GLUTENFREI-ERKENNUNG ( INKL. MANUELLEM OVERRIDE )
-// ============================================================================
 export function isProductGlutenFree(itemOrName, customCategory = '', manualFlag = undefined) {
   const isObj = itemOrName && typeof itemOrName === 'object';
   const nameStr = isObj ? String(itemOrName.name || '') : String(itemOrName || '');
@@ -67,22 +64,18 @@ export function isProductGlutenFree(itemOrName, customCategory = '', manualFlag 
   const n = nameStr.toLowerCase();
   if (!n.trim()) return false;
 
-  // 1. Explizite Glutenfrei-Marken & Begriffe (z.B. Schär, Gefro, Maisstärke, Buchweizen)
   if (/glutenfrei|gluten-free|ohne gluten|\bgf\b|schär|schaer|bauckhof|alnavit|hammermühle|seitz|schnitzer|reismehl|maismehl|buchweizen|quinoa|hirse|amarant|polenta|maisstärke|speisestärke|kartoffelmehl|gefro/.test(n)) {
     return true;
   }
 
-  // 2. Explizite Gluten-Indikatoren (Weizen, Dinkel, Roggen, Gerste, normale Back-/Teigwaren, Paniermehl)
   if (/weizen|dinkel|roggen|gerste|grünkern|bulgur|couscous|seitan|paniermehl|paniert|fischstäbchen|nuggets|schnitzel|spätzle|tortellini|ravioli|lasagne|nudel|spaghetti|pasta|penne|rigatoni|mehl|grieß|haferflocken|müsli|cornflakes|brot|landbrot|mehrkorn|brötchen|toast|baguette|croissant|kuchen|waffel|keks|cookie|brezel|pizza|flammkuchen|\bbier\b|malz|gnocchi|schupfnudel/.test(n)) {
     return false;
   }
 
-  // 3. Natürlich glutenfreie Kategorien
   if (catId === 'produce' || catId === 'dairy' || catId === 'oils_fats' || catId === 'drinks' || catId === 'meat_fish_eggs') {
     return true;
   }
 
-  // 4. Natürlich glutenfreie Kohlenhydratquellen (Reis, Kartoffeln, Mais)
   if (/reis|spitzenreis|langkorn|basmati|jasmin|milchreis|risotto|kartoffel|kartoffelpüree|pfanni|pommes|kroketten|mais|popcorn/.test(n)) {
     return true;
   }
@@ -289,7 +282,6 @@ export default function PantrySection({
     showToast('In Speisekammer gespeichert', cleanName + ' (MHD: ' + itemExpiry + ')', getFoodEmoji(cleanName));
   };
 
-  // 1-Klick-Umschalter für Glutenfrei direkt auf dem Produkt
   const toggleItemGlutenFreeDirectly = (e, item) => {
     e.stopPropagation();
     const currentlyGf = isProductGlutenFree(item);
@@ -360,6 +352,16 @@ export default function PantrySection({
     };
     setPantryTrash(prev => [trashEntry, ...(Array.isArray(prev) ? prev : [])]);
     showToast(reasonType === 'consumed' ? 'Komplett verzehrt!' : 'Produkt gelöscht', item.name, reasonType === 'consumed' ? '🍽️' : '🗑️');
+  };
+
+  const handleDeleteFromEditModal = () => {
+    const target = safeStock.find(x => x.id === editModal.id);
+    if (!target) {
+      setEditModal({ ...editModal, open: false });
+      return;
+    }
+    MoveItemToTrash(target, 'wasted');
+    setEditModal({ ...editModal, open: false });
   };
 
   const handleConsumeClick = (item) => {
