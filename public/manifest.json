@@ -1,7 +1,7 @@
 {
   "id": "/pocket",
   "name": "HR Touchwall Pocket • Familien-App & Scanner",
-  "short_name": "HR-TW Pocket",
+  "short_name": "HR Pocket",
   "description": "Mobiler Scanner, Kalender, Aufgaben & Einkaufsliste für die Familien-Touchwall",
   "start_url": "/pocket",
   "scope": "/",
@@ -12,13 +12,13 @@
   "categories": ["productivity", "lifestyle", "utilities"],
   "icons": [
     {
-      "src": "https://placehold.co/192x192/0ea5e9/tw-icon192.png?text=HR-TW",
+      "src": "/icon-512.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "https://placehold.co/512x512/0ea5e9/tw-icon.png?text=HR-TW+Pocket",
+      "src": "/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
