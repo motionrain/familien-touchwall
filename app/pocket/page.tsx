@@ -111,22 +111,29 @@ function getShopNormKey(textStr) {
   return String(textStr || '').toLowerCase().trim();
 }
 
+function getTaskTitleKey(task) {
+  if (!task) return '';
+  return String(task.title || '').toLowerCase().trim();
+}
+
 function getTaskNormKey(task) {
   if (!task) return '';
-  return String(task.member || 'all').toLowerCase() + '::' + String(task.title || '').toLowerCase().trim();
+  return String(task.member || 'all').toLowerCase() + '::' + getTaskTitleKey(task);
 }
 
 // ============================================================================
-// 1. ANTI-PING-PONG MERGE FÜR DIE EINKAUFSLISTE (CLOUD + TODOIST + LOKAL)
+// 1. STABILER MERGE FÜR DIE EINKAUFSLISTE (CLOUD vs. TODOIST UNTERSCHEIDUNG)
 // ============================================================================
-function reconcileShoppingNotes(localNotes, incomingNotes, syncMeta) {
+function reconcileShoppingNotes(localNotes, incomingNotes, syncMeta, source = 'cloud') {
   const baseNotes = Array.isArray(incomingNotes) && incomingNotes.length > 0
     ? incomingNotes
     : (Array.isArray(localNotes) && localNotes.length > 0 ? localNotes : DEFAULT_NOTES);
 
   const localFirstItems = Array.isArray(localNotes?.[0]?.items) ? localNotes[0].items : [];
   const incomingFirstItems = Array.isArray(baseNotes?.[0]?.items) ? baseNotes[0].items : [];
-  const delMap = syncMeta?.deletedTaskIds || {};
+
+  if (!syncMeta.deletedTaskIds) syncMeta.deletedTaskIds = {};
+  const delMap = syncMeta.deletedTaskIds;
   const now = Date.now();
   const TOMBSTONE_TTL = 1000 * 60 * 60 * 18;
 
@@ -141,50 +148,107 @@ function reconcileShoppingNotes(localNotes, incomingNotes, syncMeta) {
 
   const mergedMap = new Map();
 
+  // Schritt 1: Eingehende Artikel (aus Cloud oder Todoist) übernehmen
   incomingFirstItems.forEach(rawIt => {
     const it = typeof rawIt === 'string' ? { text: rawIt, done: false } : { ...rawIt };
     if (isDeletedItem(it)) return;
     const norm = getShopNormKey(it.text);
     const doneTs = delMap['shop_done_' + norm];
-    const localMatch = localFirstItems.find(loc => getShopNormKey(loc?.text) === norm);
+    const localMatch = localFirstItems.find(loc =>
+      (it.todoistId && loc?.todoistId && String(it.todoistId) === String(loc.todoistId)) ||
+      getShopNormKey(loc?.text) === norm
+    );
 
     const isDone = Boolean(it.done || doneTs || localMatch?.done);
     const resolvedDoneAt = Number(it.doneAt || localMatch?.doneAt || doneTs || (isDone ? now : 0));
 
     mergedMap.set(norm, {
+      ...localMatch,
       ...it,
       text: String(it.text).trim(),
       done: isDone,
       doneAt: isDone ? resolvedDoneAt : 0,
-      todoistId: it.todoistId || localMatch?.todoistId || null
+      todoistId: it.todoistId || localMatch?.todoistId || null,
+      addedAtTs: localMatch?.addedAtTs || it.addedAtTs || now
     });
   });
 
+  // Schritt 2: Lokale Artikel abgleichen (kein Verschlucken offener oder in Todoist geschlossener Punkte!)
   localFirstItems.forEach(rawLoc => {
     const loc = typeof rawLoc === 'string' ? { text: rawLoc, done: false } : { ...rawLoc };
     if (isDeletedItem(loc)) return;
     const norm = getShopNormKey(loc.text);
-    if (!mergedMap.has(norm) && loc.done) {
+
+    const matchedInIncoming = incomingFirstItems.some(inc => {
+      const incObj = typeof inc === 'string' ? { text: inc } : inc;
+      return (
+        (loc.todoistId && incObj?.todoistId && String(loc.todoistId) === String(incObj.todoistId)) ||
+        getShopNormKey(incObj?.text) === norm
+      );
+    });
+
+    if (mergedMap.has(norm) || matchedInIncoming) return;
+
+    const doneTs = delMap['shop_done_' + norm];
+
+    // Fall A: Artikel war bereits erledigt -> im Erledigt-Bereich behalten
+    if (loc.done || doneTs) {
       mergedMap.set(norm, {
         ...loc,
         text: String(loc.text).trim(),
         done: true,
-        doneAt: Number(loc.doneAt || delMap['shop_done_' + norm] || now)
+        doneAt: Number(loc.doneAt || doneTs || now)
+      });
+      return;
+    }
+
+    // Fall B: Quelle ist die Cloud -> Offene lokale Artikel niemals löschen!
+    if (source === 'cloud') {
+      mergedMap.set(norm, {
+        ...loc,
+        text: String(loc.text).trim(),
+        done: false,
+        doneAt: 0
+      });
+      return;
+    }
+
+    // Fall C: Quelle ist Todoist ->
+    // 1. Hat der Artikel KEINE todoistId (oder wurde gerade erst vor < 25 Sek. angelegt), bleibt er offen!
+    const isVeryRecent = loc.addedAtTs && (now - Number(loc.addedAtTs) < 25000);
+    if (!loc.todoistId || isVeryRecent) {
+      mergedMap.set(norm, {
+        ...loc,
+        text: String(loc.text).trim(),
+        done: false,
+        doneAt: 0
+      });
+    } else {
+      // 2. Artikel hatte eine todoistId und ist in Todoist nicht mehr offen -> wurde in Todoist abgehakt!
+      delMap['shop_done_' + norm] = now;
+      mergedMap.set(norm, {
+        ...loc,
+        text: String(loc.text).trim(),
+        done: true,
+        doneAt: now
       });
     }
   });
 
+  saveLocalSyncMeta(syncMeta);
   const finalFirstItems = Array.from(mergedMap.values());
   return baseNotes.map((n, idx) => idx === 0 ? { ...n, items: finalFirstItems } : n);
 }
 
 // ============================================================================
-// 2. ANTI-PING-PONG MERGE FÜR AUFGABEN / TASKS (CLOUD + TODOIST + LOKAL)
+// 2. STABILER MERGE FÜR AUFGABEN / TASKS (CLOUD vs. TODOIST UNTERSCHEIDUNG)
 // ============================================================================
-function reconcileFamilyTasks(localTasks, incomingTasks, syncMeta) {
+function reconcileFamilyTasks(localTasks, incomingTasks, syncMeta, source = 'cloud') {
   const localList = Array.isArray(localTasks) ? localTasks : [];
   const incomingList = Array.isArray(incomingTasks) ? incomingTasks : [];
-  const delMap = syncMeta?.deletedTaskIds || {};
+
+  if (!syncMeta.deletedTaskIds) syncMeta.deletedTaskIds = {};
+  const delMap = syncMeta.deletedTaskIds;
   const now = Date.now();
   const TOMBSTONE_TTL = 1000 * 60 * 60 * 18;
 
@@ -193,63 +257,120 @@ function reconcileFamilyTasks(localTasks, incomingTasks, syncMeta) {
     if (t.id && delMap[String(t.id)]) return true;
     if (t.todoistId && delMap[String(t.todoistId)]) return true;
     const norm = getTaskNormKey(t);
-    const delTs = delMap['task_del_' + norm];
+    const titleKey = getTaskTitleKey(t);
+    const delTs = delMap['task_del_' + norm] || delMap['task_del_title_' + titleKey];
     if (delTs && (now - Number(delTs) < TOMBSTONE_TTL)) return true;
     return false;
   };
 
-  const mergedMap = new Map();
+  const mergedList = [];
+  const usedLocalIndices = new Set();
 
+  // Schritt 1: Eingehende Aufgaben (aus Cloud oder Todoist) abgleichen
   incomingList.forEach(rawT => {
     if (isDeletedTask(rawT)) return;
-    const norm = getTaskNormKey(rawT);
     const idKey = String(rawT.id || '');
     const tdKey = rawT.todoistId ? String(rawT.todoistId) : '';
+    const titleKey = getTaskTitleKey(rawT);
+
+    const localIdx = localList.findIndex((loc, idx) => {
+      if (usedLocalIndices.has(idx)) return false;
+      if (tdKey && loc.todoistId && String(loc.todoistId) === tdKey) return true;
+      if (idKey && loc.id && String(loc.id) === idKey) return true;
+      return getTaskTitleKey(loc) === titleKey;
+    });
+
+    const localMatch = localIdx >= 0 ? localList[localIdx] : null;
+    if (localIdx >= 0) usedLocalIndices.add(localIdx);
+
+    // Behalte die spezifische Personen-Zuordnung bei, falls Todoist nur 'all' liefert
+    const resolvedMember =
+      (rawT.member && rawT.member !== 'all')
+        ? rawT.member
+        : (localMatch?.member || rawT.member || 'hans');
+
+    const norm = String(resolvedMember).toLowerCase() + '::' + titleKey;
     const doneTs =
       delMap['task_done_' + norm] ||
+      delMap['task_done_title_' + titleKey] ||
       (idKey && delMap['task_done_id_' + idKey]) ||
       (tdKey && delMap['task_done_td_' + tdKey]);
-
-    const localMatch = localList.find(loc =>
-      (idKey && String(loc.id) === idKey) ||
-      (tdKey && String(loc.todoistId) === tdKey) ||
-      getTaskNormKey(loc) === norm
-    );
 
     const isDone = Boolean(rawT.done || doneTs || localMatch?.done);
     const resolvedDoneAt = Number(rawT.doneAt || localMatch?.doneAt || doneTs || (isDone ? now : 0));
 
-    mergedMap.set(norm, {
+    mergedList.push({
       ...localMatch,
       ...rawT,
+      id: localMatch?.id || rawT.id || Date.now(),
+      member: resolvedMember,
       done: isDone,
       doneAt: isDone ? resolvedDoneAt : 0,
       todoistId: rawT.todoistId || localMatch?.todoistId || null
     });
   });
 
-  localList.forEach(loc => {
+  // Schritt 2: Nicht gematchte lokale Aufgaben prüfen
+  localList.forEach((loc, idx) => {
+    if (usedLocalIndices.has(idx)) return;
     if (isDeletedTask(loc)) return;
-    const norm = getTaskNormKey(loc);
-    if (!mergedMap.has(norm)) {
-      const idKey = String(loc.id || '');
-      const tdKey = loc.todoistId ? String(loc.todoistId) : '';
-      const doneTs =
-        delMap['task_done_' + norm] ||
-        (idKey && delMap['task_done_id_' + idKey]) ||
-        (tdKey && delMap['task_done_td_' + tdKey]);
 
-      if (loc.done || doneTs) {
-        mergedMap.set(norm, {
-          ...loc,
-          done: true,
-          doneAt: Number(loc.doneAt || doneTs || now)
-        });
-      }
+    const idKey = String(loc.id || '');
+    const tdKey = loc.todoistId ? String(loc.todoistId) : '';
+    const norm = getTaskNormKey(loc);
+    const titleKey = getTaskTitleKey(loc);
+
+    const doneTs =
+      delMap['task_done_' + norm] ||
+      delMap['task_done_title_' + titleKey] ||
+      (idKey && delMap['task_done_id_' + idKey]) ||
+      (tdKey && delMap['task_done_td_' + tdKey]);
+
+    // Fall A: Aufgabe war bereits erledigt -> behalten
+    if (loc.done || doneTs) {
+      mergedList.push({
+        ...loc,
+        done: true,
+        doneAt: Number(loc.doneAt || doneTs || now)
+      });
+      return;
+    }
+
+    // Fall B: Quelle ist die Cloud -> Offene lokale Aufgaben niemals löschen!
+    if (source === 'cloud') {
+      mergedList.push({
+        ...loc,
+        done: false,
+        doneAt: 0
+      });
+      return;
+    }
+
+    // Fall C: Quelle ist Todoist ->
+    // 1. Hat die Aufgabe KEINE todoistId (oder wurde vor < 25 Sek. angelegt), bleibt sie als offene Aufgabe erhalten!
+    const createdMs = typeof loc.id === 'number' && loc.id > 1700000000000 ? loc.id : 0;
+    const isVeryRecent = createdMs && (now - createdMs < 25000);
+    if (!tdKey || isVeryRecent) {
+      mergedList.push({
+        ...loc,
+        done: false,
+        doneAt: 0
+      });
+    } else {
+      // 2. Aufgabe hatte eine todoistId und ist in Todoist nicht mehr offen -> wurde in Todoist erledigt!
+      delMap['task_done_' + norm] = now;
+      delMap['task_done_title_' + titleKey] = now;
+      delMap['task_done_td_' + tdKey] = now;
+      mergedList.push({
+        ...loc,
+        done: true,
+        doneAt: now
+      });
     }
   });
 
-  return Array.from(mergedMap.values());
+  saveLocalSyncMeta(syncMeta);
+  return mergedList;
 }
 
 export default function TouchwallPocketApp() {
@@ -287,10 +408,9 @@ export default function TouchwallPocketApp() {
 
   const [cartItems, setCartItems] = useState([]);
 
-  // Bestands-Filter, Suche, Hamburger-Menü & Vollwertiges Bearbeiten-Modal
   const [stockSearchQuery, setStockSearchQuery] = useState('');
   const [showStockMenu, setShowStockMenu] = useState(false);
-  const [stockSortMode, setStockSortMode] = useState('newest'); // 'newest' | 'expiry' | 'glutenfree' | 'az'
+  const [stockSortMode, setStockSortMode] = useState('newest');
   const [stockLocationFilter, setStockLocationFilter] = useState('all');
   const [stockCategoryFilter, setStockCategoryFilter] = useState('all');
   const [stockOnlyGlutenFree, setStockOnlyGlutenFree] = useState(false);
@@ -318,6 +438,7 @@ export default function TouchwallPocketApp() {
   const syncMetaRef = useRef({ deletedPantryIds: {}, deletedTrashIds: {}, deletedTaskIds: {}, deletedEventIds: {} });
   const pendingCalendarOpsRef = useRef({});
   const isNetworkSavingRef = useRef(false);
+  const isSyncRunningRef = useRef(false);
   const lastLocalEditRef = useRef(0);
 
   const [isSyncing, setIsSyncing] = useState(false);
@@ -352,7 +473,6 @@ export default function TouchwallPocketApp() {
     return safeStock.filter(it => isProductGlutenFree(it)).length;
   }, [safeStock]);
 
-  // Produkte in den 2 kritischen MHD-Warnstufen (Stufe 2: Heute 0 Tage | Stufe 1: Noch 1-2 Tage)
   const mhdAlertGroups = useMemo(() => {
     const finalToday = [];
     const warnTwoDays = [];
@@ -470,9 +590,6 @@ export default function TouchwallPocketApp() {
     setInstallPromptEvent(null);
   };
 
-  // ============================================================================
-  // PUSH-BENACHRICHTIGUNGS-ENGINE (FÜR EINKAUF + 2-STUFIGEN MHD-ABLAUF-ALARM)
-  // ============================================================================
   const sendPhonePushNotification = async (title, bodyText, tagId, vibrationPattern = [200, 100, 250]) => {
     playMobileBeep('shopping');
     try { navigator.vibrate?.(vibrationPattern); } catch (e) {}
@@ -530,7 +647,6 @@ export default function TouchwallPocketApp() {
     );
   };
 
-  // Löst die 2-stufige MHD-Push-Warnung aus (automatisch 1x täglich pro Produkt oder manuell per Button)
   const triggerMhdExpiryPushWarnings = async (forceManual = false) => {
     const log = mhdPushLogRef.current || {};
     const finalItemsToNotify = [];
@@ -540,16 +656,13 @@ export default function TouchwallPocketApp() {
       if (!item?.expiryDate) return;
       const daysLeft = getDaysUntilMhd(item.expiryDate, todayStr);
 
-      // STUFE 2: Tag des Ablaufs (daysLeft === 0) -> Letzte Warnung vor dem Mülleimer!
       if (daysLeft === 0) {
         const key0 = 'final0d_' + item.id + '_' + todayStr;
         if (forceManual || !log[key0]) {
           finalItemsToNotify.push(item);
           log[key0] = Date.now();
         }
-      }
-      // STUFE 1: Letzte 2 Tage vor Ablauf (daysLeft === 1 oder 2) -> Vorwarnung!
-      else if (daysLeft === 1 || daysLeft === 2) {
+      } else if (daysLeft === 1 || daysLeft === 2) {
         const keyWarn = 'warn_' + daysLeft + 'd_' + item.id + '_' + todayStr;
         if (forceManual || !log[keyWarn]) {
           warnItemsToNotify.push({ ...item, daysLeft });
@@ -569,7 +682,6 @@ export default function TouchwallPocketApp() {
       localStorage.setItem('richter_tw_mhd_push_log_v1', JSON.stringify(log));
     } catch (e) {}
 
-    // 1. Letzte Warnung am Ablauftag (Stufe 2) senden
     if (finalItemsToNotify.length > 0) {
       const names = finalItemsToNotify.map(it => getFoodEmoji(it.name, it.customEmoji) + ' ' + it.name + ' (' + (it.quantity || '1x') + ')').join(', ');
       const title = '🚨 LETZTE WARNUNG: Läuft HEUTE ab (' + finalItemsToNotify.length + ')!';
@@ -578,7 +690,6 @@ export default function TouchwallPocketApp() {
       await sendPhonePushNotification(title, body, 'tw-mhd-final-' + todayStr, [320, 120, 320, 120, 450]);
     }
 
-    // 2. Vorwarnung für die letzten 2 Tage vor Ablauf (Stufe 1) senden
     if (warnItemsToNotify.length > 0) {
       const names = warnItemsToNotify
         .map(it => getFoodEmoji(it.name, it.customEmoji) + ' ' + it.name + ' (' + (it.daysLeft === 1 ? 'morgen' : 'in 2 Tagen') + ')')
@@ -592,11 +703,9 @@ export default function TouchwallPocketApp() {
     }
   };
 
-  // Automatischer Wächter: Prüft abgelaufene Produkte (< todayStr -> Mülleimer) & sendet MHD-Push-Warnungen
   useEffect(() => {
     if (!isAuthenticated || safeStock.length === 0) return;
 
-    // 1. Produkte, deren Ablaufdatum gestern oder früher war (< todayStr), automatisch in den Mülleimer verschieben
     const expiredPast = safeStock.filter(it => it.expiryDate && it.expiryDate < todayStr);
     if (expiredPast.length > 0) {
       const now = Date.now();
@@ -632,7 +741,6 @@ export default function TouchwallPocketApp() {
       return;
     }
 
-    // 2. Für Produkte mit 2 Tagen, 1 Tag oder 0 Tagen Restlaufzeit Push-Warnung prüfen
     const timer = setTimeout(() => {
       triggerMhdExpiryPushWarnings(false);
     }, 1500);
@@ -718,10 +826,13 @@ export default function TouchwallPocketApp() {
     );
   };
 
-  const applyRemoteBundle = (bundle) => {
-    if (!bundle) return { resolvedNotes: safeNotes, resolvedTasks: safeTasks };
+  // Wenn deferTasksAndNotes = true ist (weil direkt danach Todoist abgefragt wird),
+  // berechnen wir Tasks & Notes nur im Speicher und setzen den React-State erst am Ende EINMALIG!
+  const applyRemoteBundle = (bundle, deferTasksAndNotes = false) => {
+    if (!bundle) return { resolvedNotes: safeNotes, resolvedTasks: safeTasks, resolvedTodoistCfg: todoistConfig };
     let nextNotes = safeNotes;
     let nextTasks = safeTasks;
+    let nextTodoistCfg = todoistConfig;
 
     if (bundle.state) {
       const s = bundle.state;
@@ -742,15 +853,19 @@ export default function TouchwallPocketApp() {
       if (Array.isArray(s.mealPlan) && s.mealPlan.length > 0 && hasJsonChanged(safeMeals, s.mealPlan)) setMealPlan(s.mealPlan);
 
       if (Array.isArray(s.familyNotes) && s.familyNotes.length > 0) {
-        nextNotes = reconcileShoppingNotes(safeNotes, s.familyNotes, syncMetaRef.current);
-        if (hasJsonChanged(safeNotes, nextNotes)) setFamilyNotes(nextNotes);
+        nextNotes = reconcileShoppingNotes(safeNotes, s.familyNotes, syncMetaRef.current, 'cloud');
+        if (!deferTasksAndNotes && hasJsonChanged(safeNotes, nextNotes)) {
+          setFamilyNotes(nextNotes);
+        }
       }
 
       if (s.schoolData?.dean) setSchoolData(s.schoolData);
 
       if (Array.isArray(s.familyTasks)) {
-        nextTasks = reconcileFamilyTasks(safeTasks, s.familyTasks, syncMetaRef.current);
-        if (hasJsonChanged(safeTasks, nextTasks)) setFamilyTasks(nextTasks);
+        nextTasks = reconcileFamilyTasks(safeTasks, s.familyTasks, syncMetaRef.current, 'cloud');
+        if (!deferTasksAndNotes && hasJsonChanged(safeTasks, nextTasks)) {
+          setFamilyTasks(nextTasks);
+        }
       }
 
       if (Array.isArray(s.pantryItems) || Array.isArray(s.pantryTrash)) {
@@ -766,7 +881,10 @@ export default function TouchwallPocketApp() {
       }
 
       if (s.currentTheme) setCurrentTheme(s.currentTheme);
-      if (s.todoistConfig?.apiToken) setTodoistConfig(prev => ({ ...prev, ...s.todoistConfig }));
+      if (s.todoistConfig?.apiToken) {
+        nextTodoistCfg = { ...todoistConfig, ...s.todoistConfig };
+        setTodoistConfig(nextTodoistCfg);
+      }
     }
 
     if (Array.isArray(bundle?.calendarData?.events)) {
@@ -777,7 +895,7 @@ export default function TouchwallPocketApp() {
       }
     }
 
-    return { resolvedNotes: nextNotes, resolvedTasks: nextTasks };
+    return { resolvedNotes: nextNotes, resolvedTasks: nextTasks, resolvedTodoistCfg: nextTodoistCfg };
   };
 
   const saveStateToCloud = async (overrides = {}) => {
@@ -837,13 +955,13 @@ export default function TouchwallPocketApp() {
           if (rs.customLogoUrl) latestLogo = rs.customLogoUrl;
 
           if (Array.isArray(rs.familyNotes)) {
-            mergedNotes = reconcileShoppingNotes(localNotesToSave, rs.familyNotes, syncMetaRef.current);
-            setFamilyNotes(mergedNotes);
+            mergedNotes = reconcileShoppingNotes(localNotesToSave, rs.familyNotes, syncMetaRef.current, 'cloud');
+            if (hasJsonChanged(safeNotes, mergedNotes)) setFamilyNotes(mergedNotes);
           }
 
           if (Array.isArray(rs.familyTasks)) {
-            mergedTasks = reconcileFamilyTasks(localTasksToSave, rs.familyTasks, syncMetaRef.current);
-            setFamilyTasks(mergedTasks);
+            mergedTasks = reconcileFamilyTasks(localTasksToSave, rs.familyTasks, syncMetaRef.current, 'cloud');
+            if (hasJsonChanged(safeTasks, mergedTasks)) setFamilyTasks(mergedTasks);
           }
 
           const pMerged = mergePantryChannelSafe(
@@ -882,15 +1000,22 @@ export default function TouchwallPocketApp() {
     }
   };
 
+  // ============================================================================
+  // EINZIGER, FLACKERFREIER SYNC-DURCHGANG (CLOUD + TODOIST IN EINEM SCHRITT)
+  // ============================================================================
   const syncAllNow = async (showFeedback = false, accOverride = undefined, keyOverride = undefined) => {
     const activeAcc = accOverride !== undefined ? accOverride : accountId;
     const activeKey = keyOverride !== undefined ? keyOverride : authKey;
+    if (isSyncRunningRef.current) return;
     if (!showFeedback && (isNetworkSavingRef.current || Date.now() - lastLocalEditRef.current < 8000)) return;
 
+    isSyncRunningRef.current = true;
     if (showFeedback) setIsSyncing(true);
+
     try {
       let workingNotes = safeNotes;
       let workingTasks = safeTasks;
+      let workingTodoistCfg = todoistConfig;
 
       if (activeAcc && activeAcc !== 'local') {
         const bundle = await callCloudBackend({
@@ -898,35 +1023,49 @@ export default function TouchwallPocketApp() {
           accountId: activeAcc,
           authKey: activeKey
         });
-        if (!showFeedback && (isNetworkSavingRef.current || Date.now() - lastLocalEditRef.current < 6000)) return;
+        if (!showFeedback && (isNetworkSavingRef.current || Date.now() - lastLocalEditRef.current < 6000)) {
+          return;
+        }
         if (bundle?.ok) {
-          const applied = applyRemoteBundle(bundle);
+          const hasTodoistToken = Boolean(
+            bundle?.state?.todoistConfig?.apiToken?.trim() || todoistConfig?.apiToken?.trim()
+          );
+          const applied = applyRemoteBundle(bundle, hasTodoistToken);
           workingNotes = applied.resolvedNotes;
           workingTasks = applied.resolvedTasks;
+          workingTodoistCfg = applied.resolvedTodoistCfg;
         }
       }
 
-      if (todoistConfig?.apiToken?.trim()) {
+      if (workingTodoistCfg?.apiToken?.trim()) {
         const pulled = await pullFromTodoistTwoWay(
-          todoistConfig.apiToken,
-          todoistConfig,
+          workingTodoistCfg.apiToken,
+          workingTodoistCfg,
           workingTasks,
           workingNotes,
           safeMembers
         );
         if (pulled && (showFeedback || (!isNetworkSavingRef.current && Date.now() - lastLocalEditRef.current >= 6000))) {
           if (Array.isArray(pulled.tasks)) {
-            const guardedTasks = reconcileFamilyTasks(workingTasks, pulled.tasks, syncMetaRef.current);
-            if (hasJsonChanged(workingTasks, guardedTasks)) setFamilyTasks(guardedTasks);
+            workingTasks = reconcileFamilyTasks(workingTasks, pulled.tasks, syncMetaRef.current, 'todoist');
           }
           if (Array.isArray(pulled.familyNotes)) {
-            const guardedNotes = reconcileShoppingNotes(workingNotes, pulled.familyNotes, syncMetaRef.current);
-            if (hasJsonChanged(workingNotes, guardedNotes)) setFamilyNotes(guardedNotes);
+            workingNotes = reconcileShoppingNotes(workingNotes, pulled.familyNotes, syncMetaRef.current, 'todoist');
           }
         }
       }
-      if (showFeedback) showToast('Synchronisiert', 'Alle 4 Kanäle mit der Touchwall abgeglichen.', '✅');
+
+      // Einmaliges, flackerfreies Setzen des zusammengeführten Endstandes!
+      if (hasJsonChanged(safeTasks, workingTasks)) {
+        setFamilyTasks(workingTasks);
+      }
+      if (hasJsonChanged(safeNotes, workingNotes)) {
+        setFamilyNotes(workingNotes);
+      }
+
+      if (showFeedback) showToast('Synchronisiert', 'Alle 4 Kanäle sauber abgeglichen.', '✅');
     } catch (e) {} finally {
+      isSyncRunningRef.current = false;
       if (showFeedback) setIsSyncing(false);
     }
   };
@@ -1000,7 +1139,7 @@ export default function TouchwallPocketApp() {
       if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
         syncAllNow(false);
       }
-    }, 8000);
+    }, 10000);
     return () => clearInterval(interval);
   }, [isAuthenticated, accountId, authKey]);
 
@@ -1336,9 +1475,13 @@ export default function TouchwallPocketApp() {
     const now = Date.now();
     lastLocalEditRef.current = now;
     const norm = getTaskNormKey({ member: targetMemberId, title: cleanTitle });
+    const titleKey = getTaskTitleKey({ title: cleanTitle });
+
     if (syncMetaRef.current?.deletedTaskIds) {
       delete syncMetaRef.current.deletedTaskIds['task_del_' + norm];
+      delete syncMetaRef.current.deletedTaskIds['task_del_title_' + titleKey];
       delete syncMetaRef.current.deletedTaskIds['task_done_' + norm];
+      delete syncMetaRef.current.deletedTaskIds['task_done_title_' + titleKey];
       saveLocalSyncMeta(syncMetaRef.current);
     }
 
@@ -1380,7 +1523,7 @@ export default function TouchwallPocketApp() {
       doneAt: 0,
       fromMobile: true
     };
-    const nextTasks = [newTask, ...safeTasks.filter(t => getTaskNormKey(t) !== norm)];
+    const nextTasks = [newTask, ...safeTasks.filter(t => getTaskTitleKey(t) !== titleKey)];
     setFamilyTasks(nextTasks);
     await saveStateToCloud({ familyTasks: nextTasks });
     showToast('Aufgabe & Push gesendet!', cleanTitle + ' → ' + memberObj.name, '✅');
@@ -1391,17 +1534,21 @@ export default function TouchwallPocketApp() {
     lastLocalEditRef.current = now;
     const nextDone = !task.done;
     const norm = getTaskNormKey(task);
+    const titleKey = getTaskTitleKey(task);
     const idKey = String(task.id || '');
     const tdKey = task.todoistId ? String(task.todoistId) : '';
 
     if (!syncMetaRef.current.deletedTaskIds) syncMetaRef.current.deletedTaskIds = {};
     if (nextDone) {
       syncMetaRef.current.deletedTaskIds['task_done_' + norm] = now;
+      syncMetaRef.current.deletedTaskIds['task_done_title_' + titleKey] = now;
       if (idKey) syncMetaRef.current.deletedTaskIds['task_done_id_' + idKey] = now;
       if (tdKey) syncMetaRef.current.deletedTaskIds['task_done_td_' + tdKey] = now;
     } else {
       delete syncMetaRef.current.deletedTaskIds['task_done_' + norm];
+      delete syncMetaRef.current.deletedTaskIds['task_done_title_' + titleKey];
       delete syncMetaRef.current.deletedTaskIds['task_del_' + norm];
+      delete syncMetaRef.current.deletedTaskIds['task_del_title_' + titleKey];
       if (idKey) {
         delete syncMetaRef.current.deletedTaskIds['task_done_id_' + idKey];
         delete syncMetaRef.current.deletedTaskIds[idKey];
@@ -1432,11 +1579,14 @@ export default function TouchwallPocketApp() {
 
     for (const t of taskList) {
       const norm = getTaskNormKey(t);
+      const titleKey = getTaskTitleKey(t);
       const idKey = String(t.id || '');
       const tdKey = t.todoistId ? String(t.todoistId) : '';
 
       syncMetaRef.current.deletedTaskIds['task_del_' + norm] = now;
+      syncMetaRef.current.deletedTaskIds['task_del_title_' + titleKey] = now;
       delete syncMetaRef.current.deletedTaskIds['task_done_' + norm];
+      delete syncMetaRef.current.deletedTaskIds['task_done_title_' + titleKey];
       if (idKey) {
         syncMetaRef.current.deletedTaskIds[idKey] = now;
         delete syncMetaRef.current.deletedTaskIds['task_done_id_' + idKey];
@@ -1462,7 +1612,7 @@ export default function TouchwallPocketApp() {
     if (!task) return;
     lastLocalEditRef.current = Date.now();
     await markTasksPermanentlyRemoved([task]);
-    const nextTasks = safeTasks.filter(t => t.id !== task.id && getTaskNormKey(t) !== getTaskNormKey(task));
+    const nextTasks = safeTasks.filter(t => t.id !== task.id && getTaskTitleKey(t) !== getTaskTitleKey(task));
     setFamilyTasks(nextTasks);
     await saveStateToCloud({ familyTasks: nextTasks });
     showToast('Aufgabe gelöscht', task.title, '🗑️');
@@ -1480,7 +1630,8 @@ export default function TouchwallPocketApp() {
   };
 
   const handleAddQuickShopItem = async (clean) => {
-    lastLocalEditRef.current = Date.now();
+    const now = Date.now();
+    lastLocalEditRef.current = now;
     const norm = getShopNormKey(clean);
     if (syncMetaRef.current?.deletedTaskIds) {
       delete syncMetaRef.current.deletedTaskIds['shop_del_' + norm];
@@ -1517,7 +1668,10 @@ export default function TouchwallPocketApp() {
 
     const nextNotes = safeNotes.map((n, idx) => idx === 0 ? {
       ...n,
-      items: [{ text: clean, done: false, doneAt: 0, todoistId, fromMobile: true }, ...(Array.isArray(n.items) ? n.items : []).filter(it => getShopNormKey(it.text) !== norm)]
+      items: [
+        { text: clean, done: false, doneAt: 0, addedAtTs: now, todoistId, fromMobile: true },
+        ...(Array.isArray(n.items) ? n.items : []).filter(it => getShopNormKey(it.text) !== norm)
+      ]
     } : n);
     setFamilyNotes(nextNotes);
     triggerShoppingPhoneNotification([clean]);
@@ -1690,7 +1844,7 @@ export default function TouchwallPocketApp() {
       }
       setAccountId(cleanUser);
       setAuthKey(cleanPass);
-      applyRemoteBundle(res);
+      applyRemoteBundle(res, false);
       const title = res?.state?.familyName || ('Familie ' + cleanUser);
       setFamilyName(title);
       writeAuthSession(cleanUser, cleanPass, title);
@@ -1936,12 +2090,8 @@ export default function TouchwallPocketApp() {
             />
           )}
 
-          {/* =========================================================
-              BESTANDS-TAB INKL. 2-STUFIGEM MHD-WARN-BANNER, SUCHE & HAMBURGER-MENÜ
-             ========================================================= */}
           {activeTab === 'stock' && (
             <div className="space-y-3">
-              {/* 2-STUFIGES MHD-WARN-BANNER (HEUTE LETZTE WARNUNG & 1-2 TAGE VORWARNUNG) */}
               {(mhdAlertGroups.finalToday.length > 0 || mhdAlertGroups.warnTwoDays.length > 0) && (
                 <div className="p-3.5 rounded-3xl border-2 border-rose-500/80 bg-rose-950/35 space-y-2.5 shadow-lg">
                   <div className="flex items-center justify-between gap-2">
@@ -2008,7 +2158,6 @@ export default function TouchwallPocketApp() {
               )}
 
               <div className={'p-3.5 rounded-3xl border space-y-2.5 shadow-md ' + themeStyles.card}>
-                {/* ZEILE 1: TITEL + GLUTENFREI-SCHNELLFILTER + HAMBURGER-MENÜ */}
                 <div className="flex items-center justify-between gap-2">
                   <div>
                     <h2 className="font-black text-base flex items-center gap-1.5">
@@ -2049,7 +2198,6 @@ export default function TouchwallPocketApp() {
                   </div>
                 </div>
 
-                {/* ZEILE 2: SUCHFELD FÜR DEN BESTAND */}
                 <div className="relative">
                   <Search className="w-4 h-4 text-sky-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
@@ -2070,7 +2218,6 @@ export default function TouchwallPocketApp() {
                   )}
                 </div>
 
-                {/* AUFKLAPPBARES HAMBURGER-MENÜ FÜR SORTIERUNG, KATEGORIEN & PUSH-TEST */}
                 {showStockMenu && (
                   <div className={'p-3 rounded-2xl border space-y-3 ' + themeStyles.subtle}>
                     <div className="space-y-1.5">
@@ -2157,7 +2304,6 @@ export default function TouchwallPocketApp() {
                   </div>
                 )}
 
-                {/* SCHNELLE LAGERORT-PILLS */}
                 <div className="flex items-center gap-1.5 overflow-x-auto pt-0.5">
                   <button
                     type="button"
@@ -2184,7 +2330,6 @@ export default function TouchwallPocketApp() {
                 </div>
               </div>
 
-              {/* GRÖSSERE, ÜBERSICHTLICHE PRODUKT-KACHELN */}
               <div className="space-y-2.5">
                 {sortedStockForTab.length === 0 ? (
                   <div className={'p-8 rounded-3xl border text-center space-y-2 ' + themeStyles.card}>
@@ -2332,7 +2477,6 @@ export default function TouchwallPocketApp() {
         </div>
       </main>
 
-      {/* VOLLWERTIGES BEARBEITEN-MODAL FÜR DEN BESTAND */}
       {editStockModal.open && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-3 overflow-y-auto">
           <form
