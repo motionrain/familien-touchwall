@@ -21,7 +21,7 @@ import {
 
 const { formatDateStr, addDays } = Cfg;
 
-// Alle 1D- & 2D-Barcode- und QR-Code-Formate für das gesamte Lebensmittelspektrum
+// Alle 1D- & 2D-Barcode- und QR-Code-Formate
 const ALL_DESIRED_BARCODE_FORMATS = [
   'ean_13',
   'ean_8',
@@ -83,16 +83,13 @@ const KNOWN_BRAND_PREFIXES = [
   'Teekanne', 'Meßmer', 'Jacobs', 'Tchibo', 'Dallmayr', 'Lavazza', 'Melitta', 'Nescafé', 'Oatly', 'Alpro'
 ];
 
-// Umfassendes Lebensmittel-Wörterbuch für die optische Etiketten- & Verpackungserkennung
 const LABEL_FOOD_KEYWORDS = [
-  // Milchprodukte & Käse
   'Alpenmilch', 'Weidemilch', 'Haltbare Vollmilch', 'Frische Vollmilch', 'Vollmilch', 'Fettarme Milch', 'Hafermilch', 'Mandelmilch',
   'Schlagsahne', 'Kochsahne', 'Saure Sahne', 'Schmand', 'Crème fraîche', 'Mascarpone', 'Speisequark', 'Magerquark', 'Kräuterquark',
   'Naturjoghurt', 'Fruchtjoghurt', 'Griechischer Joghurt', 'Skyr', 'Kefir', 'Buttermilch', 'Ayran',
   'Frischkäse', 'Kräuterbutter', 'Markenbutter', 'Süßrahmbutter', 'Mildgesäuerte Butter', 'Butter', 'Margarine',
   'Gouda', 'Emmentaler', 'Maasdamer', 'Tilsiter', 'Bergkäse', 'Mozzarella', 'Parmesan', 'Grana Padano', 'Feta', 'Hirtenkäse',
   'Camembert', 'Brie', 'Reibekäse', 'Scheibenkäse', 'Schmelzkäse',
-  // Backwaren, Getreide, Nudeln, Reis & Kartoffeln
   'Glutenfreie Wraps', 'Wraps', 'Tortilla Wraps', 'Landbrot', 'Mehrkornbrot', 'Vollkornbrot', 'Toastbrot', 'Buttertoast',
   'Sonntagsbrötchen', 'Aufbackbrötchen', 'Brötchen', 'Baguette', 'Croissants', 'Knäckebrot', 'Reiswaffeln',
   'Spaghetti', 'Penne Rigate', 'Fusilli', 'Rigatoni', 'Tagliatelle', 'Makkaroni', 'Tortellini', 'Ravioli', 'Gnocchi',
@@ -101,37 +98,29 @@ const LABEL_FOOD_KEYWORDS = [
   'Kartoffelpüree', 'Speisekartoffeln', 'Kartoffeln', 'Pommes Frites', 'Kroketten', 'Reibekuchen', 'Knödel',
   'Haferflocken', 'Schmelzflocken', 'Knuspermüsli', 'Früchtemüsli', 'Cornflakes', 'Choco Balls',
   'Weizenmehl', 'Dinkelmehl', 'Reismehl', 'Buchweizenmehl', 'Speisestärke', 'Maisstärke', 'Backpulver', 'Trockenhefe',
-  // Obst, Gemüse, Pilze & Konserven
   'Apfelmus', 'Apfelmark', 'Apfel-Rotkohl', 'Rotkohl', 'Sauerkraut', 'Stangenspargel', 'Spargel', 'Gewürzgurken', 'Cornichons',
   'Passierte Tomaten', 'Gehackte Tomaten', 'Tomatenmark', 'Sonnenmais', 'Kichererbsen', 'Kidneybohnen', 'Grüne Bohnen',
   'Erbsen und Möhren', 'Junge Erbsen', 'Linsen', 'Chili sin Carne', 'Chili con Carne',
   'Pfifferlinge', 'Champignons', 'Steinpilze', 'Waldfrüchte', 'Beerenmischung', 'Himbeeren', 'Heidelbeeren', 'Erdbeeren',
   'Eisbergsalat', 'Feldsalat', 'Rucola', 'Blattspinat', 'Rahmspinat', 'Brokkoli', 'Blumenkohl', 'Rosenkohl',
   'Schlangengurke', 'Rispentomaten', 'Cherrytomaten', 'Spitzpaprika', 'Paprika', 'Karotten', 'Speisemöhren', 'Avocado',
-  // Fleisch, Wurst, Fisch & Eier
   'Schweinefilet', 'Schweinelende', 'Schweineschnitzel', 'Schweinebraten', 'Schweinegulasch', 'Schweinehackfleisch',
   'Rinderfilet', 'Rumpsteak', 'Rindergulasch', 'Rinderhackfleisch', 'Rinderrouladen', 'Rinderbraten',
   'Hackfleisch gemischt', 'Hackfleisch', 'Hähnchenbrustfilet', 'Hähnchenfilet', 'Hähnchenschenkel', 'Hähnchengeschnetzeltes',
   'Putenbrustfilet', 'Putenschnitzel', 'Putenhackfleisch', 'Minutensteaks',
   'Rostbratwurst', 'Bratwurst', 'Wiener Würstchen', 'Bockwurst', 'Fleischwurst', 'Lyoner', 'Leberwurst',
-  'Salami', 'Kochschinken', 'Schwarzwälder Schinken', ' Lachsschinken', 'Bacon', 'Speckwürfel',
+  'Salami', 'Kochschinken', 'Schwarzwälder Schinken', 'Lachsschinken', 'Bacon', 'Speckwürfel',
   'Lachsfilet', 'Wildlachs', 'Kabeljaufilet', 'Seelachsfilet', 'Fischstäbchen', 'Thunfisch', 'Forellenfilet', 'Garnelen',
   'Freilandeier', 'Bio-Eier', 'Frische Eier',
-  // Öle, Saucen, Würzmittel & Aufstriche
   'Olivenöl', 'Sonnenblumenöl', 'Rapsöl', 'Kokosöl', 'Balsamico', 'Apfelessig', 'Kräuteressig', 'Weinessig',
   'Tomatenketchup', 'Ketchup', 'Mayonnaise', 'Remoulade', 'Mittelscharfer Senf', 'Delikatess Senf', 'Burger Sauce',
   'Pesto Verde', 'Pesto Rosso', 'Sojasauce', 'Gemüsebrühe', 'Hühnerbrühe', 'Rinderbrühe',
   'Erdnussbutter', 'Haselnusscreme', 'Fruchtaufstrich', 'Konfitüre', 'Blütenhonig', 'Honig',
-  // Getränke
   'Mineralwasser', 'Apfelsaft', 'Orangensaft', 'Multivitaminsaft', 'Apfelschorle', 'Rhabarberschorle',
   'Filterkaffee', 'Caffè Crema', 'Espresso', 'Kräutertee', 'Früchtetee', 'Grüner Tee', 'Schwarzer Tee',
-  // Tierfutter
   'Hundefutter', 'Katzenfutter', 'Nassfutter', 'Trockenfutter', 'Kauknochen', 'Hundesnack', 'Pferdefutter'
 ];
 
-// ============================================================================
-// SELBSTLERNENDES LOKALES BARCODE- & QR-CODE-GEDÄCHTNIS (OFFLINE & SOFORT)
-// ============================================================================
 export function saveLearnedProductToMemory(barcodeKey, productData) {
   try {
     const cleanKey = String(barcodeKey || '').trim();
@@ -150,7 +139,6 @@ export function saveLearnedProductToMemory(barcodeKey, productData) {
 
     map[cleanKey] = entry;
 
-    // Bei 13-stelligen Frischetheken-/Waagen-Barcodes (20..29) zusätzlich den 7-stelligen Artikel-Stamm speichern
     const digits = cleanKey.replace(/\D/g, '');
     if (digits.length === 13 && /^2[0-9]/.test(digits)) {
       map[digits.slice(0, 7)] = entry;
@@ -380,6 +368,110 @@ function estimateProduceByName(inputName) {
 }
 
 // ============================================================================
+// PIXEL-KONTRASTVERSTÄRKER & ERWEITERTER MHD-DATUMSPARSER (PUNKT 2)
+// ============================================================================
+function enhanceCanvasForMhdOcr(ctx, width, height) {
+  try {
+    const imgData = ctx.getImageData(0, 0, width, height);
+    const d = imgData.data;
+    let minLum = 255;
+    let maxLum = 0;
+
+    for (let i = 0; i < d.length; i += 4) {
+      const lum = Math.round(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]);
+      d[i] = lum;
+      if (lum < minLum) minLum = lum;
+      if (lum > maxLum) maxLum = lum;
+    }
+
+    const range = Math.max(25, maxLum - minLum);
+    for (let i = 0; i < d.length; i += 4) {
+      let norm = ((d[i] - minLum) / range) * 255;
+      // S-Kurve für knackigen Kontrast bei Nadeldruck-Ziffern auf Verpackungen
+      norm = norm < 118 ? Math.max(0, norm * 0.65) : Math.min(255, norm * 1.25 + 20);
+      const v = Math.round(norm);
+      d[i] = v;
+      d[i + 1] = v;
+      d[i + 2] = v;
+    }
+    ctx.putImageData(imgData, 0, 0);
+  } catch (e) {}
+}
+
+export function extractExpiryDateFromText(rawText) {
+  const rawUpper = String(rawText || '').toUpperCase();
+
+  // 1. Deutsche & internationale Monatsnamen in Ziffern umwandeln (z.B. "15 NOV 26" -> "15.11.26")
+  const withNumericMonths = rawUpper
+    .replace(/\b(JANUAR|JAN|JANUARY)\b\.?/g, '.01.')
+    .replace(/\b(FEBRUAR|FEB|FEBRUARY)\b\.?/g, '.02.')
+    .replace(/\b(MÄRZ|MAERZ|MRZ|MÄR|MAR|MARCH)\b\.?/g, '.03.')
+    .replace(/\b(APRIL|APR)\b\.?/g, '.04.')
+    .replace(/\b(MAI|MAY)\b\.?/g, '.05.')
+    .replace(/\b(JUNI|JUN|JUNE)\b\.?/g, '.06.')
+    .replace(/\b(JULI|JUL|JULY)\b\.?/g, '.07.')
+    .replace(/\b(AUGUST|AUG)\b\.?/g, '.08.')
+    .replace(/\b(SEPTEMBER|SEPT|SEP)\b\.?/g, '.09.')
+    .replace(/\b(OKTOBER|OKT|OCT|OCTOBER)\b\.?/g, '.10.')
+    .replace(/\b(NOVEMBER|NOV)\b\.?/g, '.11.')
+    .replace(/\b(DEZEMBER|DEZ|DEC|DECEMBER)\b\.?/g, '.12.');
+
+  // 2. Typische OCR-Buchstabenverwechslungen in Zahlenblöcken korrigieren
+  const clean = withNumericMonths
+    .replace(/[|lI!]/g, '1')
+    .replace(/[OQ]/g, '0')
+    .replace(/S(?=\d)/g, '5')
+    .replace(/B(?=\d)/g, '8')
+    .replace(/Z(?=\d)/g, '2');
+
+  const isValidYear = (yNum) => yNum >= 2025 && yNum <= 2036;
+
+  // Format A: ISO YYYY-MM-DD oder YYYY.MM.DD
+  const isoRegex = /\b(202[5-9]|203[0-6])\s*[-./]\s*(0?[1-9]|1[0-2])\s*[-./]\s*(0?[1-9]|[12][0-9]|3[01])\b/g;
+  let match = isoRegex.exec(clean);
+  if (match) {
+    return match[1] + '-' + String(match[2]).padStart(2, '0') + '-' + String(match[3]).padStart(2, '0');
+  }
+
+  // Format B: Klassisches DD.MM.YYYY oder DD.MM.YY (auch mit Leerzeichen bei Tintenstrahl-Aufdrucken: "24 . 11 . 26")
+  const dmyRegex = /\b(0?[1-9]|[12][0-9]|3[01])\s*[.,/\-\s:·•_]{1,4}\s*(0?[1-9]|1[0-2])\s*[.,/\-\s:·•_]{1,4}\s*(20[2-3][0-9]|2[5-9]|3[0-6])\b/g;
+  while ((match = dmyRegex.exec(clean)) !== null) {
+    const day = String(match[1]).padStart(2, '0');
+    const month = String(match[2]).padStart(2, '0');
+    let year = String(match[3]);
+    if (year.length === 2) year = '20' + year;
+    if (isValidYear(Number(year))) {
+      return year + '-' + month + '-' + day;
+    }
+  }
+
+  // Format C: Kompaktes 6- oder 8-stelliges Datum ohne Punkte (z.B. 24112026 oder 241126)
+  const compactRegex = /\b(0[1-9]|[12][0-9]|3[01])(0[1-9]|1[0-2])(202[5-9]|203[0-6]|2[6-9]|3[0-5])\b/g;
+  while ((match = compactRegex.exec(clean)) !== null) {
+    const day = match[1];
+    const month = match[2];
+    let year = match[3];
+    if (year.length === 2) year = '20' + year;
+    if (isValidYear(Number(year))) {
+      return year + '-' + month + '-' + day;
+    }
+  }
+
+  // Format D: Monats-MHD (MM.YYYY oder MM/YYYY oder MM/YY, z.B. "11/2027" oder "05.27")
+  const myRegex = /\b(0?[1-9]|1[0-2])\s*[./\-:]\s*(202[5-9]|203[0-6]|2[6-9]|3[0-5])\b/g;
+  while ((match = myRegex.exec(clean)) !== null) {
+    const month = String(match[1]).padStart(2, '0');
+    let year = String(match[2]);
+    if (year.length === 2) year = '20' + year;
+    if (isValidYear(Number(year))) {
+      return year + '-' + month + '-28';
+    }
+  }
+
+  return null;
+}
+
+// ============================================================================
 // UNIVERSAL-PARSER FÜR ALLE BARCODE-, GS1-, QR-, URL- & GEWICHTS-TYPEN
 // ============================================================================
 function parseUniversalBarcodePayload(rawVal) {
@@ -398,7 +490,6 @@ function parseUniversalBarcodePayload(rawVal) {
 
   if (!clean) return result;
 
-  // 0. Prüfe zuerst unser lokales Selbstlern-Gedächtnis für den Rohcode
   const learnedDirect = getLearnedProductFromMemory(clean);
   if (learnedDirect) {
     result.extractedName = learnedDirect.name;
@@ -406,7 +497,6 @@ function parseUniversalBarcodePayload(rawVal) {
     result.extractedLocation = learnedDirect.location;
   }
 
-  // 1. JSON-QR-Code (z.B. eigene Vorrats-Etiketten oder smarte Verpackungen)
   if (clean.startsWith('{') && clean.endsWith('}')) {
     try {
       const obj = JSON.parse(clean);
@@ -419,7 +509,6 @@ function parseUniversalBarcodePayload(rawVal) {
     } catch (e) {}
   }
 
-  // 2. Klartext-QR-Code mit Trennzeichen (z.B. "Apfelmus | 500g | 2027-02-15")
   if (clean.includes('|') || /^tw:/i.test(clean)) {
     const parts = clean.replace(/^tw:/i, '').split('|').map(s => s.trim());
     if (parts[0] && !/^\d+$/.test(parts[0])) result.extractedName = parts[0];
@@ -431,9 +520,7 @@ function parseUniversalBarcodePayload(rawVal) {
     });
   }
 
-  // 3. QR-CODES MIT WEB-URLs (GS1 Digital Link UND Hersteller-/Produkt-Links)
   if (/^https?:\/\//i.test(clean)) {
-    // 3a. GS1 Digital Link Pfad (/01/GTIN/17/YYMMDD/3103/WEIGHT)
     const urlGtin = clean.match(/\/01\/(\d{8,14})/);
     if (urlGtin) {
       const g = urlGtin[1];
@@ -455,7 +542,6 @@ function parseUniversalBarcodePayload(rawVal) {
       }
     }
 
-    // 3b. Query-Parameter & URL-Slug für Hersteller-QR-Codes (z.B. alnatura.de/produkte/bio-apfelmark)
     try {
       const u = new URL(clean);
       const qEan = u.searchParams.get('ean') || u.searchParams.get('gtin') || u.searchParams.get('barcode');
@@ -467,14 +553,12 @@ function parseUniversalBarcodePayload(rawVal) {
       const qMhd = u.searchParams.get('mhd') || u.searchParams.get('exp');
       if (qMhd && /^\d{4}-\d{2}-\d{2}$/.test(qMhd)) result.extractedExpiry = qMhd;
 
-      // Extrahiere Marke aus Domainnamen (z.B. www.frosta.de -> Frosta)
       const hostParts = u.hostname.replace(/^(www|qr|m|shop|info|scan)\./i, '').split('.');
       if (hostParts[0] && !/^(gs1|bit|tinyurl|goo|qr-code|qrco)$/i.test(hostParts[0])) {
         const domainBrand = hostParts[0].charAt(0).toUpperCase() + hostParts[0].slice(1);
         result.extractedBrand = shortenBrandString(domainBrand);
       }
 
-      // Prüfe, ob im URL-Pfad ein klarer Produktname steckt (z.B. /produkt/vollmilch-schokolade)
       const pathSegments = u.pathname
         .split('/')
         .map(s => decodeURIComponent(s).replace(/\.(html|php|aspx|htm)$/i, '').trim())
@@ -500,7 +584,6 @@ function parseUniversalBarcodePayload(rawVal) {
     } catch (e) {}
   }
 
-  // 4. GS1-128 / DATAMATRIX / PDF417 / GS1 DATABAR APPLICATION IDENTIFIERS
   const gtinMatch = clean.match(/(?:\(01\)|\b01)(\d{14})/);
   if (gtinMatch) {
     const gtin14 = gtinMatch[1];
@@ -535,7 +618,6 @@ function parseUniversalBarcodePayload(rawVal) {
     result.extractedBatch = batchMatch[1];
   }
 
-  // 5. GEWICHTS- & FRISCHETHEKEN-EANs (Präfix 20 bis 29)
   const digitsOnly = clean.replace(/\D/g, '');
   if (digitsOnly.length === 13 && /^2[0-9]/.test(digitsOnly)) {
     const prefix7 = digitsOnly.slice(0, 7);
@@ -551,7 +633,6 @@ function parseUniversalBarcodePayload(rawVal) {
     result.lookupCodes.push(digitsOnly, prefix7 + '000000');
   }
 
-  // 6. Standard-EAN-8 / UPC-A (12) / EAN-13 / GTIN-14 Zahlenblöcke extrahieren
   if (!/^https?:\/\//i.test(clean)) {
     const allNumberBlocks = clean.match(/\b\d{8,14}\b/g) || [];
     allNumberBlocks.forEach(num => {
@@ -562,11 +643,9 @@ function parseUniversalBarcodePayload(rawVal) {
       if (!result.lookupCodes.includes(num)) {
         result.lookupCodes.push(num);
       }
-      // Falls 12-stelliger UPC-A Code: auch mit führender 0 als EAN-13 probieren
       if (num.length === 12 && !result.lookupCodes.includes('0' + num)) {
         result.lookupCodes.push('0' + num);
       }
-      // Falls 13-stelliger EAN mit 0 am Anfang: auch als 12-stelligen UPC probieren
       if (num.length === 13 && num.startsWith('0') && !result.lookupCodes.includes(num.slice(1))) {
         result.lookupCodes.push(num.slice(1));
       }
@@ -580,7 +659,6 @@ function parseUniversalBarcodePayload(rawVal) {
   return result;
 }
 
-// Kombiniert mehrere gleichzeitig im selben Kamerabild erkannte Codes (z.B. EAN-13 Strichcode + QR/DataMatrix daneben)
 function mergeMultipleBarcodesFromFrame(detectedList) {
   if (!Array.isArray(detectedList) || detectedList.length === 0) return null;
 
@@ -594,7 +672,6 @@ function mergeMultipleBarcodesFromFrame(detectedList) {
 
   if (parsedItems.length === 0) return null;
 
-  // Sortiere so, dass echte Produkt-Barcodes (EAN-13, EAN-8, UPC, GS1 mit LookupCode) Vorrang vor reinen Werbe-URLs haben
   parsedItems.sort((a, b) => {
     const score = (item) => {
       if (item.parsed.isPureMarketingUrl) return -10;
@@ -609,7 +686,6 @@ function mergeMultipleBarcodesFromFrame(detectedList) {
     return score(b) - score(a);
   });
 
-  // Kombiniere alle Informationen aus allen im Frame gefundenen Codes
   const combined = {
     primaryRaw: parsedItems[0].raw,
     formats: Array.from(new Set(parsedItems.map(x => x.format.toUpperCase()))).join(' + '),
@@ -658,6 +734,11 @@ export default function PocketScanner({
   const [activeFormatCount, setActiveFormatCount] = useState(13);
   const [lastDetectedFormat, setLastDetectedFormat] = useState('');
 
+  // 2-PHASEN-SCANNER-STATUS:
+  // 'barcode' = Sucht Produkt/Barcode | 'hunting_mhd' = Produkt gefunden, sucht jetzt aktiv das gedruckte MHD! | 'mhd_locked' = MHD erfasst!
+  const [scanPhase, setScanPhase] = useState('barcode');
+  const [autoAddWhenBothScanned, setAutoAddWhenBothScanned] = useState(false);
+
   const [scannedBarcode, setScannedBarcode] = useState('');
   const [scanName, setScanName] = useState('');
   const [scanQty, setScanQty] = useState('1x');
@@ -670,11 +751,11 @@ export default function PocketScanner({
 
   const [isLookingUpProduct, setIsLookingUpProduct] = useState(false);
   const [detectedMhdCandidate, setDetectedMhdCandidate] = useState('');
+  const [isMhdLockedByOcr, setIsMhdLockedByOcr] = useState(false);
   const [lastOcrRawHint, setLastOcrRawHint] = useState('');
   const [isReadingMhd, setIsReadingMhd] = useState(false);
   const [isReadingFullLabel, setIsReadingFullLabel] = useState(false);
   const [isDetectingObject, setIsDetectingObject] = useState(false);
-  const [autoMhdScanEnabled] = useState(true);
 
   const [isScanningReceipt, setIsScanningReceipt] = useState(false);
   const [receiptItems, setReceiptItems] = useState([]);
@@ -690,6 +771,15 @@ export default function PocketScanner({
   const lastScannedCodeRef = useRef('');
   const lastScanTimeRef = useRef(0);
   const isReadingMhdRef = useRef(false);
+
+  // Haptisches Vibrations-Feedback (Punkt 2)
+  const triggerVibration = (pattern) => {
+    try {
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        navigator.vibrate(pattern);
+      }
+    } catch (e) {}
+  };
 
   const requestScreenWakeLock = async () => {
     try {
@@ -763,12 +853,14 @@ export default function PocketScanner({
     setScanGlutenFree('yes');
     setScanExpiry(estDate);
     setDetectedMhdCandidate(estDate);
+    setIsMhdLockedByOcr(true);
+    setScanPhase('mhd_locked');
     setEstimatedMhdHint(
       produceItem.emoji + ' ' + produceItem.name + ' → MHD +' + produceItem.days + ' Tage (' + produceItem.hint + ')'
     );
     setShowProduceDrawer(false);
     playMobileBeep('scan');
-    try { navigator.vibrate?.(65); } catch (e) {}
+    triggerVibration([90, 40, 120]);
     if (showFeedbackToast) {
       showToast(
         produceItem.name + ' gewählt!',
@@ -940,47 +1032,6 @@ export default function PocketScanner({
     }
   };
 
-  const extractExpiryDateFromText = (rawText) => {
-    const clean = String(rawText || '')
-      .replace(/[|lI!]/g, '1')
-      .replace(/[OQ]/g, '0')
-      .replace(/S(?=\d)/g, '5')
-      .replace(/B(?=\d)/g, '8')
-      .replace(/Z(?=\d)/g, '2');
-
-    const dmyRegex = /(0?[1-9]|[12][0-9]|3[01])\s*[.,/\-\s:·•_]+\s*(0?[1-9]|1[0-2])\s*[.,/\-\s:·•_]+\s*(20[2-3][0-9]|2[6-9]|3[0-5])\b/g;
-    let match;
-    while ((match = dmyRegex.exec(clean)) !== null) {
-      const day = String(match[1]).padStart(2, '0');
-      const month = String(match[2]).padStart(2, '0');
-      let year = String(match[3]);
-      if (year.length === 2) year = '20' + year;
-      const numYear = Number(year);
-      if (numYear >= 2025 && numYear <= 2036) {
-        return year + '-' + month + '-' + day;
-      }
-    }
-
-    const compactRegex = /\b(0[1-9]|[12][0-9]|3[01])(0[1-9]|1[0-2])(20[2-3][0-9]|2[6-9]|3[0-5])\b/g;
-    while ((match = compactRegex.exec(clean)) !== null) {
-      const day = match[1];
-      const month = match[2];
-      let year = match[3];
-      if (year.length === 2) year = '20' + year;
-      return year + '-' + month + '-' + day;
-    }
-
-    const myRegex = /\b(0?[1-9]|1[0-2])\s*[.,/\-:]+\s*(20[2-3][0-9]|2[6-9]|3[0-5])\b/g;
-    while ((match = myRegex.exec(clean)) !== null) {
-      const month = String(match[1]).padStart(2, '0');
-      let year = String(match[2]);
-      if (year.length === 2) year = '20' + year;
-      return year + '-' + month + '-28';
-    }
-
-    return null;
-  };
-
   const getFastMhdOcrWorker = async () => {
     if (ocrWorkerRef.current) return ocrWorkerRef.current;
 
@@ -997,7 +1048,7 @@ export default function PocketScanner({
     if (window.Tesseract?.createWorker) {
       const worker = await window.Tesseract.createWorker('eng');
       await worker.setParameters({
-        tessedit_char_whitelist: '0123456789.,/-:MHDmhd '
+        tessedit_char_whitelist: '0123456789.,/-:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz '
       });
       ocrWorkerRef.current = worker;
       return worker;
@@ -1006,7 +1057,7 @@ export default function PocketScanner({
   };
 
   // ============================================================================
-  // UNIVERSELLER VERPACKUNGS- & ETIKETTEN-LESER (FÜR ALLE LEBENSMITTELARTEN)
+  // UNIVERSELLER VERPACKUNGS- & ETIKETTEN-LESER
   // ============================================================================
   const captureProductLabelFromLiveCamera = async (silentFallback = false) => {
     if (!videoRef.current || videoRef.current.readyState < 2) {
@@ -1037,7 +1088,6 @@ export default function PocketScanner({
       canvas.width = Math.floor(vw * 0.88);
       canvas.height = Math.floor(vh * 0.78);
       const ctx = canvas.getContext('2d');
-      ctx.filter = 'contrast(1.65) grayscale(1)';
       ctx.drawImage(
         vid,
         Math.floor(vw * 0.06),
@@ -1049,6 +1099,7 @@ export default function PocketScanner({
         canvas.width,
         canvas.height
       );
+      enhanceCanvasForMhdOcr(ctx, canvas.width, canvas.height);
 
       const res = await window.Tesseract.recognize(canvas, 'deu');
       const fullText = String(res?.data?.text || '');
@@ -1093,7 +1144,6 @@ export default function PocketScanner({
         const finalName = simplifyProductName(foundFoodTitle, foundBrand);
         const cat = detectSmartCategory(finalName);
         const loc = detectSmartLocation(finalName, cat);
-        const freshMatch = estimateProduceByName(finalName);
 
         setScanName(finalName);
         setScanCategory(cat);
@@ -1102,28 +1152,32 @@ export default function PocketScanner({
         if (weightMatch) {
           setScanQty(weightMatch[1] + weightMatch[2].toLowerCase());
         }
+
         if (parsedExp) {
           setScanExpiry(parsedExp);
           setDetectedMhdCandidate(parsedExp);
-        } else if (freshMatch && !scanExpiry) {
-          const est = formatDateStr(addDays(new Date(), freshMatch.days));
-          setScanExpiry(est);
-          setDetectedMhdCandidate(est);
-          setEstimatedMhdHint(freshMatch.emoji + ' ' + freshMatch.name + ' → Empfohlenes MHD +' + freshMatch.days + ' Tage');
-        } else if (loc === 'freezer' && !scanExpiry) {
-          const estTk = formatDateStr(addDays(new Date(), 180));
-          setScanExpiry(estTk);
-          setDetectedMhdCandidate(estTk);
+          setIsMhdLockedByOcr(true);
+          setScanPhase('mhd_locked');
+          playMobileBeep('scan');
+          triggerVibration([180, 70, 260]);
+          showToast('Etikett + MHD erkannt! 🎉', finalName + ' (' + parsedExp + ')', getFoodEmoji(finalName));
+        } else {
+          // Produktname vom Etikett erkannt -> Suche jetzt automatisch weiter nach dem MHD-Datum!
+          setIsMhdLockedByOcr(false);
+          setScanPhase('hunting_mhd');
+          playMobileBeep('scan');
+          triggerVibration([90, 45, 90]);
+          showToast('Etikett gelesen! 🏷️', finalName + ' – halte jetzt das MHD in den Rahmen!', getFoodEmoji(finalName));
         }
-
-        playMobileBeep('scan');
-        try { navigator.vibrate?.(70); } catch (e) {}
-        showToast('Verpackung gelesen! 🏷️', finalName, getFoodEmoji(finalName));
         return true;
       } else if (parsedExp) {
         setScanExpiry(parsedExp);
         setDetectedMhdCandidate(parsedExp);
-        showToast('MHD gelesen!', parsedExp, '📅');
+        setIsMhdLockedByOcr(true);
+        setScanPhase('mhd_locked');
+        playMobileBeep('scan');
+        triggerVibration([180, 70, 260]);
+        showToast('MHD gelesen! 🎉', parsedExp, '📅');
         return true;
       }
     } catch (e) {} finally {
@@ -1132,6 +1186,9 @@ export default function PocketScanner({
     return false;
   };
 
+  // ============================================================================
+  // VERBESSERTER LIVE-MHD-SCANNER MIT VIBRATION & AUTO-WEITERSUCHE (PUNKT 2)
+  // ============================================================================
   const captureMhdFromLiveCamera = async (silentMode = false) => {
     if (!videoRef.current || videoRef.current.readyState < 2) {
       if (!silentMode) showToast('Kamera nicht bereit', 'Bitte zuerst die Kamera starten.', '⚠️');
@@ -1147,17 +1204,20 @@ export default function PocketScanner({
       const vw = vid.videoWidth || 640;
       const vh = vid.videoHeight || 480;
 
-      const cropX = Math.floor(vw * 0.10);
-      const cropY = Math.floor(vh * 0.28);
-      const cropW = Math.floor(vw * 0.80);
-      const cropH = Math.floor(vh * 0.44);
+      // Großzügiger Zielbereich in der Bildmitte für schnelle MHD-Erfassung
+      const cropX = Math.floor(vw * 0.08);
+      const cropY = Math.floor(vh * 0.22);
+      const cropW = Math.floor(vw * 0.84);
+      const cropH = Math.floor(vh * 0.52);
 
       const canvas = document.createElement('canvas');
       canvas.width = cropW;
       canvas.height = cropH;
       const ctx = canvas.getContext('2d');
-      ctx.filter = 'contrast(2.1) grayscale(1) brightness(1.12)';
       ctx.drawImage(vid, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+
+      // Pixel-Kontrastverstärkung für Nadeldruck- und Stempel-Schriften
+      enhanceCanvasForMhdOcr(ctx, cropW, cropH);
 
       const worker = await getFastMhdOcrWorker();
       const result = worker
@@ -1173,11 +1233,23 @@ export default function PocketScanner({
       if (parsedDate) {
         setDetectedMhdCandidate(parsedDate);
         setScanExpiry(parsedDate);
+        setIsMhdLockedByOcr(true);
+        setScanPhase('mhd_locked');
+
+        // Kräftige Doppel-Vibration zur Bestätigung, dass das MHD erfasst wurde!
         playMobileBeep('scan');
-        try { navigator.vibrate?.(70); } catch (e) {}
+        triggerVibration([180, 70, 260]);
+
         const niceDate = parsedDate.slice(8, 10) + '.' + parsedDate.slice(5, 7) + '.' + parsedDate.slice(0, 4);
-        showToast('MHD erkannt: ' + niceDate, 'Tippe auf „🛒 In Einkaufswagen“!', '🎉');
+
+        if (autoAddWhenBothScanned && scanName.trim()) {
+          triggerAddCurrentScanToCart(parsedDate);
+          showToast('⚡ Automatisch im Wagen!', scanName + ' (MHD: ' + niceDate + ')', getFoodEmoji(scanName));
+        } else {
+          showToast('📅 MHD erkannt: ' + niceDate, 'Vibration bestätigt – tippe auf „🛒 In Einkaufswagen“!', '🎉');
+        }
       } else if (!silentMode) {
+        triggerVibration(40);
         showToast('Datum noch unscharf', 'Tipp: Nutze oben im Bild „🔍 2x“ oder „🔦 Licht“.', '🔍');
       }
     } catch (err) {
@@ -1188,25 +1260,26 @@ export default function PocketScanner({
     }
   };
 
+  // Kontinuierliche MHD-Suche: Läuft nach dem Barcode-Scan automatisch im 900ms-Takt weiter,
+  // bis ein echtes MHD per Kamera-OCR (`isMhdLockedByOcr`) erfasst wurde!
   useEffect(() => {
-    if (!cameraActive || !autoMhdScanEnabled || scannerMode === 'object_ai') {
+    if (!cameraActive || scannerMode === 'object_ai') {
       if (mhdAutoLoopRef.current) clearInterval(mhdAutoLoopRef.current);
       return;
     }
+
+    const intervalMs = scanPhase === 'hunting_mhd' ? 850 : 1250;
     mhdAutoLoopRef.current = setInterval(() => {
-      if (!isReadingMhdRef.current && !detectedMhdCandidate) {
+      if (!isReadingMhdRef.current && !isMhdLockedByOcr) {
         captureMhdFromLiveCamera(true);
       }
-    }, 1400);
+    }, intervalMs);
 
     return () => {
       if (mhdAutoLoopRef.current) clearInterval(mhdAutoLoopRef.current);
     };
-  }, [cameraActive, autoMhdScanEnabled, detectedMhdCandidate, scannerMode]);
+  }, [cameraActive, isMhdLockedByOcr, scanPhase, scannerMode, scanName, autoAddWhenBothScanned]);
 
-  // ============================================================================
-  // MULTI-DATENBANK-ABFRAGE (LOKALES GEDÄCHTNIS -> OPENFOODFACTS -> PETFOOD -> PRODUCTS)
-  // ============================================================================
   const fetchProductFromAllOpenDatabases = async (candidateCode) => {
     const endpoints = [
       'https://de.openfoodfacts.org/api/v2/product/' + encodeURIComponent(candidateCode) + '.json',
@@ -1228,31 +1301,43 @@ export default function PocketScanner({
     return null;
   };
 
+  // ============================================================================
+  // PHASE 1 -> PHASE 2 ÜBERGANG: BARCODE ERKANNT -> VIBRATION -> WEITER NACH MHD SUCHEN!
+  // ============================================================================
   const processMergedScanResult = async (mergedScan) => {
-    if (!mergedScan) return;
-
-    // Falls nur ein reiner Marketing-QR-Code ohne Produktbezug im Bild war, ignoriere ihn kurz,
-    // damit der Scanner sofort den eigentlichen EAN-Strichcode daneben erfassen kann!
-    if (mergedScan.allPureMarketingUrls) {
-      return;
-    }
+    if (!mergedScan || mergedScan.allPureMarketingUrls) return;
 
     const primaryCodeKey = mergedScan.lookupCodes[0] || mergedScan.primaryRaw.slice(0, 28);
     setScannedBarcode(primaryCodeKey);
     if (mergedScan.formats) setLastDetectedFormat(mergedScan.formats);
 
+    // Sofortiges haptisches Feedback beim Erfassen des Barcodes!
+    playMobileBeep('scan');
+    triggerVibration([90, 45, 90]);
+
     if (mergedScan.extractedWeightQty) {
       setScanQty(mergedScan.extractedWeightQty);
     }
+
+    // Nur wenn das MHD direkt digital im GS1-/QR-Code eingebettet war, ist das MHD schon fertig:
     if (mergedScan.extractedExpiry) {
       setScanExpiry(mergedScan.extractedExpiry);
       setDetectedMhdCandidate(mergedScan.extractedExpiry);
+      setIsMhdLockedByOcr(true);
+      setScanPhase('mhd_locked');
+      triggerVibration([180, 70, 260]);
+    } else {
+      // WICHTIG (Punkt 2): Nach dem Barcode-Scan sucht die Kamera automatisch weiter nach dem gedruckten MHD!
+      setIsMhdLockedByOcr(false);
+      setDetectedMhdCandidate('');
+      setScanPhase('hunting_mhd');
     }
+
     if (mergedScan.extractedLocation) {
       setScanLocation(mergedScan.extractedLocation);
     }
 
-    // 1. SOFORT-TREFFER AUS DEM LOKALEN BARCODE-GEDÄCHTNIS ODER QR-KLARTEXT
+    // 1. Sofort-Treffer aus dem lokalen Barcode-Gedächtnis
     const learnedHit = getLearnedProductFromMemory(primaryCodeKey) || getLearnedProductFromMemory(mergedScan.primaryRaw);
     if (learnedHit?.name) {
       const cat = detectSmartCategory(learnedHit.name, learnedHit.category);
@@ -1262,9 +1347,11 @@ export default function PocketScanner({
       setScanCategory(cat);
       setScanLocation(loc);
       setScanGlutenFree(learnedHit.glutenFree || (isProductGlutenFree(learnedHit.name, cat) ? 'yes' : 'auto'));
-      playMobileBeep('scan');
-      try { navigator.vibrate?.(50); } catch (e) {}
-      showToast('Aus deinem Vorrats-Gedächtnis ⚡', learnedHit.name, getFoodEmoji(learnedHit.name));
+      showToast(
+        '✅ Barcode erkannt: ' + learnedHit.name,
+        mergedScan.extractedExpiry ? 'MHD aus Code übernommen!' : '👉 Halte jetzt das MHD-Datum in den Rahmen!',
+        getFoodEmoji(learnedHit.name)
+      );
       return;
     }
 
@@ -1276,13 +1363,11 @@ export default function PocketScanner({
       setScanCategory(cat);
       setScanLocation(loc);
       setScanGlutenFree(isProductGlutenFree(cleanQrName, cat) ? 'yes' : 'auto');
-      playMobileBeep('scan');
-      try { navigator.vibrate?.(50); } catch (e) {}
-      showToast('QR-Produktdaten erkannt! 🎯', cleanQrName, getFoodEmoji(cleanQrName));
+      showToast('QR-Produkt erkannt! 🎯', cleanQrName + ' – suche jetzt nach MHD...', getFoodEmoji(cleanQrName));
       return;
     }
 
-    // 2. ONLINE-ABFRAGE ÜBER DIE MULTI-DATENBANK-KASKADE
+    // 2. Online-Abfrage über OpenFoodFacts / PetFood / Products
     setIsLookingUpProduct(true);
     try {
       const candidatesToTry = mergedScan.lookupCodes.length > 0 ? mergedScan.lookupCodes : [mergedScan.primaryRaw];
@@ -1317,24 +1402,20 @@ export default function PocketScanner({
             setScanLocation(detectedLoc);
             setScanGlutenFree(isGf ? 'yes' : 'auto');
 
+            // Hinweis anzeigen, aber NICHT isMhdLockedByOcr blockieren, damit der Scanner weiter nach dem echten MHD sucht!
             const freshMatch = estimateProduceByName(smartName);
-            if (detectedLoc === 'freezer' && !scanExpiry && !mergedScan.extractedExpiry) {
-              const tkDate = formatDateStr(addDays(new Date(), 180));
-              setScanExpiry(tkDate);
-              setDetectedMhdCandidate(tkDate);
-              setEstimatedMhdHint('❄️ Tiefkühl-Produkt erkannt → Lagerort „❄️ TK“ & MHD +6 Monate vorgeschlagen.');
-            } else if (freshMatch && !scanExpiry && !mergedScan.extractedExpiry) {
-              const estDate = formatDateStr(addDays(new Date(), freshMatch.days));
-              setScanExpiry(estDate);
-              setDetectedMhdCandidate(estDate);
-              setEstimatedMhdHint(freshMatch.emoji + ' Frischeprodukt → MHD +' + freshMatch.days + ' Tage (' + freshMatch.hint + ')');
+            if (detectedLoc === 'freezer' && !mergedScan.extractedExpiry) {
+              setEstimatedMhdHint('❄️ TK erkannt – Kamera sucht weiter nach dem aufgedruckten MHD (oder tippe +6M).');
+            } else if (freshMatch && !mergedScan.extractedExpiry) {
+              setEstimatedMhdHint(freshMatch.emoji + ' Kamera sucht jetzt nach dem MHD-Aufdruck (Empfehlung: +' + freshMatch.days + 'T).');
+            } else {
+              setEstimatedMhdHint('🎯 Produkt erkannt! Halte jetzt das MHD-Datum in den gelben Rahmen.');
             }
 
-            playMobileBeep('scan');
-            try { navigator.vibrate?.(50); } catch (e) {}
+            triggerVibration([100, 50, 100]);
             showToast(
-              'Erkannt & optimiert!',
-              smartName + (isGf ? ' (🌾✓ Glutenfrei)' : ''),
+              '✅ ' + smartName,
+              'Suche jetzt automatisch weiter nach dem MHD-Datum!',
               getFoodEmoji(smartName)
             );
             return;
@@ -1342,7 +1423,6 @@ export default function PocketScanner({
         }
       }
 
-      // 3. FALLBACK: Falls im QR-Code zumindest ein URL-Produktname stand
       if (mergedScan.extractedName) {
         const cleanQrName = simplifyProductName(mergedScan.extractedName, mergedScan.extractedBrand || '');
         const cat = detectSmartCategory(cleanQrName);
@@ -1350,18 +1430,15 @@ export default function PocketScanner({
         setScanName(cleanQrName);
         setScanCategory(cat);
         setScanLocation(loc);
-        playMobileBeep('scan');
-        showToast('Aus QR-Code erkannt!', cleanQrName, getFoodEmoji(cleanQrName));
+        showToast('Aus QR-Code erkannt!', cleanQrName + ' – suche jetzt MHD...', getFoodEmoji(cleanQrName));
         return;
       }
 
-      // 4. FALLBACK: Lies automatisch den Produktnamen direkt optisch vom Etikett / der Verpackung ab!
-      playMobileBeep('scan');
       const labelSuccess = await captureProductLabelFromLiveCamera(true);
       if (!labelSuccess) {
         showToast(
-          (mergedScan.formats || 'Code') + ' erfasst',
-          'Tippe den Namen kurz ein (die App merkt sich diesen Code sofort fürs nächste Mal!).',
+          (mergedScan.formats || 'Barcode') + ' gescannt!',
+          'Kamera sucht jetzt weiter nach dem MHD-Datum.',
           '🏷️'
         );
       }
@@ -1372,9 +1449,6 @@ export default function PocketScanner({
     }
   };
 
-  // ============================================================================
-  // DUAL-ENGINE LIVE-SCANNER (WERTET ALLE CODES IM SELBEN KAMERABILD GLEICHZEITIG AUS)
-  // ============================================================================
   const startLiveBarcodeCamera = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -1392,6 +1466,7 @@ export default function PocketScanner({
 
       streamRef.current = stream;
       setCameraActive(true);
+      setScanPhase(scanName.trim() ? 'hunting_mhd' : 'barcode');
       requestScreenWakeLock();
       getFastMhdOcrWorker().catch(() => {});
       getZXingMultiFormatReader().catch(() => {});
@@ -1425,7 +1500,6 @@ export default function PocketScanner({
         if (!videoRef.current || videoRef.current.readyState < 2) return;
         frameTick++;
 
-        // 1. Native Multi-Code-Erkennung (erfasst auch EAN + QR-Code gleichzeitig im selben Bild!)
         if (nativeDetector) {
           try {
             const barcodes = await nativeDetector.detect(videoRef.current);
@@ -1434,7 +1508,7 @@ export default function PocketScanner({
               if (merged && !merged.allPureMarketingUrls) {
                 const signature = merged.lookupCodes.join('_') || merged.primaryRaw;
                 const now = Date.now();
-                if (signature && (signature !== lastScannedCodeRef.current || now - lastScanTimeRef.current > 6000)) {
+                if (signature && (signature !== lastScannedCodeRef.current || now - lastScanTimeRef.current > 7000)) {
                   lastScannedCodeRef.current = signature;
                   lastScanTimeRef.current = now;
                   processMergedScanResult(merged);
@@ -1445,7 +1519,6 @@ export default function PocketScanner({
           } catch (err) {}
         }
 
-        // 2. ZXing Multi-Format-Fallback (für PDF417, GS1 DataBar, DataMatrix & QR)
         if (frameTick % 2 === 0 && zxingReaderRef.current) {
           try {
             const vid = videoRef.current;
@@ -1462,7 +1535,7 @@ export default function PocketScanner({
               const rawVal = String(zxingResult.getText()).trim();
               const merged = mergeMultipleBarcodesFromFrame([{ rawValue: rawVal, format: '2D/Multi' }]);
               const now = Date.now();
-              if (merged && !merged.allPureMarketingUrls && (rawVal !== lastScannedCodeRef.current || now - lastScanTimeRef.current > 6000)) {
+              if (merged && !merged.allPureMarketingUrls && (rawVal !== lastScannedCodeRef.current || now - lastScanTimeRef.current > 7000)) {
                 lastScannedCodeRef.current = rawVal;
                 lastScanTimeRef.current = now;
                 processMergedScanResult(merged);
@@ -1521,6 +1594,7 @@ export default function PocketScanner({
       });
 
       setReceiptItems(extracted);
+      triggerVibration([100, 50, 140]);
       showToast('Kassenbon gelesen!', extracted.length + ' Positionen erkannt & Namen vereinfacht.', '✅');
     } catch (err) {
       showToast('Kassenbon-Hinweis', 'Bitte Foto bei gutem Licht aufnehmen.', '⚠️');
@@ -1537,20 +1611,10 @@ export default function PocketScanner({
 
     const matched = estimateProduceByName(val);
     if (matched) {
-      const estDate = formatDateStr(addDays(new Date(), matched.days));
       setScanCategory(matched.category);
-      if (!scanExpiry) {
-        setScanExpiry(estDate);
-        setDetectedMhdCandidate(estDate);
-      }
       setEstimatedMhdHint(
         matched.emoji + ' ' + matched.name + ': Empfohlenes MHD +' + matched.days + ' Tage (' + matched.hint + ')'
       );
-    } else if (loc === 'freezer' && !scanExpiry) {
-      const tkDate = formatDateStr(addDays(new Date(), 180));
-      setScanExpiry(tkDate);
-      setDetectedMhdCandidate(tkDate);
-      setEstimatedMhdHint('❄️ TK erkannt → Gefrierschrank & +6 Monate MHD vorgeschlagen.');
     } else {
       setEstimatedMhdHint('');
     }
@@ -1580,7 +1644,6 @@ export default function PocketScanner({
       ? (isProductGlutenFree(finalName, resolvedCategory) ? 'yes' : 'no')
       : scanGlutenFree;
 
-    // Merke dir diesen Barcode/QR-Code dauerhaft im lokalen Vorrats-Gedächtnis!
     if (scannedBarcode) {
       saveLearnedProductToMemory(scannedBarcode, {
         name: finalName,
@@ -1602,6 +1665,7 @@ export default function PocketScanner({
       resolvedGf
     );
 
+    // Zurücksetzen auf Phase 1 (Bereit für das nächste Produkt!)
     setScanName('');
     setScannedBarcode('');
     setLastDetectedFormat('');
@@ -1610,6 +1674,8 @@ export default function PocketScanner({
     setScanExpiry('');
     setScanImageUrl('');
     setDetectedMhdCandidate('');
+    setIsMhdLockedByOcr(false);
+    setScanPhase('barcode');
     setEstimatedMhdHint('');
     setLastOcrRawHint('');
     lastScannedCodeRef.current = '';
@@ -1633,25 +1699,25 @@ export default function PocketScanner({
           <button
             type="button"
             onClick={() => { setScannerMode('barcode'); setShowProduceDrawer(false); }}
-            className={'py-2 px-2 rounded-xl text-[11px] font-black flex items-center justify-center gap-1 ' + (scannerMode === 'barcode' ? 'tw-active-nav' : 'tw-nav-inactive')}
+            className={'py-2.5 px-2 rounded-xl text-xs font-black flex items-center justify-center gap-1 ' + (scannerMode === 'barcode' ? 'tw-active-nav' : 'tw-nav-inactive')}
           >
-            <ScanLine className="w-3.5 h-3.5" />
-            <span>Universal-Scan</span>
+            <ScanLine className="w-4 h-4" />
+            <span>Scanner</span>
           </button>
           <button
             type="button"
             onClick={() => { setScannerMode('object_ai'); setShowProduceDrawer(true); }}
-            className={'py-2 px-2 rounded-xl text-[11px] font-black flex items-center justify-center gap-1 ' + (scannerMode === 'object_ai' ? 'tw-active-nav' : 'tw-nav-inactive')}
+            className={'py-2.5 px-2 rounded-xl text-xs font-black flex items-center justify-center gap-1 ' + (scannerMode === 'object_ai' ? 'tw-active-nav' : 'tw-nav-inactive')}
           >
-            <Apple className="w-3.5 h-3.5" />
+            <Apple className="w-4 h-4" />
             <span>🍎 Frische-KI</span>
           </button>
           <button
             type="button"
             onClick={() => { stopCameraStream(); setScannerMode('receipt'); }}
-            className={'py-2 px-2 rounded-xl text-[11px] font-black flex items-center justify-center gap-1 ' + (scannerMode === 'receipt' ? 'tw-active-nav' : 'tw-nav-inactive')}
+            className={'py-2.5 px-2 rounded-xl text-xs font-black flex items-center justify-center gap-1 ' + (scannerMode === 'receipt' ? 'tw-active-nav' : 'tw-nav-inactive')}
           >
-            <FileText className="w-3.5 h-3.5" />
+            <FileText className="w-4 h-4" />
             <span>🧾 Bon</span>
           </button>
         </div>
@@ -1661,7 +1727,7 @@ export default function PocketScanner({
             <button
               type="button"
               onClick={startLiveBarcodeCamera}
-              className="tw-active-nav px-3.5 py-2.5 rounded-2xl text-xs font-black flex items-center gap-1.5 shrink-0 shadow-lg"
+              className="tw-active-nav px-4 py-3 rounded-2xl text-xs font-black flex items-center gap-1.5 shrink-0 shadow-lg"
             >
               <Camera className="w-4 h-4" /> Kamera
             </button>
@@ -1669,7 +1735,7 @@ export default function PocketScanner({
             <button
               type="button"
               onClick={stopCameraStream}
-              className="px-3 py-2.5 rounded-2xl bg-rose-600 text-white text-xs font-black shrink-0 shadow-lg"
+              className="px-3.5 py-3 rounded-2xl bg-rose-600 text-white text-xs font-black shrink-0 shadow-lg"
             >
               ✕ Aus
             </button>
@@ -1679,12 +1745,19 @@ export default function PocketScanner({
 
       {scannerMode !== 'receipt' ? (
         <div className={'p-3.5 rounded-3xl border space-y-3 shadow-lg ' + themeStyles.card}>
-          {/* LIVE-KAMERA-SUCHER MIT MULTI-CODE-FUSION (EAN + QR + GS1 + DATAMATRIX + PDF417) */}
+          {/* LIVE-KAMERA-SUCHER MIT 2-PHASEN-ANZEIGE (1. BARCODE -> 2. WEITER NACH MHD SUCHEN) */}
           {cameraActive && (
             <div className="space-y-2">
               <div
                 onClick={() => scannerMode === 'object_ai' ? recognizeProduceFromCamera() : captureMhdFromLiveCamera(false)}
-                className="relative rounded-2xl overflow-hidden border-2 border-sky-400 bg-black aspect-[16/10] cursor-pointer"
+                className={
+                  'relative rounded-2xl overflow-hidden border-2 bg-black aspect-[16/10] cursor-pointer transition-colors ' +
+                  (scanPhase === 'mhd_locked'
+                    ? 'border-emerald-400 shadow-[0_0_20px_rgba(16,185,129,0.5)]'
+                    : scanPhase === 'hunting_mhd'
+                    ? 'border-amber-400 shadow-[0_0_20px_rgba(245,158,11,0.45)]'
+                    : 'border-sky-400')
+                }
               >
                 <video
                   ref={videoRef}
@@ -1694,71 +1767,157 @@ export default function PocketScanner({
                   muted
                 />
 
+                {/* OBERE STATUS-LEISTE IM KAMERABILD */}
                 <div className="absolute top-2 left-2 right-2 flex items-center justify-between gap-2 z-10">
-                  <span className="text-[10px] font-black bg-black/80 text-amber-300 px-2.5 py-1 rounded-lg border border-amber-400/40 truncate">
+                  <span
+                    className={
+                      'text-[11px] font-black px-2.5 py-1 rounded-xl border truncate ' +
+                      (scanPhase === 'mhd_locked'
+                        ? 'bg-emerald-950/90 text-emerald-300 border-emerald-400'
+                        : scanPhase === 'hunting_mhd'
+                        ? 'bg-amber-950/90 text-amber-200 border-amber-400 animate-pulse'
+                        : 'bg-black/80 text-sky-300 border-sky-400/40')
+                    }
+                  >
                     {isLookingUpProduct || isReadingFullLabel
-                      ? '⏳ Prüfe Datenbanken & Verpackung...'
-                      : lastDetectedFormat
-                      ? ('✅ ' + lastDetectedFormat + ' • ' + scannedBarcode)
-                      : ('🎯 ' + activeFormatCount + ' Code-Typen aktiv (EAN, QR, GS1, 2D)')}
+                      ? '⏳ Erkenne Produkt...'
+                      : scanPhase === 'mhd_locked'
+                      ? ('🎉 MHD erfasst: ' + detectedMhdCandidate.slice(8, 10) + '.' + detectedMhdCandidate.slice(5, 7) + '.' + detectedMhdCandidate.slice(0, 4))
+                      : scanPhase === 'hunting_mhd'
+                      ? ('🎯 Schritt 2: Halte jetzt das MHD in den Rahmen!')
+                      : ('📷 Schritt 1: Barcode / QR oder MHD zeigen (' + activeFormatCount + ' Typen)')}
                   </span>
+
                   <div className="flex items-center gap-1 shrink-0">
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); toggleCameraZoom(); }}
-                      className={'px-2 py-1 rounded-xl text-[10px] font-black flex items-center gap-1 border ' +
+                      className={'px-2.5 py-1 rounded-xl text-[11px] font-black flex items-center gap-1 border ' +
                         (zoomActive ? 'bg-sky-500 text-white border-white' : 'bg-black/75 text-white border-white/20')}
                     >
-                      <ZoomIn className="w-3 h-3" /> 2x
+                      <ZoomIn className="w-3.5 h-3.5" /> 2x
                     </button>
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); toggleCameraTorch(); }}
-                      className={'px-2 py-1 rounded-xl text-[10px] font-black flex items-center gap-1 border ' +
+                      className={'px-2.5 py-1 rounded-xl text-[11px] font-black flex items-center gap-1 border ' +
                         (torchOn ? 'bg-amber-400 text-slate-950 border-white' : 'bg-black/75 text-white border-white/20')}
                     >
-                      <Zap className="w-3 h-3" /> Licht
+                      <Zap className="w-3.5 h-3.5" /> Licht
                     </button>
                   </div>
                 </div>
 
-                <div className="absolute inset-x-5 top-[22%] bottom-[22%] border-2 border-amber-400 rounded-xl pointer-events-none shadow-[0_0_0_9999px_rgba(0,0,0,0.35)] flex flex-col justify-center">
+                {/* ZIELRAHMEN IN DER MITTE */}
+                <div
+                  className={
+                    'absolute inset-x-5 top-[22%] bottom-[22%] border-2 rounded-xl pointer-events-none shadow-[0_0_0_9999px_rgba(0,0,0,0.35)] flex flex-col justify-center ' +
+                    (scanPhase === 'mhd_locked' ? 'border-emerald-400' : 'border-amber-400')
+                  }
+                >
                   <div className="w-full h-0.5 bg-emerald-400/90 shadow-[0_0_10px_#10b981] animate-pulse" />
                 </div>
+
+                {/* UNTERES STATUS-BADGE IM KAMERABILD (ZEIGT BEREITS ERKANNTES PRODUKT WÄHREND DER MHD-SUCHE) */}
+                {scanName && (
+                  <div className="absolute bottom-2 left-2 right-2 bg-black/85 border border-amber-400/60 rounded-xl px-3 py-1.5 flex items-center justify-between gap-2 z-10">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-lg shrink-0">{getFoodEmoji(scanName)}</span>
+                      <span className="text-xs font-black text-white truncate">{scanName}</span>
+                    </div>
+                    <span className="text-[10px] font-black text-amber-300 shrink-0">
+                      {isMhdLockedByOcr ? '✅ MHD OK' : '⏳ Suche MHD...'}
+                    </span>
+                  </div>
+                )}
               </div>
 
-              <div className="grid grid-cols-3 gap-1.5">
+              {/* 4 SCHNELL-BUTTONS UNTER DER KAMERA (MHD JETZT LESEN / ETIKETT / OBST-KI / AUTO-WAGEN) */}
+              <div className="grid grid-cols-4 gap-1.5">
                 <button
                   type="button"
-                  onClick={() => captureMhdFromLiveCamera(false)}
+                  onClick={() => {
+                    setIsMhdLockedByOcr(false);
+                    captureMhdFromLiveCamera(false);
+                  }}
                   disabled={isReadingMhd}
-                  className="tw-active-nav py-2 px-2 rounded-xl text-[11px] font-black flex items-center justify-center gap-1 shadow-md"
+                  className="tw-active-nav py-2.5 px-2 rounded-xl text-[11px] font-black flex items-center justify-center gap-1 shadow-md"
                 >
                   <ScanLine className={'w-3.5 h-3.5 shrink-0 ' + (isReadingMhd ? 'animate-spin' : '')} />
-                  <span>{isReadingMhd ? 'Lese...' : '📅 Nur MHD'}</span>
+                  <span>{isReadingMhd ? 'Lese...' : '📅 MHD'}</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => captureProductLabelFromLiveCamera(false)}
                   disabled={isReadingFullLabel}
-                  title="Liest Produktname, Marke, Gewicht & MHD direkt von jeder Verpackung"
-                  className="py-2 px-2 rounded-xl bg-sky-600 text-white text-[11px] font-black flex items-center justify-center gap-1 shadow-md"
+                  className="py-2.5 px-2 rounded-xl bg-sky-600 text-white text-[11px] font-black flex items-center justify-center gap-1 shadow-md"
                 >
                   <Tag className={'w-3.5 h-3.5 shrink-0 ' + (isReadingFullLabel ? 'animate-spin' : '')} />
-                  <span>{isReadingFullLabel ? 'Lese...' : '🏷️ Etikett+MHD'}</span>
+                  <span>🏷️ Etikett</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={recognizeProduceFromCamera}
                   disabled={isDetectingObject}
-                  className="py-2 px-2 rounded-xl bg-emerald-600 text-white text-[11px] font-black flex items-center justify-center gap-1 shadow-md"
+                  className="py-2.5 px-2 rounded-xl bg-emerald-600 text-white text-[11px] font-black flex items-center justify-center gap-1 shadow-md"
                 >
                   <Sparkles className={'w-3.5 h-3.5 shrink-0 ' + (isDetectingObject ? 'animate-spin' : '')} />
-                  <span>{isDetectingObject ? 'KI...' : '🍎 Obst-KI'}</span>
+                  <span>🍎 KI</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setAutoAddWhenBothScanned(prev => !prev)}
+                  title="Legt Produkte automatisch in den Einkaufswagen, sobald Barcode UND MHD erfasst wurden"
+                  className={'py-2.5 px-2 rounded-xl text-[10px] font-black flex items-center justify-center gap-1 border ' +
+                    (autoAddWhenBothScanned
+                      ? 'bg-amber-500 text-slate-950 border-amber-300 shadow-md'
+                      : 'tw-nav-inactive text-slate-300')}
+                >
+                  <span>⚡ Auto</span>
                 </button>
               </div>
+
+              {/* GRÜNE BESTÄTIGUNGS-BOX WENN DAS MHD ERKANNT WURDE */}
+              {detectedMhdCandidate && (
+                <div className="p-3 rounded-2xl bg-emerald-500/20 border-2 border-emerald-400 flex items-center justify-between gap-2 shadow-lg">
+                  <div>
+                    <div className="text-xs font-black uppercase text-emerald-300">
+                      ✅ MHD erkannt & bestätigt:
+                    </div>
+                    <div className="text-base font-black text-white">
+                      📅 {detectedMhdCandidate.slice(8, 10)}.{detectedMhdCandidate.slice(5, 7)}.{detectedMhdCandidate.slice(0, 4)}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDetectedMhdCandidate('');
+                        setScanExpiry('');
+                        setIsMhdLockedByOcr(false);
+                        setScanPhase('hunting_mhd');
+                      }}
+                      className="px-2.5 py-2 rounded-xl bg-black/40 text-xs font-black text-rose-300"
+                    >
+                      Neu suchen
+                    </button>
+                    {scanName.trim() && (
+                      <button
+                        type="button"
+                        onClick={() => triggerAddCurrentScanToCart(detectedMhdCandidate)}
+                        className="tw-active-nav px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-md"
+                      >
+                        <ShoppingCart className="w-4 h-4" />
+                        <span>In Wagen</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -1767,7 +1926,7 @@ export default function PocketScanner({
             <button
               type="button"
               onClick={() => setShowProduceDrawer(prev => !prev)}
-              className="w-full px-3 py-2 flex items-center justify-between text-left text-xs font-black text-emerald-300"
+              className="w-full px-3.5 py-2.5 flex items-center justify-between text-left text-xs font-black text-emerald-300"
             >
               <span>🥒🍎🥩 Schnellwahl: Frisches Obst, Gemüse & Fleisch (Auto-MHD)</span>
               {showProduceDrawer ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
@@ -1775,18 +1934,18 @@ export default function PocketScanner({
 
             {showProduceDrawer && (
               <div className="px-2.5 pb-2.5 pt-1 border-t border-emerald-400/20 space-y-2">
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 max-h-44 overflow-y-auto pr-0.5">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 max-h-48 overflow-y-auto pr-0.5">
                   {FRESH_PRODUCE_MHD_DB.map(prod => (
                     <button
                       key={prod.id}
                       type="button"
                       onClick={() => applyFreshProduceSelection(prod, true)}
-                      className="px-2.5 py-1.5 rounded-xl bg-black/40 border border-white/10 hover:border-emerald-400 flex items-center gap-2 text-left"
+                      className="px-2.5 py-2 rounded-xl bg-black/40 border border-white/10 hover:border-emerald-400 flex items-center gap-2 text-left"
                     >
-                      <span className="text-lg shrink-0">{prod.emoji}</span>
+                      <span className="text-2xl shrink-0">{prod.emoji}</span>
                       <div className="min-w-0 leading-tight">
-                        <div className="text-[11px] font-extrabold text-white truncate">{prod.name.split(' ')[0]}</div>
-                        <div className="text-[9px] font-black text-emerald-400">+{prod.days} Tage</div>
+                        <div className="text-xs font-extrabold text-white truncate">{prod.name.split(' ')[0]}</div>
+                        <div className="text-[10px] font-black text-emerald-400">+{prod.days} Tage</div>
                       </div>
                     </button>
                   ))}
@@ -1796,12 +1955,12 @@ export default function PocketScanner({
           </div>
 
           {estimatedMhdHint && (
-            <div className="px-3 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-400/35 text-[11px] font-extrabold text-emerald-200">
+            <div className="px-3 py-2 rounded-xl bg-emerald-500/15 border border-emerald-400/35 text-xs font-extrabold text-emerald-200">
               {estimatedMhdHint}
             </div>
           )}
 
-          {/* AUFGERÄUMTES EINGABE-FORMULAR MIT DROPDOWNS & NAMENS-OPTIMIERER */}
+          {/* EINGABE-FORMULAR MIT GROSSEM ICON & GROSSER SCHRIFT */}
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -1809,9 +1968,8 @@ export default function PocketScanner({
             }}
             className="space-y-2.5"
           >
-            {/* ZEILE 1: EMOJI + PRODUKTNAME + "✨ KÜRZEN"-BUTTON + GLUTENFREI-BADGE */}
-            <div className="flex items-center gap-1.5">
-              <span className="w-11 h-11 rounded-2xl bg-black/30 border border-white/10 flex items-center justify-center text-xl shrink-0">
+            <div className="flex items-center gap-2">
+              <span className="w-14 h-14 rounded-2xl bg-black/35 border border-white/15 flex items-center justify-center text-3xl shrink-0 shadow-inner">
                 {getFoodEmoji(scanName)}
               </span>
 
@@ -1822,16 +1980,15 @@ export default function PocketScanner({
                   value={scanName}
                   onChange={(e) => handleNameInputChange(e.target.value)}
                   placeholder="Produktname (z.B. Vollmilch / Schwarzwaldmilch)..."
-                  className={'w-full h-11 pl-3 pr-16 rounded-2xl border text-xs sm:text-sm font-extrabold ' + themeStyles.input}
+                  className={'w-full h-14 pl-3.5 pr-16 rounded-2xl border text-base font-black ' + themeStyles.input}
                 />
                 {scanName.trim().length > 3 && (
                   <button
                     type="button"
                     onClick={handleSimplifyCurrentNameClick}
-                    title="Langen Herstellernamen automatisch auf 'Produkt / Kurzmarke' kürzen"
-                    className="absolute right-1.5 top-1.5 bottom-1.5 px-2 rounded-xl bg-sky-500/25 border border-sky-400/40 text-sky-200 text-[10px] font-black flex items-center gap-1"
+                    className="absolute right-1.5 top-2 bottom-2 px-2.5 rounded-xl bg-sky-500/25 border border-sky-400/40 text-sky-200 text-[11px] font-black flex items-center gap-1"
                   >
-                    <Wand2 className="w-3 h-3" />
+                    <Wand2 className="w-3.5 h-3.5" />
                     <span>Kürzen</span>
                   </button>
                 )}
@@ -1840,8 +1997,7 @@ export default function PocketScanner({
               <button
                 type="button"
                 onClick={() => setScanGlutenFree(prev => (isCurrentScanGf ? 'no' : 'yes'))}
-                title="Glutenfrei-Status umschalten"
-                className={'h-11 px-2.5 rounded-2xl text-[10px] font-black shrink-0 border flex flex-col items-center justify-center leading-tight ' +
+                className={'h-14 px-3 rounded-2xl text-xs font-black shrink-0 border flex flex-col items-center justify-center leading-tight ' +
                   (isCurrentScanGf
                     ? 'bg-emerald-500/25 border-emerald-400/60 text-emerald-300'
                     : 'bg-black/25 border-white/10 text-slate-400')}
@@ -1851,13 +2007,12 @@ export default function PocketScanner({
               </button>
             </div>
 
-            {/* ZEILE 2: MENGE + LAGERORT-DROPDOWN + KATEGORIE-DROPDOWN */}
             <div className="grid grid-cols-12 gap-1.5 items-center">
-              <div className="col-span-4 flex items-center bg-black/25 p-1 rounded-2xl border border-white/10 h-11">
+              <div className="col-span-4 flex items-center bg-black/25 p-1 rounded-2xl border border-white/10 h-12">
                 <button
                   type="button"
                   onClick={() => setScanQty(stepMobileQty(scanQty, -1))}
-                  className="tw-nav-inactive w-8 h-full rounded-xl font-black text-sm flex items-center justify-center shrink-0"
+                  className="tw-nav-inactive w-9 h-full rounded-xl font-black text-base flex items-center justify-center shrink-0"
                 >
                   -
                 </button>
@@ -1865,12 +2020,12 @@ export default function PocketScanner({
                   type="text"
                   value={scanQty}
                   onChange={(e) => setScanQty(e.target.value)}
-                  className="w-full bg-transparent text-center text-xs font-black focus:outline-none"
+                  className="w-full bg-transparent text-center text-sm font-black focus:outline-none"
                 />
                 <button
                   type="button"
                   onClick={() => setScanQty(stepMobileQty(scanQty, 1))}
-                  className="tw-glow-btn w-8 h-full rounded-xl font-black text-sm flex items-center justify-center shrink-0"
+                  className="tw-glow-btn w-9 h-full rounded-xl font-black text-base flex items-center justify-center shrink-0"
                 >
                   +
                 </button>
@@ -1879,7 +2034,7 @@ export default function PocketScanner({
               <select
                 value={scanLocation}
                 onChange={(e) => setScanLocation(e.target.value)}
-                className={'col-span-4 h-11 px-2.5 rounded-2xl border text-xs font-extrabold ' + themeStyles.input}
+                className={'col-span-4 h-12 px-2.5 rounded-2xl border text-xs sm:text-sm font-extrabold ' + themeStyles.input}
               >
                 {STORAGE_PILLS.map(loc => (
                   <option key={loc.id} value={loc.id} className="bg-slate-800 text-white">
@@ -1891,7 +2046,7 @@ export default function PocketScanner({
               <select
                 value={scanCategory}
                 onChange={(e) => setScanCategory(e.target.value)}
-                className={'col-span-4 h-11 px-2.5 rounded-2xl border text-xs font-extrabold ' + themeStyles.input}
+                className={'col-span-4 h-12 px-2.5 rounded-2xl border text-xs sm:text-sm font-extrabold ' + themeStyles.input}
               >
                 <option value="auto" className="bg-slate-800 text-amber-300">
                   ✨ {detectedScanCatObj.icon} {detectedScanCatObj.title.split(',')[0]}
@@ -1904,10 +2059,9 @@ export default function PocketScanner({
               </select>
             </div>
 
-            {/* ZEILE 3: KOMPAKTE MHD-LEISTE MIT SCHNELLWAHL-DROPDOWN & DATUMSFELD */}
-            <div className="p-2.5 rounded-2xl bg-amber-500/10 border border-amber-400/40 space-y-2">
+            <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-400/40 space-y-2">
               <div className="flex items-center justify-between gap-2">
-                <span className="text-[11px] font-black uppercase text-amber-300">
+                <span className="text-xs font-black uppercase text-amber-300">
                   📅 Ablaufdatum (MHD)
                 </span>
                 <div className="flex items-center gap-1">
@@ -1924,8 +2078,11 @@ export default function PocketScanner({
                         const d = formatDateStr(addDays(new Date(), b.d));
                         setScanExpiry(d);
                         setDetectedMhdCandidate(d);
+                        setIsMhdLockedByOcr(true);
+                        setScanPhase('mhd_locked');
+                        triggerVibration(50);
                       }}
-                      className="tw-glow-btn px-2 py-0.5 rounded-lg text-[10px] font-black"
+                      className="tw-glow-btn px-2.5 py-1 rounded-lg text-[11px] font-black"
                     >
                       {b.l}
                     </button>
@@ -1942,8 +2099,10 @@ export default function PocketScanner({
                     const d = formatDateStr(addDays(new Date(), days));
                     setScanExpiry(d);
                     setDetectedMhdCandidate(d);
+                    setIsMhdLockedByOcr(true);
+                    setScanPhase('mhd_locked');
                   }}
-                  className={'col-span-5 h-10 px-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+                  className={'col-span-5 h-11 px-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
                 >
                   <option value="" className="bg-slate-800 text-amber-300">⏳ MHD-Zeitraum...</option>
                   <option value="3" className="bg-slate-800 text-white">+3 Tage (Frisch)</option>
@@ -1965,8 +2124,10 @@ export default function PocketScanner({
                   onChange={(e) => {
                     setScanExpiry(e.target.value);
                     setDetectedMhdCandidate(e.target.value);
+                    setIsMhdLockedByOcr(true);
+                    setScanPhase('mhd_locked');
                   }}
-                  className={'col-span-7 h-10 px-3 rounded-xl border text-xs font-black ' + themeStyles.input}
+                  className={'col-span-7 h-11 px-3 rounded-xl border text-sm font-black ' + themeStyles.input}
                 />
               </div>
             </div>
@@ -1974,23 +2135,23 @@ export default function PocketScanner({
             <button
               type="submit"
               disabled={!scanName.trim() || (!scanExpiry && !detectedMhdCandidate)}
-              className={'w-full min-h-[50px] py-3 rounded-2xl font-black text-sm shadow-xl flex items-center justify-center gap-2 ' +
+              className={'w-full min-h-[54px] py-3.5 rounded-2xl font-black text-base shadow-xl flex items-center justify-center gap-2 ' +
                 (!scanName.trim() || (!scanExpiry && !detectedMhdCandidate) ? 'bg-slate-700 text-slate-400 opacity-50' : 'tw-active-nav')}
             >
-              <ShoppingCart className="w-4 h-4" />
+              <ShoppingCart className="w-5 h-5" />
               <span>
                 {(scanExpiry || detectedMhdCandidate)
                   ? ('🛒 In Einkaufswagen (' + (scanExpiry || detectedMhdCandidate).slice(8, 10) + '.' + (scanExpiry || detectedMhdCandidate).slice(5, 7) + '.)')
-                  : '⚠️ Erst Ablaufdatum (MHD) wählen'}
+                  : '⚠️ Erst Ablaufdatum (MHD) scannen oder wählen'}
               </span>
             </button>
           </form>
         </div>
       ) : (
-        /* KASSENBON-SCANNER INKL. AUTOMATISCHER NAMENS-VEREINFACHUNG */
+        /* KASSENBON-SCANNER */
         <div className={'p-4 rounded-3xl border space-y-3.5 shadow-md ' + themeStyles.card}>
-          <h2 className="font-black text-base">🧾 Kassenbon abfotografieren</h2>
-          <label className="tw-active-nav w-full min-h-[50px] py-3 rounded-2xl font-black text-xs flex items-center justify-center gap-2 cursor-pointer shadow-lg">
+          <h2 className="font-black text-lg">🧾 Kassenbon abfotografieren</h2>
+          <label className="tw-active-nav w-full min-h-[54px] py-3.5 rounded-2xl font-black text-sm flex items-center justify-center gap-2 cursor-pointer shadow-lg">
             <Camera className="w-5 h-5" />
             <span>{isScanningReceipt ? '⏳ Lese & vereinfache Bon...' : '📸 Kassenbon jetzt fotografieren'}</span>
             <input
@@ -2003,10 +2164,10 @@ export default function PocketScanner({
           </label>
 
           {receiptItems.length > 0 && (
-            <div className="space-y-2 pt-1">
+            <div className="space-y-2.5 pt-1">
               {receiptItems.map((rit, idx) => (
-                <div key={rit.id} className={'p-3 rounded-2xl border space-y-2 ' + themeStyles.subtle}>
-                  <div className="flex items-center gap-2">
+                <div key={rit.id} className={'p-3.5 rounded-2xl border space-y-2.5 ' + themeStyles.subtle}>
+                  <div className="flex items-center gap-2.5">
                     <input
                       type="checkbox"
                       checked={rit.selected}
@@ -2015,8 +2176,9 @@ export default function PocketScanner({
                         next[idx].selected = !next[idx].selected;
                         setReceiptItems(next);
                       }}
-                      className="w-5 h-5 accent-emerald-500 rounded"
+                      className="w-6 h-6 accent-emerald-500 rounded"
                     />
+                    <span className="text-2xl">{getFoodEmoji(rit.name)}</span>
                     <input
                       type="text"
                       value={rit.name}
@@ -2025,22 +2187,11 @@ export default function PocketScanner({
                         next[idx].name = e.target.value;
                         setReceiptItems(next);
                       }}
-                      className="flex-1 bg-transparent text-xs font-extrabold focus:outline-none"
+                      className="flex-1 bg-transparent text-base font-black focus:outline-none"
                     />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const next = [...receiptItems];
-                        next[idx].name = simplifyProductName(next[idx].name);
-                        setReceiptItems(next);
-                      }}
-                      className="px-2 py-1 rounded-lg bg-sky-500/20 text-sky-300 text-[10px] font-black"
-                    >
-                      ✨ Kürzen
-                    </button>
                   </div>
 
-                  <div className="flex flex-wrap items-center justify-between gap-1.5 pl-7">
+                  <div className="flex flex-wrap items-center justify-between gap-2 pl-8">
                     <select
                       value={rit.location}
                       onChange={(e) => {
@@ -2048,7 +2199,7 @@ export default function PocketScanner({
                         next[idx].location = e.target.value;
                         setReceiptItems(next);
                       }}
-                      className={'px-2 py-1 rounded-lg border text-[10px] font-bold ' + themeStyles.input}
+                      className={'px-2.5 py-1.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
                     >
                       {STORAGE_PILLS.map(l => (
                         <option key={l.id} value={l.id} className="bg-slate-800 text-white">{l.label}</option>
@@ -2064,7 +2215,7 @@ export default function PocketScanner({
                         next[idx].expiryDate = e.target.value;
                         setReceiptItems(next);
                       }}
-                      className={'px-2.5 py-1 rounded-lg border text-xs font-bold ' + themeStyles.input}
+                      className={'px-3 py-1.5 rounded-xl border text-xs font-black ' + themeStyles.input}
                     />
                   </div>
                 </div>
@@ -2078,9 +2229,9 @@ export default function PocketScanner({
                   onAddBatchToCart(selected);
                   setReceiptItems([]);
                 }}
-                className="tw-active-nav w-full min-h-[48px] py-3 rounded-2xl font-black text-xs flex items-center justify-center gap-2 shadow-lg"
+                className="tw-active-nav w-full min-h-[52px] py-3.5 rounded-2xl font-black text-sm flex items-center justify-center gap-2 shadow-lg"
               >
-                <ShoppingCart className="w-4 h-4" />
+                <ShoppingCart className="w-5 h-5" />
                 <span>🛒 Markierte Bon-Artikel in den Einkaufswagen</span>
               </button>
             </div>
@@ -2088,15 +2239,17 @@ export default function PocketScanner({
         </div>
       )}
 
-      {/* EINKAUFSWAGEN UNTER DEM SCANNER */}
-      <div className={'p-3.5 rounded-3xl border space-y-2.5 ' + themeStyles.card}>
-        <div className="flex items-center justify-between">
+      {/* ============================================================================
+          EINKAUFSWAGEN UNTER DEM SCANNER MIT GROSSEN PRODUKT-TEXTEN & GROSSEN ICONS
+         ============================================================================ */}
+      <div className={'p-3.5 rounded-3xl border space-y-3 ' + themeStyles.card}>
+        <div className="flex items-center justify-between gap-2">
           <div>
-            <span className="font-black text-xs uppercase text-amber-400 flex items-center gap-1.5">
+            <span className="font-black text-sm uppercase text-amber-400 flex items-center gap-1.5">
               <ShoppingCart className="w-4 h-4" />
               <span>🛒 Einkaufswagen ({sortedCart.length})</span>
             </span>
-            <p className="text-[10px] opacity-70 font-semibold">
+            <p className="text-[11px] opacity-75 font-semibold">
               Zuletzt gescanntes Produkt steht ganz oben
             </p>
           </div>
@@ -2106,7 +2259,7 @@ export default function PocketScanner({
               type="button"
               disabled={isSyncing}
               onClick={onTransferAllCartToStock}
-              className="tw-active-nav px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-md"
+              className="tw-active-nav px-4 py-2.5 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-md"
             >
               <PackagePlus className="w-4 h-4" />
               <span>Alle in Bestand ({sortedCart.length})</span>
@@ -2115,37 +2268,43 @@ export default function PocketScanner({
         </div>
 
         {sortedCart.length === 0 ? (
-          <div className="py-4 text-center text-xs opacity-50 font-bold">
+          <div className="py-5 text-center text-sm opacity-55 font-bold">
             🛒 Dein Einkaufswagen ist noch leer.
           </div>
         ) : (
-          <div className="space-y-1.5">
+          <div className="space-y-2.5">
             {sortedCart.map((cItem, idx) => {
               const locObj = STORAGE_PILLS.find(l => l.id === cItem.location) || STORAGE_PILLS[0];
               const isGf = isProductGlutenFree(cItem);
               return (
                 <div
                   key={cItem.id}
-                  className={'px-3 py-2.5 rounded-2xl border flex items-center justify-between gap-2 ' +
-                    (idx === 0 ? 'border-amber-400/70 bg-amber-500/10' : themeStyles.subtle)}
+                  className={'p-3.5 rounded-2xl border flex items-center justify-between gap-3 ' +
+                    (idx === 0 ? 'border-amber-400/80 bg-amber-500/10' : themeStyles.subtle)}
                 >
-                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                    <span className="text-xl shrink-0">{getFoodEmoji(cItem.name)}</span>
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                    {/* GROSSES PRODUKT-ICON (w-13 h-13 text-3xl) */}
+                    <span className="w-13 h-13 rounded-2xl bg-black/35 border border-white/10 flex items-center justify-center text-3xl shrink-0">
+                      {getFoodEmoji(cItem.name)}
+                    </span>
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5 flex-wrap">
+                      <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
                         {idx === 0 && (
-                          <span className="px-1.5 py-0.2 rounded bg-amber-500 text-slate-950 text-[9px] font-black shrink-0">
+                          <span className="px-2 py-0.5 rounded bg-amber-500 text-slate-950 text-[10px] font-black shrink-0">
                             NEU
                           </span>
                         )}
                         {isGf && (
-                          <span className="px-1.5 py-0.2 rounded bg-emerald-500/25 border border-emerald-400/50 text-emerald-300 text-[9px] font-black shrink-0">
+                          <span className="px-2 py-0.5 rounded bg-emerald-500/25 border border-emerald-400/50 text-emerald-300 text-[10px] font-black shrink-0">
                             🌾✓ GF
                           </span>
                         )}
-                        <span className="font-extrabold text-xs truncate">{cItem.name}</span>
                       </div>
-                      <div className="text-[10px] text-amber-300 font-bold">
+                      {/* GROSSER PRODUKT-TEXT (text-base font-black) */}
+                      <div className="font-black text-base leading-snug break-words">
+                        {cItem.name}
+                      </div>
+                      <div className="text-xs text-amber-300 font-extrabold mt-0.5">
                         {cItem.quantity} • {locObj.label} • MHD: {cItem.expiryDate.slice(8, 10)}.{cItem.expiryDate.slice(5, 7)}.{cItem.expiryDate.slice(2, 4)}
                       </div>
                     </div>
@@ -2155,17 +2314,17 @@ export default function PocketScanner({
                     <button
                       type="button"
                       onClick={() => onTransferSingleCartItemToStock(cItem)}
-                      className="tw-glow-btn px-2.5 py-1.5 rounded-xl text-[10px] font-black flex items-center gap-1"
+                      className="tw-glow-btn px-3 py-2.5 rounded-xl text-xs font-black flex items-center gap-1"
                     >
-                      <Check className="w-3.5 h-3.5 text-emerald-300" />
+                      <Check className="w-4 h-4 text-emerald-300" />
                       <span>Bestand</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => onRemoveCartItem(cItem.id)}
-                      className="tw-nav-inactive p-1.5 rounded-xl text-rose-400"
+                      className="tw-nav-inactive p-2.5 rounded-xl text-rose-400"
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
+                      <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
                 </div>
