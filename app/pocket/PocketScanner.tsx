@@ -7,7 +7,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   Camera, ScanLine, FileText, Trash2,
   Check, Zap, ZoomIn, Sparkles, Apple, ShoppingCart,
-  PackagePlus, ChevronDown, ChevronUp, Wand2
+  PackagePlus, ChevronDown, ChevronUp, Wand2, Tag
 } from 'lucide-react';
 import * as Cfg from '../touchwallConfig';
 import {
@@ -21,61 +21,175 @@ import {
 
 const { formatDateStr, addDays } = Cfg;
 
+// Alle 1D- & 2D-Barcode- und QR-Code-Formate für das gesamte Lebensmittelspektrum
+const ALL_DESIRED_BARCODE_FORMATS = [
+  'ean_13',
+  'ean_8',
+  'upc_a',
+  'upc_e',
+  'code_128',
+  'code_39',
+  'code_93',
+  'codabar',
+  'itf',
+  'qr_code',
+  'data_matrix',
+  'pdf417',
+  'aztec'
+];
+
 export const FOOD_EMOJI_PICKER = [
   '🌭', '🥩', '🍗', '🥓', '🍔', '🐟', '🥚', '🧀', '🧈', '🥛',
   '🥣', '🥬', '🥒', '🍅', '🫑', '🥕', '🥔', '🧅', '🥦', '🌽',
   '🍄', '🥑', '🍊', '🍎', '🍌', '🍓', '🍋', '🍇', '🍝', '🍚',
-  '🥖', '🥐', '🍕', '🌮', '🥫', '🌾', '🍫', '🍪', '🧃', '🐶'
+  '🥖', '🥐', '🍕', '🌮', '🥫', '🌾', '🍫', '🍪', '🧃', '🐶',
+  '🐾', '🦴', '🐱', '🐴'
 ];
 
 export const FRESH_PRODUCE_MHD_DB = [
-  { id: 'cucumber',  name: 'Gurke (Schlangengurke)',             emoji: '🥒', days: 7,  location: 'fridge',  category: 'produce', hint: 'Im Kühlschrank ca. 7 Tage knackig',      keywords: ['gurke', 'schlangengurke', 'minigurke', 'landgurke'], aiLabels: ['cucumber', 'cuke', 'zucchini', 'courgette'] },
-  { id: 'apple',     name: 'Frische Äpfel',                      emoji: '🍎', days: 21, location: 'kitchen', category: 'produce', hint: 'Kühl gelagert ca. 3 Wochen haltbar',     keywords: ['apfel', 'äpfel', 'elstar', 'boskoop', 'pink lady', 'gala', 'braeburn'], aiLabels: ['granny smith', 'apple', 'pomegranate', 'fig'] },
-  { id: 'orange',    name: 'Orangen / Clementinen',              emoji: '🍊', days: 14, location: 'kitchen', category: 'produce', hint: 'Zitrusfrüchte halten ca. 14 Tage',       keywords: ['orange', 'orangen', 'clementine', 'clementinen', 'mandarine', 'mandarinen', 'apfelsine'], aiLabels: ['orange', 'tangerine', 'clementine', 'mandarin'] },
-  { id: 'melon',     name: 'Melone (Wasser-/Honigmelone)',       emoji: '🍈', days: 10, location: 'kitchen', category: 'produce', hint: 'Ungeschnitten ca. 10 Tage haltbar',      keywords: ['melone', 'wassermelone', 'honigmelone', 'galiamelone', 'cantaloupe'], aiLabels: ['watermelon', 'melon', 'cantaloupe', 'honeydew', 'jackfruit', 'spaghetti squash', 'butternut squash'] },
-  { id: 'salad',     name: 'Frischer Salat (Eisberg / Feldsalat)', emoji: '🥬', days: 4, location: 'fridge', category: 'produce', hint: 'Im Gemüsefach ca. 4 Tage frisch',        keywords: ['salat', 'eisbergsalat', 'kopfsalat', 'feldsalat', 'mâche', 'rucola', 'blattsalat', 'spinat'], aiLabels: ['head cabbage', 'cabbage', 'lettuce', 'artichoke', 'cardoon', 'bok choy'] },
-  { id: 'banana',    name: 'Bananen',                            emoji: '🍌', days: 5,  location: 'kitchen', category: 'produce', hint: 'Bei Raumtemperatur ca. 5 Tage',          keywords: ['banane', 'bananen'], aiLabels: ['banana', 'plantain'] },
-  { id: 'tomato',    name: 'Frische Tomaten',                    emoji: '🍅', days: 7,  location: 'kitchen', category: 'produce', hint: 'Bei Zimmertemperatur ca. 7 Tage',        keywords: ['tomate', 'tomaten', 'rispentomaten', 'cherrytomaten', 'strauchtomaten'], aiLabels: ['tomato', 'hip'] },
-  { id: 'pepper',    name: 'Paprika',                            emoji: '🫑', days: 8,  location: 'fridge',  category: 'produce', hint: 'Im Kühlschrank ca. 8 Tage knackig',      keywords: ['paprika', 'spitzpaprika', 'paprikaschote'], aiLabels: ['bell pepper', 'pepper', 'chilli', 'jalapeno'] },
-  { id: 'broccoli',  name: 'Brokkoli / Blumenkohl',              emoji: '🥦', days: 5,  location: 'fridge',  category: 'produce', hint: 'Im Kühlschrank ca. 5 Tage frisch',       keywords: ['brokkoli', 'blumenkohl', 'kohlrabi', 'rosenkohl'], aiLabels: ['broccoli', 'cauliflower'] },
-  { id: 'carrot',    name: 'Karotten / Möhren',                  emoji: '🥕', days: 14, location: 'fridge',  category: 'produce', hint: 'Im Gemüsefach bis zu 14 Tage haltbar',   keywords: ['karotte', 'karotten', 'möhre', 'möhren', 'wurzel'], aiLabels: ['carrot', 'parsnip'] },
-  { id: 'berries',   name: 'Frische Beeren (Erd-/Heidelbeeren)', emoji: '🍓', days: 3,  location: 'fridge',  category: 'produce', hint: 'Empfindlich – im Kühlschrank ca. 3 Tage', keywords: ['erdbeeren', 'erdbeere', 'himbeeren', 'heidelbeeren', 'blaubeeren', 'brombeeren', 'beeren'], aiLabels: ['strawberry', 'raspberry', 'blackberry', 'blueberry'] },
-  { id: 'lemon',     name: 'Zitrone / Limette',                  emoji: '🍋', days: 14, location: 'kitchen', category: 'produce', hint: 'Hält ca. 14 Tage frisch',                keywords: ['zitrone', 'zitronen', 'limette', 'limetten'], aiLabels: ['lemon', 'lime'] },
-  { id: 'avocado',   name: 'Avocado',                            emoji: '🥑', days: 5,  location: 'kitchen', category: 'produce', hint: 'Reift in ca. 5 Tagen nach',              keywords: ['avocado', 'avocados'], aiLabels: ['avocado', 'guacamole', 'custard apple'] },
-  { id: 'mushrooms', name: 'Frische Champignons / Pilze',        emoji: '🍄', days: 4,  location: 'fridge',  category: 'produce', hint: 'Im Kühlschrank ca. 4 Tage haltbar',      keywords: ['pilze', 'champignons', 'steinpilze', 'pfifferlinge', 'kräuterseitlinge'], aiLabels: ['mushroom', 'agaric', 'bolete', 'gyromitra'] },
-  { id: 'potato',    name: 'Kartoffeln',                         emoji: '🥔', days: 30, location: 'pantry',  category: 'grains',  hint: 'Dunkel & kühl ca. 30 Tage lagerfähig',   keywords: ['kartoffel', 'kartoffeln', 'speisekartoffeln', 'drillinge'], aiLabels: ['potato', 'mashed potato', 'sweet potato'] },
-  { id: 'onion',     name: 'Zwiebeln / Knoblauch',               emoji: '🧅', days: 30, location: 'pantry',  category: 'produce', hint: 'Trocken gelagert ca. 30 Tage haltbar',   keywords: ['zwiebel', 'zwiebeln', 'knoblauch', 'schalotten'], aiLabels: ['onion', 'garlic', 'shallot'] }
+  { id: 'cucumber',    name: 'Gurke (Schlangengurke)',             emoji: '🥒', days: 7,  location: 'fridge',  category: 'produce',        hint: 'Im Kühlschrank ca. 7 Tage knackig',        keywords: ['gurke', 'schlangengurke', 'minigurke', 'landgurke'], aiLabels: ['cucumber', 'cuke', 'zucchini', 'courgette'] },
+  { id: 'apple',       name: 'Frische Äpfel',                      emoji: '🍎', days: 21, location: 'kitchen', category: 'produce',        hint: 'Kühl gelagert ca. 3 Wochen haltbar',       keywords: ['apfel', 'äpfel', 'elstar', 'boskoop', 'pink lady', 'gala', 'braeburn'], aiLabels: ['granny smith', 'apple', 'pomegranate', 'fig'] },
+  { id: 'orange',      name: 'Orangen / Clementinen',              emoji: '🍊', days: 14, location: 'kitchen', category: 'produce',        hint: 'Zitrusfrüchte halten ca. 14 Tage',         keywords: ['orange', 'orangen', 'clementine', 'clementinen', 'mandarine', 'mandarinen', 'apfelsine'], aiLabels: ['orange', 'tangerine', 'clementine', 'mandarin'] },
+  { id: 'melon',       name: 'Melone (Wasser-/Honigmelone)',       emoji: '🍈', days: 10, location: 'kitchen', category: 'produce',        hint: 'Ungeschnitten ca. 10 Tage haltbar',        keywords: ['melone', 'wassermelone', 'honigmelone', 'galiamelone', 'cantaloupe'], aiLabels: ['watermelon', 'melon', 'cantaloupe', 'honeydew', 'jackfruit', 'spaghetti squash', 'butternut squash'] },
+  { id: 'salad',       name: 'Frischer Salat (Eisberg / Feldsalat)', emoji: '🥬', days: 4, location: 'fridge', category: 'produce',        hint: 'Im Gemüsefach ca. 4 Tage frisch',          keywords: ['salat', 'eisbergsalat', 'kopfsalat', 'feldsalat', 'mâche', 'rucola', 'blattsalat', 'spinat'], aiLabels: ['head cabbage', 'cabbage', 'lettuce', 'artichoke', 'cardoon', 'bok choy'] },
+  { id: 'banana',      name: 'Bananen',                            emoji: '🍌', days: 5,  location: 'kitchen', category: 'produce',        hint: 'Bei Raumtemperatur ca. 5 Tage',            keywords: ['banane', 'bananen'], aiLabels: ['banana', 'plantain'] },
+  { id: 'tomato',      name: 'Frische Tomaten',                    emoji: '🍅', days: 7,  location: 'kitchen', category: 'produce',        hint: 'Bei Zimmertemperatur ca. 7 Tage',          keywords: ['tomate', 'tomaten', 'rispentomaten', 'cherrytomaten', 'strauchtomaten'], aiLabels: ['tomato', 'hip'] },
+  { id: 'pepper',      name: 'Paprika',                            emoji: '🫑', days: 8,  location: 'fridge',  category: 'produce',        hint: 'Im Kühlschrank ca. 8 Tage knackig',        keywords: ['paprika', 'spitzpaprika', 'paprikaschote'], aiLabels: ['bell pepper', 'pepper', 'chilli', 'jalapeno'] },
+  { id: 'broccoli',    name: 'Brokkoli / Blumenkohl',              emoji: '🥦', days: 5,  location: 'fridge',  category: 'produce',        hint: 'Im Kühlschrank ca. 5 Tage frisch',         keywords: ['brokkoli', 'blumenkohl', 'kohlrabi', 'rosenkohl'], aiLabels: ['broccoli', 'cauliflower'] },
+  { id: 'carrot',      name: 'Karotten / Möhren',                  emoji: '🥕', days: 14, location: 'fridge',  category: 'produce',        hint: 'Im Gemüsefach bis zu 14 Tage haltbar',     keywords: ['karotte', 'karotten', 'möhre', 'möhren', 'wurzel'], aiLabels: ['carrot', 'parsnip'] },
+  { id: 'berries',     name: 'Frische Beeren (Erd-/Heidelbeeren)', emoji: '🍓', days: 3,  location: 'fridge',  category: 'produce',        hint: 'Empfindlich – im Kühlschrank ca. 3 Tage',  keywords: ['erdbeeren', 'erdbeere', 'himbeeren', 'heidelbeeren', 'blaubeeren', 'brombeeren', 'beeren'], aiLabels: ['strawberry', 'raspberry', 'blackberry', 'blueberry'] },
+  { id: 'lemon',       name: 'Zitrone / Limette',                  emoji: '🍋', days: 14, location: 'kitchen', category: 'produce',        hint: 'Hält ca. 14 Tage frisch',                  keywords: ['zitrone', 'zitronen', 'limette', 'limetten'], aiLabels: ['lemon', 'lime'] },
+  { id: 'avocado',     name: 'Avocado',                            emoji: '🥑', days: 5,  location: 'kitchen', category: 'produce',        hint: 'Reift in ca. 5 Tagen nach',                keywords: ['avocado', 'avocados'], aiLabels: ['avocado', 'guacamole', 'custard apple'] },
+  { id: 'mushrooms',   name: 'Frische Champignons / Pilze',        emoji: '🍄', days: 4,  location: 'fridge',  category: 'produce',        hint: 'Im Kühlschrank ca. 4 Tage haltbar',        keywords: ['pilze', 'champignons', 'steinpilze', 'pfifferlinge', 'kräuterseitlinge'], aiLabels: ['mushroom', 'agaric', 'bolete', 'gyromitra'] },
+  { id: 'potato',      name: 'Kartoffeln',                         emoji: '🥔', days: 30, location: 'pantry',  category: 'grains',         hint: 'Dunkel & kühl ca. 30 Tage lagerfähig',     keywords: ['kartoffel', 'kartoffeln', 'speisekartoffeln', 'drillinge'], aiLabels: ['potato', 'mashed potato', 'sweet potato'] },
+  { id: 'onion',       name: 'Zwiebeln / Knoblauch',               emoji: '🧅', days: 30, location: 'pantry',  category: 'produce',        hint: 'Trocken gelagert ca. 30 Tage haltbar',     keywords: ['zwiebel', 'zwiebeln', 'knoblauch', 'schalotten'], aiLabels: ['onion', 'garlic', 'shallot'] },
+  { id: 'pork_fillet', name: 'Schweinefilet / Frischfleisch',      emoji: '🥩', days: 4,  location: 'fridge',  category: 'meat_fish_eggs', hint: 'Frischfleisch im Kühlschrank ca. 3–4 Tage', keywords: ['schweinefilet', 'schweinelende', 'filet vom schwein', 'schnitzel', 'rumpsteak'], aiLabels: [] },
+  { id: 'minced_meat', name: 'Hackfleisch (Rind / Gemischt)',      emoji: '🥩', days: 2,  location: 'fridge',  category: 'meat_fish_eggs', hint: 'Hackfleisch sehr kühl lagern (1–2 Tage)',   keywords: ['hackfleisch', 'rinderhack', 'mett'], aiLabels: [] },
+  { id: 'poultry',     name: 'Hähnchen- / Putenbrustfilet',        emoji: '🍗', days: 3,  location: 'fridge',  category: 'meat_fish_eggs', hint: 'Geflügel im Kühlschrank ca. 2–3 Tage',      keywords: ['hähnchenbrust', 'putenbrust', 'hähnchenfilet', 'hähnchen', 'putenschnitzel'], aiLabels: [] }
 ];
 
 const KNOWN_BRAND_PREFIXES = [
-  'K-Classic', 'K-Bio', 'K-Favourites', 'ja!', 'GUT&GÜNSTIG', 'Gut & Günstig',
-  'EDEKA', 'REWE Beste Wahl', 'REWE Bio', 'REWE', 'Milbona', 'Milsani', 'Bellarom',
-  'Kania', 'Combino', 'Alnatura', 'dmBio', 'Schär', 'Dr. Schär', 'Gefro', 'Meggle',
-  'Philadelphia', 'Thomy', 'Heinz', 'Hengstenberg', 'Pfanni', 'Barilla', 'Dr. Oetker',
-  'Iglo', 'Frosta', 'Landfein', 'Schwarzwaldmilch', 'Weihenstephan', 'Bärenmarke',
-  'Kerrygold', 'Oro di Parma', 'Alnavit', 'Bauckhof', 'Müller', 'Ehrmann', 'Zott',
-  'Danone', 'Arla', 'Exquisa', 'miree', 'Rama', 'Lätta', 'Bonduelle', 'Kühne',
-  'Knorr', 'Maggi', 'Löwensenf', 'Bautz\'ner', 'Ernte Krone', 'mysmile', 'Die süße Susi'
+  'Kaufland', 'K-Classic', 'K-Bio', 'K-Favourites', 'K-Purland', 'ja!', 'GUT&GÜNSTIG', 'Gut & Günstig',
+  'EDEKA', 'REWE Beste Wahl', 'REWE Bio', 'REWE', 'Wilhelm Brandenburg', 'Mein Metzgergut', 'Landjunker',
+  'Milbona', 'Milsani', 'Bellarom', 'Kania', 'Combino', 'Alnatura', 'dmBio', 'Schär', 'Dr. Schär',
+  'Gefro', 'Meggle', 'Philadelphia', 'Thomy', 'Heinz', 'Hengstenberg', 'Pfanni', 'Barilla', 'Dr. Oetker',
+  'Iglo', 'Frosta', 'Landfein', 'Schwarzwaldmilch', 'Weihenstephan', 'Bärenmarke', 'Kerrygold',
+  'Oro di Parma', 'Alnavit', 'Bauckhof', 'Müller', 'Ehrmann', 'Zott', 'Danone', 'Arla', 'Exquisa',
+  'miree', 'Rama', 'Lätta', 'Bonduelle', 'Kühne', 'Knorr', 'Maggi', 'Löwensenf', 'Ernte Krone',
+  'mysmile', 'Die süße Susi', 'Rinti', 'Wolfsblut', 'Josera', 'Belcando', 'Animonda', 'Pedigree',
+  'Haribo', 'Ritter Sport', 'Milka', 'Lindt', 'Nutella', 'Ferrero', 'Kinder', 'Lorenz', 'Funny-frisch',
+  'Chio', 'DeBeukelaer', 'Bahlsen', 'Leibniz', 'Kölln', 'Seitenbacher', 'Ben\'s Original', 'Uncle Ben\'s',
+  'Kikkoman', 'Develey', 'Bautz\'ner', 'Homann', 'Miracel Whip', 'Zentis', 'Schwartau', 'Bonne Maman',
+  'Teekanne', 'Meßmer', 'Jacobs', 'Tchibo', 'Dallmayr', 'Lavazza', 'Melitta', 'Nescafé', 'Oatly', 'Alpro'
+];
+
+// Umfassendes Lebensmittel-Wörterbuch für die optische Etiketten- & Verpackungserkennung
+const LABEL_FOOD_KEYWORDS = [
+  // Milchprodukte & Käse
+  'Alpenmilch', 'Weidemilch', 'Haltbare Vollmilch', 'Frische Vollmilch', 'Vollmilch', 'Fettarme Milch', 'Hafermilch', 'Mandelmilch',
+  'Schlagsahne', 'Kochsahne', 'Saure Sahne', 'Schmand', 'Crème fraîche', 'Mascarpone', 'Speisequark', 'Magerquark', 'Kräuterquark',
+  'Naturjoghurt', 'Fruchtjoghurt', 'Griechischer Joghurt', 'Skyr', 'Kefir', 'Buttermilch', 'Ayran',
+  'Frischkäse', 'Kräuterbutter', 'Markenbutter', 'Süßrahmbutter', 'Mildgesäuerte Butter', 'Butter', 'Margarine',
+  'Gouda', 'Emmentaler', 'Maasdamer', 'Tilsiter', 'Bergkäse', 'Mozzarella', 'Parmesan', 'Grana Padano', 'Feta', 'Hirtenkäse',
+  'Camembert', 'Brie', 'Reibekäse', 'Scheibenkäse', 'Schmelzkäse',
+  // Backwaren, Getreide, Nudeln, Reis & Kartoffeln
+  'Glutenfreie Wraps', 'Wraps', 'Tortilla Wraps', 'Landbrot', 'Mehrkornbrot', 'Vollkornbrot', 'Toastbrot', 'Buttertoast',
+  'Sonntagsbrötchen', 'Aufbackbrötchen', 'Brötchen', 'Baguette', 'Croissants', 'Knäckebrot', 'Reiswaffeln',
+  'Spaghetti', 'Penne Rigate', 'Fusilli', 'Rigatoni', 'Tagliatelle', 'Makkaroni', 'Tortellini', 'Ravioli', 'Gnocchi',
+  'Eierspätzle', 'Spätzle', 'Schupfnudeln', 'Lasagneplatten',
+  'Basmatireis', 'Jasminreis', 'Langkornreis', 'Spitzenreis', 'Milchreis', 'Risottoreis', 'Parboiled Reis',
+  'Kartoffelpüree', 'Speisekartoffeln', 'Kartoffeln', 'Pommes Frites', 'Kroketten', 'Reibekuchen', 'Knödel',
+  'Haferflocken', 'Schmelzflocken', 'Knuspermüsli', 'Früchtemüsli', 'Cornflakes', 'Choco Balls',
+  'Weizenmehl', 'Dinkelmehl', 'Reismehl', 'Buchweizenmehl', 'Speisestärke', 'Maisstärke', 'Backpulver', 'Trockenhefe',
+  // Obst, Gemüse, Pilze & Konserven
+  'Apfelmus', 'Apfelmark', 'Apfel-Rotkohl', 'Rotkohl', 'Sauerkraut', 'Stangenspargel', 'Spargel', 'Gewürzgurken', 'Cornichons',
+  'Passierte Tomaten', 'Gehackte Tomaten', 'Tomatenmark', 'Sonnenmais', 'Kichererbsen', 'Kidneybohnen', 'Grüne Bohnen',
+  'Erbsen und Möhren', 'Junge Erbsen', 'Linsen', 'Chili sin Carne', 'Chili con Carne',
+  'Pfifferlinge', 'Champignons', 'Steinpilze', 'Waldfrüchte', 'Beerenmischung', 'Himbeeren', 'Heidelbeeren', 'Erdbeeren',
+  'Eisbergsalat', 'Feldsalat', 'Rucola', 'Blattspinat', 'Rahmspinat', 'Brokkoli', 'Blumenkohl', 'Rosenkohl',
+  'Schlangengurke', 'Rispentomaten', 'Cherrytomaten', 'Spitzpaprika', 'Paprika', 'Karotten', 'Speisemöhren', 'Avocado',
+  // Fleisch, Wurst, Fisch & Eier
+  'Schweinefilet', 'Schweinelende', 'Schweineschnitzel', 'Schweinebraten', 'Schweinegulasch', 'Schweinehackfleisch',
+  'Rinderfilet', 'Rumpsteak', 'Rindergulasch', 'Rinderhackfleisch', 'Rinderrouladen', 'Rinderbraten',
+  'Hackfleisch gemischt', 'Hackfleisch', 'Hähnchenbrustfilet', 'Hähnchenfilet', 'Hähnchenschenkel', 'Hähnchengeschnetzeltes',
+  'Putenbrustfilet', 'Putenschnitzel', 'Putenhackfleisch', 'Minutensteaks',
+  'Rostbratwurst', 'Bratwurst', 'Wiener Würstchen', 'Bockwurst', 'Fleischwurst', 'Lyoner', 'Leberwurst',
+  'Salami', 'Kochschinken', 'Schwarzwälder Schinken', ' Lachsschinken', 'Bacon', 'Speckwürfel',
+  'Lachsfilet', 'Wildlachs', 'Kabeljaufilet', 'Seelachsfilet', 'Fischstäbchen', 'Thunfisch', 'Forellenfilet', 'Garnelen',
+  'Freilandeier', 'Bio-Eier', 'Frische Eier',
+  // Öle, Saucen, Würzmittel & Aufstriche
+  'Olivenöl', 'Sonnenblumenöl', 'Rapsöl', 'Kokosöl', 'Balsamico', 'Apfelessig', 'Kräuteressig', 'Weinessig',
+  'Tomatenketchup', 'Ketchup', 'Mayonnaise', 'Remoulade', 'Mittelscharfer Senf', 'Delikatess Senf', 'Burger Sauce',
+  'Pesto Verde', 'Pesto Rosso', 'Sojasauce', 'Gemüsebrühe', 'Hühnerbrühe', 'Rinderbrühe',
+  'Erdnussbutter', 'Haselnusscreme', 'Fruchtaufstrich', 'Konfitüre', 'Blütenhonig', 'Honig',
+  // Getränke
+  'Mineralwasser', 'Apfelsaft', 'Orangensaft', 'Multivitaminsaft', 'Apfelschorle', 'Rhabarberschorle',
+  'Filterkaffee', 'Caffè Crema', 'Espresso', 'Kräutertee', 'Früchtetee', 'Grüner Tee', 'Schwarzer Tee',
+  // Tierfutter
+  'Hundefutter', 'Katzenfutter', 'Nassfutter', 'Trockenfutter', 'Kauknochen', 'Hundesnack', 'Pferdefutter'
 ];
 
 // ============================================================================
-// PUNKT 3: INTELLIGENTE NAMENS-OPTIMIERUNG (FOKUS AUF PRODUKT + "/ KURZMARKE")
-// Beispiel: "Bayer. Pilze & Waldfrüchte Uwe Niklas GmbH Pfifferlinge TK" -> "Pfifferlinge TK / Bayer."
+// SELBSTLERNENDES LOKALES BARCODE- & QR-CODE-GEDÄCHTNIS (OFFLINE & SOFORT)
 // ============================================================================
+export function saveLearnedProductToMemory(barcodeKey, productData) {
+  try {
+    const cleanKey = String(barcodeKey || '').trim();
+    if (!cleanKey || cleanKey.length < 4 || !productData?.name) return;
+    const rawMap = localStorage.getItem('richter_tw_barcode_memory_v1');
+    const map = rawMap ? JSON.parse(rawMap) : {};
+
+    const entry = {
+      name: productData.name,
+      quantity: productData.quantity || '1x',
+      location: productData.location || 'fridge',
+      category: productData.category || 'produce',
+      glutenFree: productData.glutenFree || 'auto',
+      updatedAt: Date.now()
+    };
+
+    map[cleanKey] = entry;
+
+    // Bei 13-stelligen Frischetheken-/Waagen-Barcodes (20..29) zusätzlich den 7-stelligen Artikel-Stamm speichern
+    const digits = cleanKey.replace(/\D/g, '');
+    if (digits.length === 13 && /^2[0-9]/.test(digits)) {
+      map[digits.slice(0, 7)] = entry;
+    }
+
+    localStorage.setItem('richter_tw_barcode_memory_v1', JSON.stringify(map));
+  } catch (e) {}
+}
+
+export function getLearnedProductFromMemory(barcodeKey) {
+  try {
+    const cleanKey = String(barcodeKey || '').trim();
+    if (!cleanKey) return null;
+    const rawMap = localStorage.getItem('richter_tw_barcode_memory_v1');
+    if (!rawMap) return null;
+    const map = JSON.parse(rawMap);
+    if (map[cleanKey]?.name) return map[cleanKey];
+
+    const digits = cleanKey.replace(/\D/g, '');
+    if (digits.length === 13 && /^2[0-9]/.test(digits)) {
+      const prefix7 = digits.slice(0, 7);
+      if (map[prefix7]?.name) return map[prefix7];
+    }
+  } catch (e) {}
+  return null;
+}
+
 export function shortenBrandString(rawBrand) {
   if (!rawBrand) return '';
   let b = String(rawBrand).split(',')[0].trim();
 
-  // Entferne Rechtsformen & Firmenzusätze
   b = b
     .replace(/\b(GmbH\s*&\s*Co\.?\s*KG|GmbH\s*&\s*Co\.?\s*OHG|GmbH|AG|KG|OHG|SE|mbH|e\.?\s*G\.?|Inc\.?|Ltd\.?|S\.?p\.?A\.?|S\.?A\.?)\b/gi, '')
-    .replace(/\b(Pilze\s*&\s*Waldfrüchte|Uwe\s+Niklas|Warenhandel|Nahrungsmittel|Lebensmittel|Molkerei|Privatmolkerei|Käserei|Fleischwerke|Feinkost|Vertriebs|Handels|Werke|Deutschland|International)\b/gi, '')
+    .replace(/\b(Pilze\s*&\s*Waldfrüchte|Uwe\s+Niklas|Fleischwaren|Heiligenstadt|Warenhandel|Nahrungsmittel|Lebensmittel|Molkerei|Privatmolkerei|Käserei|Fleischwerke|Feinkost|Vertriebs|Handels|Werke|Deutschland|International)\b/gi, '')
     .replace(/\s+/g, ' ')
     .trim();
 
   if (!b) return '';
 
-  // Behalte bekannte mehrteilige Kurzmarken zusammen
   const multiBrandMatch = KNOWN_BRAND_PREFIXES.find(
     kb => b.toLowerCase() === kb.toLowerCase() || b.toLowerCase().startsWith(kb.toLowerCase() + ' ')
   );
@@ -96,7 +210,6 @@ export function simplifyProductName(rawInputName, explicitBrand = '') {
   let extractedBrand = explicitBrand ? shortenBrandString(explicitBrand) : '';
   let productPart = raw;
 
-  // Falls bereits ein " / " vorhanden ist (z.B. "Pfifferlinge TK / Bayer."), sauber trennen
   if (productPart.includes(' / ')) {
     const parts = productPart.split(' / ');
     productPart = parts[0].trim();
@@ -105,7 +218,6 @@ export function simplifyProductName(rawInputName, explicitBrand = '') {
     }
   }
 
-  // 1. Falls explizite Marke am Anfang des Produktnamens klebt, ablösen
   if (explicitBrand) {
     const cleanExp = String(explicitBrand).split(',')[0].trim();
     if (cleanExp && productPart.toLowerCase().startsWith(cleanExp.toLowerCase())) {
@@ -113,8 +225,6 @@ export function simplifyProductName(rawInputName, explicitBrand = '') {
     }
   }
 
-  // 2. Erkennt Firmennamen mit GmbH / AG / KG mitten im String:
-  // z.B. "Bayer. Pilze & Waldfrüchte Uwe Niklas GmbH Pfifferlinge TK"
   const legalSplitRegex = /^(.*?)\b(?:GmbH\s*&\s*Co\.?\s*KG|GmbH\s*&\s*Co\.?\s*OHG|GmbH|AG|KG|OHG|SE|mbH|e\.?\s*G\.?)\.?\s+(.+)$/i;
   const legalMatch = productPart.match(legalSplitRegex);
   if (legalMatch) {
@@ -126,7 +236,6 @@ export function simplifyProductName(rawInputName, explicitBrand = '') {
     }
   }
 
-  // 3. Falls noch eine bekannte Marke am Anfang steht (z.B. "K-Classic Delikatess Rostbratwurst")
   for (const kb of KNOWN_BRAND_PREFIXES) {
     const reg = new RegExp('^' + kb.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b\\s*', 'i');
     if (reg.test(productPart)) {
@@ -139,18 +248,15 @@ export function simplifyProductName(rawInputName, explicitBrand = '') {
     }
   }
 
-  // 4. Bereinige Produktkern (Tiefkühl -> TK, entferne Werbefloskeln & Gewichtsangaben am Ende)
   productPart = productPart
     .replace(/\b(tiefgekühlt|tiefgefroren|tiefkühlkost|tiefkühl)\b/gi, 'TK')
-    .replace(/\b(delikatess|das komplette|flow pack de|unter schutzatmosphäre|servierfertig|küchenfertig|erntefrisch|feinste|klassische)\b/gi, '')
+    .replace(/\b(delikatess|das komplette|flow pack de|unter schutzatmosphäre|servierfertig|küchenfertig|erntefrisch|feinste|klassische|fleischwaren|heiligenstadt)\b/gi, '')
     .replace(/\b\d+(?:[.,]\d+)?\s*(?:g|gr|kg|ml|l)\b/gi, '')
     .replace(/\s+/g, ' ')
     .replace(/^[,;.\-/]+|[,;.\-/]+$/g, '')
     .trim();
 
   if (!productPart) productPart = raw;
-
-  // Großbuchstabe am Anfang sicherstellen
   productPart = productPart.charAt(0).toUpperCase() + productPart.slice(1);
 
   if (extractedBrand && !productPart.toLowerCase().includes(extractedBrand.toLowerCase())) {
@@ -159,9 +265,6 @@ export function simplifyProductName(rawInputName, explicitBrand = '') {
   return productPart;
 }
 
-// ============================================================================
-// PUNKT 2: VERBESSERTE KATEGORIE-, LAGERORT- & GLUTENFREI-ERKENNUNG
-// ============================================================================
 export function detectSmartCategory(nameStr, customCategory = '', offTags = []) {
   if (customCategory && customCategory !== 'auto' && FOOD_CATEGORIES.some(c => c.id === customCategory)) {
     return customCategory;
@@ -169,30 +272,31 @@ export function detectSmartCategory(nameStr, customCategory = '', offTags = []) 
   const n = String(nameStr || '').toLowerCase();
   const tags = Array.isArray(offTags) ? offTags.join(' ').toLowerCase() : '';
 
-  // 1. Eindeutige Schlüsselwörter im Produktnamen
-  if (/pilz|pfifferling|steinpilz|champignon|kräuterseitling|waldfrüchte|beeren|erdbeer|himbeer|heidelbeer|blaubeer|apfel|äpfel|apfelmus|banane|orange|clementine|mandarine|zitrone|limette|melone|ananas|mango|kiwi|traube|birne|avocado|salat|eisberg|feldsalat|mâche|rucola|spinat|gurke|tomate|tomatenmark|oro di parma|paprika|karotte|möhre|zwiebel|knoblauch|brokkoli|blumenkohl|spargel|rotkohl|sauerkraut|mais|erbse|bohne|linse|kichererbse|chili sin carne|gefro/.test(n)) {
+  if (/hundefutter|katzenfutter|tierfutter|pferdefutter|futter|leckerli|kauknochen|pansen|rinti|wolfsblut|josera|belcando|animonda|pedigree|whiskas|felix/.test(n)) {
+    return 'sweets_snacks';
+  }
+  if (/pilz|pfifferling|steinpilz|champignon|kräuterseitling|waldfrüchte|beeren|erdbeer|himbeer|heidelbeer|blaubeer|apfel|äpfel|apfelmus|apfelmark|banane|orange|clementine|mandarine|zitrone|limette|melone|ananas|mango|kiwi|traube|birne|avocado|salat|eisberg|feldsalat|mâche|rucola|spinat|gurke|tomate|tomatenmark|oro di parma|paprika|karotte|möhre|zwiebel|knoblauch|brokkoli|blumenkohl|spargel|rotkohl|sauerkraut|mais|erbse|bohne|linse|kichererbse|chili sin carne|gefro/.test(n)) {
     return 'produce';
   }
-  if (/butter|kräuterbutter|meggle|margarine|öl|sonnenblumenöl|olivenöl|rapsöl|kokosöl|fett|schmalz|essig|hengstenberg|senf|thomy|ketchup|mayo|mayonnaise|dressing|burger sauce|heinz|soße|sauce|pesto|brühe|fond/.test(n)) {
+  if (/butter|kräuterbutter|meggle|margarine|öl|sonnenblumenöl|olivenöl|rapsöl|kokosöl|fett|schmalz|essig|balsamico|hengstenberg|senf|thomy|ketchup|mayo|mayonnaise|remoulade|dressing|burger sauce|heinz|soße|sauce|pesto|brühe|fond/.test(n)) {
     return 'oils_fats';
   }
-  if (/wasser|mineralwasser|kaffee|espresso|tee|saft|apfelsaft|orangensaft|schorle|cola|limo|getränk|sirup|kakao|\bbier\b|\bwein\b|energydrink/.test(n)) {
+  if (/wasser|mineralwasser|kaffee|espresso|tee|saft|apfelsaft|orangensaft|schorle|cola|limo|getränk|sirup|kakao|\bbier\b|\bwein\b|energydrink|hafermilch|mandelmilch|oatly|alpro/.test(n)) {
     return 'drinks';
   }
-  if (/milch|vollmilch|schwarzwaldmilch|landfein|joghurt|quark|skyr|käse|frischkäse|philadelphia|scheibenkäse|gouda|mozzarella|parmesan|emmentaler|camembert|feta|hirtenkäse|schlagsahne|sahne|schmand|creme fraiche|mascarpone|ayran|kefir|pudding/.test(n)) {
+  if (/milch|vollmilch|weidemilch|alpenmilch|schwarzwaldmilch|landfein|joghurt|quark|skyr|käse|frischkäse|philadelphia|scheibenkäse|gouda|mozzarella|parmesan|emmentaler|camembert|feta|hirtenkäse|schlagsahne|kochsahne|sahne|schmand|creme fraiche|crème fraîche|mascarpone|ayran|kefir|pudding/.test(n)) {
     return 'dairy';
   }
-  if (/fleisch|hackfleisch|rinderhack|rind|schwein|hähnchen|huhn|pute|geflügel|schnitzel|steak|gulasch|wurst|bratwurst|rostbratwurst|leberwurst|würstchen|wiener|lyoner|salami|schinken|speck|aufschnitt|fisch|lachs|thunfisch|fischstäbchen|forelle|garnele|\bei\b|eier/.test(n)) {
+  if (/fleisch|schweinefilet|rinderfilet|filet|lende|hackfleisch|rinderhack|rind|schwein|hähnchen|huhn|pute|geflügel|schnitzel|steak|gulasch|wurst|bratwurst|rostbratwurst|leberwurst|würstchen|wiener|lyoner|salami|schinken|speck|bacon|aufschnitt|fisch|lachs|kabeljau|seelachs|thunfisch|fischstäbchen|forelle|garnele|\bei\b|eier/.test(n)) {
     return 'meat_fish_eggs';
   }
-  if (/brot|landbrot|mehrkorn|brötchen|toast|baguette|croissant|nudel|spaghetti|pasta|penne|rigatoni|tortellini|ravioli|spätzle|reis|spitzenreis|langkorn|basmati|jasmin|milchreis|getreide|haferflocken|müsli|cornflakes|choco balls|mehl|grieß|stärke|wraps|wrap|tortilla|taco|schär|kartoffel|kartoffelpüree|pfanni|gnocchi|schupfnudel|pommes|knödel/.test(n)) {
+  if (/brot|landbrot|mehrkorn|brötchen|toast|baguette|croissant|knäckebrot|reiswaffel|nudel|spaghetti|pasta|penne|fusilli|rigatoni|tortellini|ravioli|spätzle|reis|spitzenreis|langkorn|basmati|jasmin|milchreis|risotto|getreide|haferflocken|müsli|cornflakes|choco balls|mehl|grieß|stärke|wraps|wrap|tortilla|taco|schär|kartoffel|kartoffelpüree|pfanni|gnocchi|schupfnudel|pommes|kroketten|knödel/.test(n)) {
     return 'grains';
   }
-  if (/schokolade|choco|schoko|nutella|keks|cookie|gummibär|chips|flips|eis|bonbon|praline|zuckerware|riegel/.test(n)) {
+  if (/schokolade|choco|schoko|nutella|haselnusscreme|konfitüre|marmelade|honig|keks|cookie|gummibär|haribo|chips|flips|eis|bonbon|praline|zuckerware|riegel/.test(n)) {
     return 'sweets_snacks';
   }
 
-  // 2. Fallback über OpenFoodFacts-Kategorien
   if (/fruits|vegetables|mushrooms|plant-based-foods-and-beverages|salads|legumes/.test(tags)) return 'produce';
   if (/dairies|cheeses|milks|yogurts|creams/.test(tags)) return 'dairy';
   if (/meats|poultries|fishes|seafood|sausages|eggs/.test(tags)) return 'meat_fish_eggs';
@@ -207,15 +311,18 @@ export function detectSmartLocation(nameStr, categoryId = '', offTags = []) {
   const n = String(nameStr || '').toLowerCase();
   const tags = Array.isArray(offTags) ? offTags.join(' ').toLowerCase() : '';
 
-  // 1. Tiefkühl-Erkennung (z.B. "Pfifferlinge TK", "tiefgekühlt", "en:frozen-foods")
-  if (/\btk\b|tiefkühl|tiefgekühlt|tiefgefroren|gefrier|eiscreme|speiseeis|fischstäbchen|pommes/.test(n) || /frozen/.test(tags)) {
+  if (/hundefutter|katzenfutter|tierfutter|pferdefutter|futter|leckerli|kauknochen|pansen|trockenfutter|nassfutter|rinti|wolfsblut|josera|belcando|animonda|pedigree|whiskas|felix/.test(n)) {
+    return 'petfood';
+  }
+  if (/\btk\b|tiefkühl|tiefgekühlt|tiefgefroren|gefrier|eiscreme|speiseeis|fischstäbchen|pommes|kroketten|rahmspinat/.test(n) || /frozen/.test(tags)) {
     return 'freezer';
   }
-  // 2. Konserven & Trockenvorrat -> Keller / Vorrat
-  if (/konserve|dose|im glas|apfelmus|rotkohl|spargel|tomatenmark|passierte|nudel|spaghetti|pasta|reis|mehl|zucker|haferflocken|müsli|choco balls|öl|essig|senf|ketchup|gefro|chili sin carne|kartoffelpüree|kartoffel|zwiebel|knoblauch|haltbare/.test(n)) {
+  if (/nudel|spaghetti|pasta|penne|fusilli|reis|basmati|langkorn|mehl|zucker|salz|haferflocken|müsli|cornflakes|choco balls|wraps|wrap|schär|knäckebrot|reiswaffel|backpulver|vanillezucker|kaffee|espresso|tee|kakao|schokolade|nutella|honig|konfitüre|keks|cookie|chips|haribo|nüsse|gefro|chili sin carne|kartoffelpüree|pfanni|tomatenmark|pesto|öl|olivenöl|sonnenblumenöl|rapsöl|essig|balsamico|senf|ketchup|mayo|burger sauce|brühe/.test(n)) {
+    return 'cupboard';
+  }
+  if (/konserve|dose|im glas|apfelmus|apfelmark|rotkohl|sauerkraut|spargel|passierte|gehackte tomaten|mais|kichererbsen|bohnen|linsen|kartoffel|zwiebel|knoblauch|haltbare|mineralwasser|saft|schorle|cola|limo|\bbier\b|\bwein\b/.test(n)) {
     return 'pantry';
   }
-  // 3. Kühlpflichtige Kategorien & Frischeprodukte -> Kühlschrank
   const resolvedCat = categoryId || detectSmartCategory(nameStr, '', offTags);
   if (resolvedCat === 'dairy' || resolvedCat === 'meat_fish_eggs') {
     return 'fridge';
@@ -246,10 +353,10 @@ export function isProductGlutenFree(itemOrName, customCategory = '', manualFlag 
   const n = nameStr.toLowerCase();
   if (!n.trim()) return false;
 
-  if (/glutenfrei|gluten-free|ohne gluten|\bgf\b|schär|schaer|bauckhof|alnavit|hammermühle|seitz|schnitzer|reismehl|maismehl|buchweizen|quinoa|hirse|amarant|polenta|maisstärke|speisestärke|kartoffelmehl|gefro/.test(n)) {
+  if (/glutenfrei|gluten-free|ohne gluten|\bgf\b|schär|schaer|bauckhof|alnavit|hammermühle|seitz|schnitzer|reismehl|maismehl|buchweizen|quinoa|hirse|amarant|polenta|maisstärke|speisestärke|kartoffelmehl|reiswaffel|gefro/.test(n)) {
     return true;
   }
-  if (/weizen|dinkel|roggen|gerste|grünkern|bulgur|couscous|seitan|paniermehl|paniert|fischstäbchen|nuggets|schnitzel|spätzle|tortellini|ravioli|lasagne|nudel|spaghetti|pasta|penne|rigatoni|mehl|grieß|haferflocken|müsli|cornflakes|brot|landbrot|mehrkorn|brötchen|toast|baguette|croissant|kuchen|waffel|keks|cookie|brezel|pizza|flammkuchen|\bbier\b|malz|gnocchi|schupfnudel/.test(n)) {
+  if (/weizen|dinkel|roggen|gerste|grünkern|bulgur|couscous|seitan|paniermehl|paniert|fischstäbchen|nuggets|schnitzel|spätzle|tortellini|ravioli|lasagne|nudel|spaghetti|pasta|penne|fusilli|rigatoni|mehl|grieß|haferflocken|müsli|cornflakes|brot|landbrot|mehrkorn|brötchen|toast|baguette|croissant|knäckebrot|kuchen|waffel|keks|cookie|brezel|pizza|flammkuchen|\bbier\b|malz|gnocchi|schupfnudel/.test(n)) {
     return false;
   }
   if (catId === 'produce' || catId === 'dairy' || catId === 'oils_fats' || catId === 'drinks' || catId === 'meat_fish_eggs') {
@@ -272,6 +379,265 @@ function estimateProduceByName(inputName) {
   return null;
 }
 
+// ============================================================================
+// UNIVERSAL-PARSER FÜR ALLE BARCODE-, GS1-, QR-, URL- & GEWICHTS-TYPEN
+// ============================================================================
+function parseUniversalBarcodePayload(rawVal) {
+  const clean = String(rawVal || '').replace(/[\x00-\x1F]+/g, ' ').trim();
+  const result = {
+    raw: clean,
+    lookupCodes: [],
+    extractedName: null,
+    extractedBrand: null,
+    extractedExpiry: null,
+    extractedWeightQty: null,
+    extractedLocation: null,
+    extractedBatch: null,
+    isPureMarketingUrl: false
+  };
+
+  if (!clean) return result;
+
+  // 0. Prüfe zuerst unser lokales Selbstlern-Gedächtnis für den Rohcode
+  const learnedDirect = getLearnedProductFromMemory(clean);
+  if (learnedDirect) {
+    result.extractedName = learnedDirect.name;
+    result.extractedWeightQty = learnedDirect.quantity;
+    result.extractedLocation = learnedDirect.location;
+  }
+
+  // 1. JSON-QR-Code (z.B. eigene Vorrats-Etiketten oder smarte Verpackungen)
+  if (clean.startsWith('{') && clean.endsWith('}')) {
+    try {
+      const obj = JSON.parse(clean);
+      if (obj.name || obj.n || obj.product) result.extractedName = String(obj.name || obj.n || obj.product).trim();
+      if (obj.qty || obj.q || obj.weight) result.extractedWeightQty = String(obj.qty || obj.q || obj.weight).trim();
+      if (obj.exp || obj.e || obj.mhd) result.extractedExpiry = String(obj.exp || obj.e || obj.mhd).trim();
+      if (obj.loc || obj.l) result.extractedLocation = String(obj.loc || obj.l).trim();
+      if (obj.ean || obj.gtin) result.lookupCodes.push(String(obj.ean || obj.gtin).trim());
+      return result;
+    } catch (e) {}
+  }
+
+  // 2. Klartext-QR-Code mit Trennzeichen (z.B. "Apfelmus | 500g | 2027-02-15")
+  if (clean.includes('|') || /^tw:/i.test(clean)) {
+    const parts = clean.replace(/^tw:/i, '').split('|').map(s => s.trim());
+    if (parts[0] && !/^\d+$/.test(parts[0])) result.extractedName = parts[0];
+    parts.forEach(p => {
+      if (/^\d{4}-\d{2}-\d{2}$/.test(p)) result.extractedExpiry = p;
+      const dmy = p.match(/^(\d{2})\.(\d{2})\.(20\d{2})$/);
+      if (dmy) result.extractedExpiry = dmy[3] + '-' + dmy[2] + '-' + dmy[1];
+      if (/^\d+(?:[.,]\d+)?\s*(g|kg|ml|l|x|stk|pcs|pack|port)$/i.test(p)) result.extractedWeightQty = p;
+    });
+  }
+
+  // 3. QR-CODES MIT WEB-URLs (GS1 Digital Link UND Hersteller-/Produkt-Links)
+  if (/^https?:\/\//i.test(clean)) {
+    // 3a. GS1 Digital Link Pfad (/01/GTIN/17/YYMMDD/3103/WEIGHT)
+    const urlGtin = clean.match(/\/01\/(\d{8,14})/);
+    if (urlGtin) {
+      const g = urlGtin[1];
+      const ean13 = g.length === 14 && g.startsWith('0') ? g.slice(1) : g;
+      result.lookupCodes.push(ean13, g);
+    }
+    const urlExp = clean.match(/\/1[57]\/(\d{2})(0[1-9]|1[0-2])(0[0-9]|[12][0-9]|3[01])/);
+    if (urlExp) {
+      const dd = urlExp[3] === '00' ? '28' : urlExp[3];
+      result.extractedExpiry = '20' + urlExp[1] + '-' + urlExp[2] + '-' + dd;
+    }
+    const urlWeight = clean.match(/\/310(\d)\/(\d{6})/);
+    if (urlWeight) {
+      const dec = Number(urlWeight[1]);
+      const val = parseInt(urlWeight[2], 10);
+      const grams = dec === 3 ? val : Math.round((val / Math.pow(10, dec)) * 1000);
+      if (grams >= 10 && grams <= 25000) {
+        result.extractedWeightQty = grams >= 1000 ? ((grams / 1000).toFixed(2).replace('.', ',') + ' kg') : (grams + 'g');
+      }
+    }
+
+    // 3b. Query-Parameter & URL-Slug für Hersteller-QR-Codes (z.B. alnatura.de/produkte/bio-apfelmark)
+    try {
+      const u = new URL(clean);
+      const qEan = u.searchParams.get('ean') || u.searchParams.get('gtin') || u.searchParams.get('barcode');
+      if (qEan && /^\d{8,14}$/.test(qEan.trim())) {
+        result.lookupCodes.push(qEan.trim());
+      }
+      const qName = u.searchParams.get('name') || u.searchParams.get('product') || u.searchParams.get('title');
+      if (qName) result.extractedName = qName.trim();
+      const qMhd = u.searchParams.get('mhd') || u.searchParams.get('exp');
+      if (qMhd && /^\d{4}-\d{2}-\d{2}$/.test(qMhd)) result.extractedExpiry = qMhd;
+
+      // Extrahiere Marke aus Domainnamen (z.B. www.frosta.de -> Frosta)
+      const hostParts = u.hostname.replace(/^(www|qr|m|shop|info|scan)\./i, '').split('.');
+      if (hostParts[0] && !/^(gs1|bit|tinyurl|goo|qr-code|qrco)$/i.test(hostParts[0])) {
+        const domainBrand = hostParts[0].charAt(0).toUpperCase() + hostParts[0].slice(1);
+        result.extractedBrand = shortenBrandString(domainBrand);
+      }
+
+      // Prüfe, ob im URL-Pfad ein klarer Produktname steckt (z.B. /produkt/vollmilch-schokolade)
+      const pathSegments = u.pathname
+        .split('/')
+        .map(s => decodeURIComponent(s).replace(/\.(html|php|aspx|htm)$/i, '').trim())
+        .filter(s =>
+          s.length >= 4 &&
+          !/^(de|en|at|ch|p|pr|prod|product|products|produkt|produkte|artikel|item|qr|scan|info|sortiment|rezepte|nachhaltigkeit|campaign|gewinnspiel)$/i.test(s) &&
+          !/^\d+$/.test(s)
+        );
+
+      if (!result.extractedName && pathSegments.length > 0) {
+        const lastSlug = pathSegments[pathSegments.length - 1]
+          .replace(/[-_]+/g, ' ')
+          .replace(/\b\d{5,}\b/g, '')
+          .trim();
+        if (lastSlug.length >= 4 && /[a-zA-ZäöüÄÖÜß]/.test(lastSlug)) {
+          result.extractedName = simplifyProductName(lastSlug, result.extractedBrand || '');
+        }
+      }
+
+      if (result.lookupCodes.length === 0 && !result.extractedName && !result.extractedExpiry) {
+        result.isPureMarketingUrl = true;
+      }
+    } catch (e) {}
+  }
+
+  // 4. GS1-128 / DATAMATRIX / PDF417 / GS1 DATABAR APPLICATION IDENTIFIERS
+  const gtinMatch = clean.match(/(?:\(01\)|\b01)(\d{14})/);
+  if (gtinMatch) {
+    const gtin14 = gtinMatch[1];
+    const ean13 = gtin14.startsWith('0') ? gtin14.slice(1) : gtin14;
+    if (!result.lookupCodes.includes(ean13)) result.lookupCodes.push(ean13, gtin14);
+  }
+
+  if (!result.extractedExpiry) {
+    const expMatch = clean.match(/(?:\(1[57]\)|(?:^|\s)1[57])(\d{2})(0[1-9]|1[0-2])(0[0-9]|[12][0-9]|3[01])/);
+    if (expMatch) {
+      const yy = Number(expMatch[1]);
+      const mm = expMatch[2];
+      const dd = expMatch[3] === '00' ? '28' : expMatch[3];
+      if (yy >= 25 && yy <= 35) {
+        result.extractedExpiry = '20' + String(yy).padStart(2, '0') + '-' + mm + '-' + dd;
+      }
+    }
+  }
+
+  if (!result.extractedWeightQty) {
+    const weightGs1Match = clean.match(/(?:\(3103\)|\b3103)(\d{6})/);
+    if (weightGs1Match) {
+      const grams = parseInt(weightGs1Match[1], 10);
+      if (grams >= 20 && grams <= 25000) {
+        result.extractedWeightQty = grams >= 1000 ? ((grams / 1000).toFixed(2).replace('.', ',') + ' kg') : (grams + 'g');
+      }
+    }
+  }
+
+  const batchMatch = clean.match(/(?:\(10\)|Ch\.?:?\s*)([A-Za-z0-9\-]{4,14})/i);
+  if (batchMatch) {
+    result.extractedBatch = batchMatch[1];
+  }
+
+  // 5. GEWICHTS- & FRISCHETHEKEN-EANs (Präfix 20 bis 29)
+  const digitsOnly = clean.replace(/\D/g, '');
+  if (digitsOnly.length === 13 && /^2[0-9]/.test(digitsOnly)) {
+    const prefix7 = digitsOnly.slice(0, 7);
+    const weightOrPricePart = parseInt(digitsOnly.slice(7, 12), 10);
+    if (!result.extractedWeightQty && weightOrPricePart >= 25 && weightOrPricePart <= 5000) {
+      result.extractedWeightQty = weightOrPricePart + 'g';
+    }
+    const learnedPlu = getLearnedProductFromMemory(digitsOnly);
+    if (learnedPlu?.name && !result.extractedName) {
+      result.extractedName = learnedPlu.name;
+      result.extractedLocation = learnedPlu.location;
+    }
+    result.lookupCodes.push(digitsOnly, prefix7 + '000000');
+  }
+
+  // 6. Standard-EAN-8 / UPC-A (12) / EAN-13 / GTIN-14 Zahlenblöcke extrahieren
+  if (!/^https?:\/\//i.test(clean)) {
+    const allNumberBlocks = clean.match(/\b\d{8,14}\b/g) || [];
+    allNumberBlocks.forEach(num => {
+      if (num.length === 14 && num.startsWith('0')) {
+        const stripped13 = num.slice(1);
+        if (!result.lookupCodes.includes(stripped13)) result.lookupCodes.push(stripped13);
+      }
+      if (!result.lookupCodes.includes(num)) {
+        result.lookupCodes.push(num);
+      }
+      // Falls 12-stelliger UPC-A Code: auch mit führender 0 als EAN-13 probieren
+      if (num.length === 12 && !result.lookupCodes.includes('0' + num)) {
+        result.lookupCodes.push('0' + num);
+      }
+      // Falls 13-stelliger EAN mit 0 am Anfang: auch als 12-stelligen UPC probieren
+      if (num.length === 13 && num.startsWith('0') && !result.lookupCodes.includes(num.slice(1))) {
+        result.lookupCodes.push(num.slice(1));
+      }
+    });
+
+    if (result.lookupCodes.length === 0 && digitsOnly.length >= 8 && digitsOnly.length <= 14) {
+      result.lookupCodes.push(digitsOnly);
+    }
+  }
+
+  return result;
+}
+
+// Kombiniert mehrere gleichzeitig im selben Kamerabild erkannte Codes (z.B. EAN-13 Strichcode + QR/DataMatrix daneben)
+function mergeMultipleBarcodesFromFrame(detectedList) {
+  if (!Array.isArray(detectedList) || detectedList.length === 0) return null;
+
+  const parsedItems = detectedList
+    .map(b => ({
+      raw: String(b.rawValue || '').trim(),
+      format: String(b.format || 'barcode').toLowerCase(),
+      parsed: parseUniversalBarcodePayload(String(b.rawValue || '').trim())
+    }))
+    .filter(x => x.raw.length > 0);
+
+  if (parsedItems.length === 0) return null;
+
+  // Sortiere so, dass echte Produkt-Barcodes (EAN-13, EAN-8, UPC, GS1 mit LookupCode) Vorrang vor reinen Werbe-URLs haben
+  parsedItems.sort((a, b) => {
+    const score = (item) => {
+      if (item.parsed.isPureMarketingUrl) return -10;
+      let s = 0;
+      if (/ean_13|ean_8|upc_a|upc_e/.test(item.format)) s += 50;
+      if (item.parsed.lookupCodes.length > 0) s += 30;
+      if (item.parsed.extractedExpiry) s += 25;
+      if (item.parsed.extractedWeightQty) s += 15;
+      if (item.parsed.extractedName) s += 20;
+      return s;
+    };
+    return score(b) - score(a);
+  });
+
+  // Kombiniere alle Informationen aus allen im Frame gefundenen Codes
+  const combined = {
+    primaryRaw: parsedItems[0].raw,
+    formats: Array.from(new Set(parsedItems.map(x => x.format.toUpperCase()))).join(' + '),
+    lookupCodes: [],
+    extractedName: null,
+    extractedBrand: null,
+    extractedExpiry: null,
+    extractedWeightQty: null,
+    extractedLocation: null,
+    extractedBatch: null,
+    allPureMarketingUrls: parsedItems.every(x => x.parsed.isPureMarketingUrl)
+  };
+
+  parsedItems.forEach(({ parsed }) => {
+    parsed.lookupCodes.forEach(c => {
+      if (!combined.lookupCodes.includes(c)) combined.lookupCodes.push(c);
+    });
+    if (!combined.extractedName && parsed.extractedName) combined.extractedName = parsed.extractedName;
+    if (!combined.extractedBrand && parsed.extractedBrand) combined.extractedBrand = parsed.extractedBrand;
+    if (!combined.extractedExpiry && parsed.extractedExpiry) combined.extractedExpiry = parsed.extractedExpiry;
+    if (!combined.extractedWeightQty && parsed.extractedWeightQty) combined.extractedWeightQty = parsed.extractedWeightQty;
+    if (!combined.extractedLocation && parsed.extractedLocation) combined.extractedLocation = parsed.extractedLocation;
+    if (!combined.extractedBatch && parsed.extractedBatch) combined.extractedBatch = parsed.extractedBatch;
+  });
+
+  return combined;
+}
+
 export default function PocketScanner({
   cartItems,
   todayStr,
@@ -289,13 +655,15 @@ export default function PocketScanner({
   const [torchOn, setTorchOn] = useState(false);
   const [zoomActive, setZoomActive] = useState(false);
   const [showProduceDrawer, setShowProduceDrawer] = useState(false);
+  const [activeFormatCount, setActiveFormatCount] = useState(13);
+  const [lastDetectedFormat, setLastDetectedFormat] = useState('');
 
   const [scannedBarcode, setScannedBarcode] = useState('');
   const [scanName, setScanName] = useState('');
   const [scanQty, setScanQty] = useState('1x');
   const [scanLocation, setScanLocation] = useState('fridge');
   const [scanCategory, setScanCategory] = useState('auto');
-  const [scanGlutenFree, setScanGlutenFree] = useState('auto'); // 'auto' | 'yes' | 'no'
+  const [scanGlutenFree, setScanGlutenFree] = useState('auto');
   const [scanExpiry, setScanExpiry] = useState('');
   const [scanImageUrl, setScanImageUrl] = useState('');
   const [estimatedMhdHint, setEstimatedMhdHint] = useState('');
@@ -304,6 +672,7 @@ export default function PocketScanner({
   const [detectedMhdCandidate, setDetectedMhdCandidate] = useState('');
   const [lastOcrRawHint, setLastOcrRawHint] = useState('');
   const [isReadingMhd, setIsReadingMhd] = useState(false);
+  const [isReadingFullLabel, setIsReadingFullLabel] = useState(false);
   const [isDetectingObject, setIsDetectingObject] = useState(false);
   const [autoMhdScanEnabled] = useState(true);
 
@@ -315,6 +684,7 @@ export default function PocketScanner({
   const scanLoopRef = useRef(null);
   const mhdAutoLoopRef = useRef(null);
   const ocrWorkerRef = useRef(null);
+  const zxingReaderRef = useRef(null);
   const mobileNetModelRef = useRef(null);
   const wakeLockRef = useRef(null);
   const lastScannedCodeRef = useRef('');
@@ -406,6 +776,51 @@ export default function PocketScanner({
         produceItem.emoji
       );
     }
+  };
+
+  const getZXingMultiFormatReader = async () => {
+    if (zxingReaderRef.current) return zxingReaderRef.current;
+    if (typeof window === 'undefined') return null;
+
+    try {
+      if (!window.ZXing) {
+        await new Promise((resolve, reject) => {
+          const s = document.createElement('script');
+          s.src = 'https://cdn.jsdelivr.net/npm/@zxing/library@0.21.2/umd/index.min.js';
+          s.onload = resolve;
+          s.onerror = reject;
+          document.head.appendChild(s);
+        });
+      }
+      if (window.ZXing?.BrowserMultiFormatReader) {
+        const hints = new Map();
+        if (window.ZXing.DecodeHintType && window.ZXing.BarcodeFormat) {
+          const formats = [
+            window.ZXing.BarcodeFormat.EAN_13,
+            window.ZXing.BarcodeFormat.EAN_8,
+            window.ZXing.BarcodeFormat.UPC_A,
+            window.ZXing.BarcodeFormat.UPC_E,
+            window.ZXing.BarcodeFormat.CODE_128,
+            window.ZXing.BarcodeFormat.CODE_39,
+            window.ZXing.BarcodeFormat.CODE_93,
+            window.ZXing.BarcodeFormat.ITF,
+            window.ZXing.BarcodeFormat.CODABAR,
+            window.ZXing.BarcodeFormat.QR_CODE,
+            window.ZXing.BarcodeFormat.DATA_MATRIX,
+            window.ZXing.BarcodeFormat.PDF_417,
+            window.ZXing.BarcodeFormat.AZTEC,
+            window.ZXing.BarcodeFormat.RSS_14,
+            window.ZXing.BarcodeFormat.RSS_EXPANDED
+          ].filter(Boolean);
+          hints.set(window.ZXing.DecodeHintType.POSSIBLE_FORMATS, formats);
+          hints.set(window.ZXing.DecodeHintType.TRY_HARDER, true);
+        }
+        const reader = new window.ZXing.BrowserMultiFormatReader(hints);
+        zxingReaderRef.current = reader;
+        return reader;
+      }
+    } catch (e) {}
+    return null;
   };
 
   const loadMobileNetModel = async () => {
@@ -516,7 +931,7 @@ export default function PocketScanner({
         applyFreshProduceSelection(matchedProduce, true);
       } else {
         setShowProduceDrawer(true);
-        showToast('Bitte näher heranhalten', 'Oder wähle das Obst/Gemüse direkt im aufgeklappten Menü!', '🔍');
+        showToast('Bitte näher heranhalten', 'Oder wähle das Frischeprodukt direkt im aufgeklappten Menü!', '🔍');
       }
     } catch (err) {
       setShowProduceDrawer(true);
@@ -590,6 +1005,133 @@ export default function PocketScanner({
     return null;
   };
 
+  // ============================================================================
+  // UNIVERSELLER VERPACKUNGS- & ETIKETTEN-LESER (FÜR ALLE LEBENSMITTELARTEN)
+  // ============================================================================
+  const captureProductLabelFromLiveCamera = async (silentFallback = false) => {
+    if (!videoRef.current || videoRef.current.readyState < 2) {
+      if (!silentFallback) showToast('Kamera nicht bereit', 'Bitte zuerst die Kamera starten.', '⚠️');
+      return false;
+    }
+    if (isReadingFullLabel) return false;
+    setIsReadingFullLabel(true);
+    if (!silentFallback) {
+      showToast('Lese Verpackung...', 'Erkenne Produktname, Marke, Menge & MHD...', '🏷️');
+    }
+
+    try {
+      if (typeof window !== 'undefined' && !window.Tesseract) {
+        await new Promise((resolve, reject) => {
+          const s = document.createElement('script');
+          s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+          s.onload = resolve;
+          s.onerror = reject;
+          document.head.appendChild(s);
+        });
+      }
+
+      const vid = videoRef.current;
+      const vw = vid.videoWidth || 640;
+      const vh = vid.videoHeight || 480;
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.floor(vw * 0.88);
+      canvas.height = Math.floor(vh * 0.78);
+      const ctx = canvas.getContext('2d');
+      ctx.filter = 'contrast(1.65) grayscale(1)';
+      ctx.drawImage(
+        vid,
+        Math.floor(vw * 0.06),
+        Math.floor(vh * 0.11),
+        canvas.width,
+        canvas.height,
+        0,
+        0,
+        canvas.width,
+        canvas.height
+      );
+
+      const res = await window.Tesseract.recognize(canvas, 'deu');
+      const fullText = String(res?.data?.text || '');
+      if (!fullText.trim()) return false;
+
+      let foundFoodTitle = '';
+      for (const kw of LABEL_FOOD_KEYWORDS) {
+        const reg = new RegExp('\\b' + kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
+        if (reg.test(fullText)) {
+          foundFoodTitle = kw;
+          break;
+        }
+      }
+
+      let foundBrand = '';
+      for (const kb of KNOWN_BRAND_PREFIXES) {
+        const reg = new RegExp('\\b' + kb.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
+        if (reg.test(fullText)) {
+          foundBrand = kb;
+          break;
+        }
+      }
+
+      if (!foundFoodTitle) {
+        const cleanLines = fullText
+          .split(/\r?\n/)
+          .map(l => l.replace(/[^a-zA-ZäöüÄÖÜß0-9\s\-,.]/g, '').trim())
+          .filter(l =>
+            l.length >= 4 &&
+            l.length <= 36 &&
+            !/aufgezogen|geschlachtet|geboren|deutschland|verzehr|durcherhitzen|tropfsaft|lagerung|packung|mikrowellen|ch\.|g-nr|mindestens|haltbar|zutaten|nährwerte|brennwert|kühl|trocken/i.test(l)
+          );
+        if (cleanLines.length > 0) {
+          foundFoodTitle = cleanLines[0];
+        }
+      }
+
+      const weightMatch = fullText.match(/\b(\d{2,4})\s*(g|gr|kg|ml|l)\b/i);
+      const parsedExp = extractExpiryDateFromText(fullText);
+
+      if (foundFoodTitle) {
+        const finalName = simplifyProductName(foundFoodTitle, foundBrand);
+        const cat = detectSmartCategory(finalName);
+        const loc = detectSmartLocation(finalName, cat);
+        const freshMatch = estimateProduceByName(finalName);
+
+        setScanName(finalName);
+        setScanCategory(cat);
+        setScanLocation(loc);
+        setScanGlutenFree(isProductGlutenFree(finalName, cat) ? 'yes' : 'auto');
+        if (weightMatch) {
+          setScanQty(weightMatch[1] + weightMatch[2].toLowerCase());
+        }
+        if (parsedExp) {
+          setScanExpiry(parsedExp);
+          setDetectedMhdCandidate(parsedExp);
+        } else if (freshMatch && !scanExpiry) {
+          const est = formatDateStr(addDays(new Date(), freshMatch.days));
+          setScanExpiry(est);
+          setDetectedMhdCandidate(est);
+          setEstimatedMhdHint(freshMatch.emoji + ' ' + freshMatch.name + ' → Empfohlenes MHD +' + freshMatch.days + ' Tage');
+        } else if (loc === 'freezer' && !scanExpiry) {
+          const estTk = formatDateStr(addDays(new Date(), 180));
+          setScanExpiry(estTk);
+          setDetectedMhdCandidate(estTk);
+        }
+
+        playMobileBeep('scan');
+        try { navigator.vibrate?.(70); } catch (e) {}
+        showToast('Verpackung gelesen! 🏷️', finalName, getFoodEmoji(finalName));
+        return true;
+      } else if (parsedExp) {
+        setScanExpiry(parsedExp);
+        setDetectedMhdCandidate(parsedExp);
+        showToast('MHD gelesen!', parsedExp, '📅');
+        return true;
+      }
+    } catch (e) {} finally {
+      setIsReadingFullLabel(false);
+    }
+    return false;
+  };
+
   const captureMhdFromLiveCamera = async (silentMode = false) => {
     if (!videoRef.current || videoRef.current.readyState < 2) {
       if (!silentMode) showToast('Kamera nicht bereit', 'Bitte zuerst die Kamera starten.', '⚠️');
@@ -634,7 +1176,7 @@ export default function PocketScanner({
         playMobileBeep('scan');
         try { navigator.vibrate?.(70); } catch (e) {}
         const niceDate = parsedDate.slice(8, 10) + '.' + parsedDate.slice(5, 7) + '.' + parsedDate.slice(0, 4);
-        showToast('MHD erkannt: ' + niceDate, 'Tippe auf „🛒 In den Einkaufswagen“!', '🎉');
+        showToast('MHD erkannt: ' + niceDate, 'Tippe auf „🛒 In Einkaufswagen“!', '🎉');
       } else if (!silentMode) {
         showToast('Datum noch unscharf', 'Tipp: Nutze oben im Bild „🔍 2x“ oder „🔦 Licht“.', '🔍');
       }
@@ -655,7 +1197,7 @@ export default function PocketScanner({
       if (!isReadingMhdRef.current && !detectedMhdCandidate) {
         captureMhdFromLiveCamera(true);
       }
-    }, 1250);
+    }, 1400);
 
     return () => {
       if (mhdAutoLoopRef.current) clearInterval(mhdAutoLoopRef.current);
@@ -663,79 +1205,176 @@ export default function PocketScanner({
   }, [cameraActive, autoMhdScanEnabled, detectedMhdCandidate, scannerMode]);
 
   // ============================================================================
-  // VERBESSERTER BARCODE-LOOKUP INKL. AUTO-NAMENSKÜRZUNG, KATEGORIE, ORT & GF
+  // MULTI-DATENBANK-ABFRAGE (LOKALES GEDÄCHTNIS -> OPENFOODFACTS -> PETFOOD -> PRODUCTS)
   // ============================================================================
-  const lookupBarcodeOnOpenFoodFacts = async (code) => {
-    const cleanCode = String(code || '').trim();
-    if (!cleanCode) return;
-    setScannedBarcode(cleanCode);
+  const fetchProductFromAllOpenDatabases = async (candidateCode) => {
+    const endpoints = [
+      'https://de.openfoodfacts.org/api/v2/product/' + encodeURIComponent(candidateCode) + '.json',
+      'https://world.openfoodfacts.org/api/v2/product/' + encodeURIComponent(candidateCode) + '.json',
+      'https://world.openpetfoodfacts.org/api/v2/product/' + encodeURIComponent(candidateCode) + '.json',
+      'https://world.openproductsfacts.org/api/v2/product/' + encodeURIComponent(candidateCode) + '.json'
+    ];
+
+    for (const url of endpoints) {
+      try {
+        const res = await fetch(url);
+        if (!res.ok) continue;
+        const data = await res.json();
+        if (data && data.product && (data.product.product_name_de || data.product.product_name || data.product.generic_name_de || data.product.brands)) {
+          return data.product;
+        }
+      } catch (e) {}
+    }
+    return null;
+  };
+
+  const processMergedScanResult = async (mergedScan) => {
+    if (!mergedScan) return;
+
+    // Falls nur ein reiner Marketing-QR-Code ohne Produktbezug im Bild war, ignoriere ihn kurz,
+    // damit der Scanner sofort den eigentlichen EAN-Strichcode daneben erfassen kann!
+    if (mergedScan.allPureMarketingUrls) {
+      return;
+    }
+
+    const primaryCodeKey = mergedScan.lookupCodes[0] || mergedScan.primaryRaw.slice(0, 28);
+    setScannedBarcode(primaryCodeKey);
+    if (mergedScan.formats) setLastDetectedFormat(mergedScan.formats);
+
+    if (mergedScan.extractedWeightQty) {
+      setScanQty(mergedScan.extractedWeightQty);
+    }
+    if (mergedScan.extractedExpiry) {
+      setScanExpiry(mergedScan.extractedExpiry);
+      setDetectedMhdCandidate(mergedScan.extractedExpiry);
+    }
+    if (mergedScan.extractedLocation) {
+      setScanLocation(mergedScan.extractedLocation);
+    }
+
+    // 1. SOFORT-TREFFER AUS DEM LOKALEN BARCODE-GEDÄCHTNIS ODER QR-KLARTEXT
+    const learnedHit = getLearnedProductFromMemory(primaryCodeKey) || getLearnedProductFromMemory(mergedScan.primaryRaw);
+    if (learnedHit?.name) {
+      const cat = detectSmartCategory(learnedHit.name, learnedHit.category);
+      const loc = mergedScan.extractedLocation || learnedHit.location || detectSmartLocation(learnedHit.name, cat);
+      setScanName(learnedHit.name);
+      if (!mergedScan.extractedWeightQty && learnedHit.quantity) setScanQty(learnedHit.quantity);
+      setScanCategory(cat);
+      setScanLocation(loc);
+      setScanGlutenFree(learnedHit.glutenFree || (isProductGlutenFree(learnedHit.name, cat) ? 'yes' : 'auto'));
+      playMobileBeep('scan');
+      try { navigator.vibrate?.(50); } catch (e) {}
+      showToast('Aus deinem Vorrats-Gedächtnis ⚡', learnedHit.name, getFoodEmoji(learnedHit.name));
+      return;
+    }
+
+    if (mergedScan.extractedName && mergedScan.lookupCodes.length === 0) {
+      const cleanQrName = simplifyProductName(mergedScan.extractedName, mergedScan.extractedBrand || '');
+      const cat = detectSmartCategory(cleanQrName);
+      const loc = mergedScan.extractedLocation || detectSmartLocation(cleanQrName, cat);
+      setScanName(cleanQrName);
+      setScanCategory(cat);
+      setScanLocation(loc);
+      setScanGlutenFree(isProductGlutenFree(cleanQrName, cat) ? 'yes' : 'auto');
+      playMobileBeep('scan');
+      try { navigator.vibrate?.(50); } catch (e) {}
+      showToast('QR-Produktdaten erkannt! 🎯', cleanQrName, getFoodEmoji(cleanQrName));
+      return;
+    }
+
+    // 2. ONLINE-ABFRAGE ÜBER DIE MULTI-DATENBANK-KASKADE
     setIsLookingUpProduct(true);
     try {
-      const res = await fetch('https://world.openfoodfacts.org/api/v2/product/' + encodeURIComponent(cleanCode) + '.json');
-      const data = await res.json();
-      if (data && data.product) {
-        const p = data.product;
-        const rawProdName = p.product_name_de || p.product_name || p.generic_name_de || p.generic_name || '';
-        const rawBrand = p.brands ? p.brands.split(',')[0].trim() : '';
-        const offCats = Array.isArray(p.categories_tags) ? p.categories_tags : [];
-        const offAllergens = Array.isArray(p.allergens_tags) ? p.allergens_tags : [];
-        const offLabels = Array.isArray(p.labels_tags) ? p.labels_tags : [];
+      const candidatesToTry = mergedScan.lookupCodes.length > 0 ? mergedScan.lookupCodes : [mergedScan.primaryRaw];
 
-        // Falls in Kategorien "frozen" vorkommt und im Namen noch kein TK steht, "TK" ergänzen
-        let nameWithTk = rawProdName;
-        if (offCats.some(t => /frozen/.test(t)) && !/\btk\b|tiefkühl|tiefgekühlt/i.test(nameWithTk)) {
-          nameWithTk = (nameWithTk + ' TK').trim();
-        }
+      for (const candidateCode of candidatesToTry.slice(0, 3)) {
+        const p = await fetchProductFromAllOpenDatabases(candidateCode);
+        if (p) {
+          const rawProdName = p.product_name_de || p.product_name || p.generic_name_de || p.generic_name || '';
+          const rawBrand = p.brands ? p.brands.split(',')[0].trim() : (mergedScan.extractedBrand || '');
+          const offCats = Array.isArray(p.categories_tags) ? p.categories_tags : [];
+          const offAllergens = Array.isArray(p.allergens_tags) ? p.allergens_tags : [];
+          const offLabels = Array.isArray(p.labels_tags) ? p.labels_tags : [];
 
-        // Punkt 3: Automatische Namens-Vereinfachung ("Pfifferlinge TK / Bayer.")
-        const smartName = simplifyProductName(nameWithTk || rawBrand, rawBrand);
-        const qty = p.quantity ? String(p.quantity).trim() : '1x';
-        const img = p.image_front_small_url || p.image_thumb_url || '';
-
-        if (img) setScanImageUrl(img);
-        if (smartName) {
-          const detectedCat = detectSmartCategory(smartName, 'auto', offCats);
-          const detectedLoc = detectSmartLocation(smartName, detectedCat, offCats);
-          const isGf = isProductGlutenFree(smartName, detectedCat, 'auto', offAllergens, offLabels);
-
-          setScanName(smartName);
-          setScanQty(qty);
-          setScanCategory(detectedCat);
-          setScanLocation(detectedLoc);
-          setScanGlutenFree(isGf ? 'yes' : 'auto');
-
-          // Automatischer MHD-Vorschlag bei Tiefkühlkost oder Frischeprodukt
-          const freshMatch = estimateProduceByName(smartName);
-          if (detectedLoc === 'freezer' && !scanExpiry) {
-            const tkDate = formatDateStr(addDays(new Date(), 180));
-            setScanExpiry(tkDate);
-            setDetectedMhdCandidate(tkDate);
-            setEstimatedMhdHint('❄️ Tiefkühl-Produkt erkannt → Lagerort „❄️ TK“ & MHD +6 Monate vorgeschlagen.');
-          } else if (freshMatch && !scanExpiry) {
-            const estDate = formatDateStr(addDays(new Date(), freshMatch.days));
-            setScanExpiry(estDate);
-            setDetectedMhdCandidate(estDate);
-            setEstimatedMhdHint(freshMatch.emoji + ' Frischeprodukt → MHD +' + freshMatch.days + ' Tage (' + freshMatch.hint + ')');
+          let nameWithTk = rawProdName;
+          if (offCats.some(t => /frozen/.test(t)) && !/\btk\b|tiefkühl|tiefgekühlt/i.test(nameWithTk)) {
+            nameWithTk = (nameWithTk + ' TK').trim();
           }
 
-          playMobileBeep('scan');
-          try { navigator.vibrate?.(50); } catch (e) {}
-          showToast(
-            'Erkannt & optimiert!',
-            smartName + (isGf ? ' (🌾✓ Glutenfrei)' : ''),
-            getFoodEmoji(smartName)
-          );
-          return;
+          const smartName = simplifyProductName(nameWithTk || rawBrand, rawBrand);
+          const qty = mergedScan.extractedWeightQty || (p.quantity ? String(p.quantity).trim() : '1x');
+          const img = p.image_front_small_url || p.image_thumb_url || '';
+
+          if (img) setScanImageUrl(img);
+          if (smartName) {
+            const detectedCat = detectSmartCategory(smartName, 'auto', offCats);
+            const detectedLoc = mergedScan.extractedLocation || detectSmartLocation(smartName, detectedCat, offCats);
+            const isGf = isProductGlutenFree(smartName, detectedCat, 'auto', offAllergens, offLabels);
+
+            setScanName(smartName);
+            setScanQty(qty);
+            setScanCategory(detectedCat);
+            setScanLocation(detectedLoc);
+            setScanGlutenFree(isGf ? 'yes' : 'auto');
+
+            const freshMatch = estimateProduceByName(smartName);
+            if (detectedLoc === 'freezer' && !scanExpiry && !mergedScan.extractedExpiry) {
+              const tkDate = formatDateStr(addDays(new Date(), 180));
+              setScanExpiry(tkDate);
+              setDetectedMhdCandidate(tkDate);
+              setEstimatedMhdHint('❄️ Tiefkühl-Produkt erkannt → Lagerort „❄️ TK“ & MHD +6 Monate vorgeschlagen.');
+            } else if (freshMatch && !scanExpiry && !mergedScan.extractedExpiry) {
+              const estDate = formatDateStr(addDays(new Date(), freshMatch.days));
+              setScanExpiry(estDate);
+              setDetectedMhdCandidate(estDate);
+              setEstimatedMhdHint(freshMatch.emoji + ' Frischeprodukt → MHD +' + freshMatch.days + ' Tage (' + freshMatch.hint + ')');
+            }
+
+            playMobileBeep('scan');
+            try { navigator.vibrate?.(50); } catch (e) {}
+            showToast(
+              'Erkannt & optimiert!',
+              smartName + (isGf ? ' (🌾✓ Glutenfrei)' : ''),
+              getFoodEmoji(smartName)
+            );
+            return;
+          }
         }
       }
-      showToast('Barcode gescannt', 'Code ' + cleanCode + ' – bitte Namen kurz eingeben.', '📷');
+
+      // 3. FALLBACK: Falls im QR-Code zumindest ein URL-Produktname stand
+      if (mergedScan.extractedName) {
+        const cleanQrName = simplifyProductName(mergedScan.extractedName, mergedScan.extractedBrand || '');
+        const cat = detectSmartCategory(cleanQrName);
+        const loc = detectSmartLocation(cleanQrName, cat);
+        setScanName(cleanQrName);
+        setScanCategory(cat);
+        setScanLocation(loc);
+        playMobileBeep('scan');
+        showToast('Aus QR-Code erkannt!', cleanQrName, getFoodEmoji(cleanQrName));
+        return;
+      }
+
+      // 4. FALLBACK: Lies automatisch den Produktnamen direkt optisch vom Etikett / der Verpackung ab!
+      playMobileBeep('scan');
+      const labelSuccess = await captureProductLabelFromLiveCamera(true);
+      if (!labelSuccess) {
+        showToast(
+          (mergedScan.formats || 'Code') + ' erfasst',
+          'Tippe den Namen kurz ein (die App merkt sich diesen Code sofort fürs nächste Mal!).',
+          '🏷️'
+        );
+      }
     } catch (e) {
-      showToast('Barcode erfasst', 'Code: ' + cleanCode, '📷');
+      await captureProductLabelFromLiveCamera(true);
     } finally {
       setIsLookingUpProduct(false);
     }
   };
 
+  // ============================================================================
+  // DUAL-ENGINE LIVE-SCANNER (WERTET ALLE CODES IM SELBEN KAMERABILD GLEICHZEITIG AUS)
+  // ============================================================================
   const startLiveBarcodeCamera = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -755,6 +1394,7 @@ export default function PocketScanner({
       setCameraActive(true);
       requestScreenWakeLock();
       getFastMhdOcrWorker().catch(() => {});
+      getZXingMultiFormatReader().catch(() => {});
 
       setTimeout(() => {
         if (videoRef.current) {
@@ -763,26 +1403,74 @@ export default function PocketScanner({
         }
       }, 150);
 
+      let nativeDetector = null;
       if (typeof window !== 'undefined' && 'BarcodeDetector' in window) {
-        const detector = new window.BarcodeDetector({
-          formats: ['ean_13', 'ean_8', 'qr_code', 'upc_a', 'code_128']
-        });
-        scanLoopRef.current = setInterval(async () => {
-          if (!videoRef.current || videoRef.current.readyState < 2) return;
+        try {
+          let formatsToUse = ALL_DESIRED_BARCODE_FORMATS;
+          if (typeof window.BarcodeDetector.getSupportedFormats === 'function') {
+            const supported = await window.BarcodeDetector.getSupportedFormats();
+            if (Array.isArray(supported) && supported.length > 0) {
+              formatsToUse = supported;
+              setActiveFormatCount(supported.length);
+            }
+          }
+          nativeDetector = new window.BarcodeDetector({ formats: formatsToUse });
+        } catch (e) {
+          try { nativeDetector = new window.BarcodeDetector(); } catch (err2) {}
+        }
+      }
+
+      let frameTick = 0;
+      scanLoopRef.current = setInterval(async () => {
+        if (!videoRef.current || videoRef.current.readyState < 2) return;
+        frameTick++;
+
+        // 1. Native Multi-Code-Erkennung (erfasst auch EAN + QR-Code gleichzeitig im selben Bild!)
+        if (nativeDetector) {
           try {
-            const barcodes = await detector.detect(videoRef.current);
+            const barcodes = await nativeDetector.detect(videoRef.current);
             if (barcodes && barcodes.length > 0) {
-              const rawVal = String(barcodes[0].rawValue || '').trim();
-              const now = Date.now();
-              if (rawVal && (rawVal !== lastScannedCodeRef.current || now - lastScanTimeRef.current > 6000)) {
-                lastScannedCodeRef.current = rawVal;
-                lastScanTimeRef.current = now;
-                lookupBarcodeOnOpenFoodFacts(rawVal);
+              const merged = mergeMultipleBarcodesFromFrame(barcodes);
+              if (merged && !merged.allPureMarketingUrls) {
+                const signature = merged.lookupCodes.join('_') || merged.primaryRaw;
+                const now = Date.now();
+                if (signature && (signature !== lastScannedCodeRef.current || now - lastScanTimeRef.current > 6000)) {
+                  lastScannedCodeRef.current = signature;
+                  lastScanTimeRef.current = now;
+                  processMergedScanResult(merged);
+                  return;
+                }
               }
             }
           } catch (err) {}
-        }, 380);
-      }
+        }
+
+        // 2. ZXing Multi-Format-Fallback (für PDF417, GS1 DataBar, DataMatrix & QR)
+        if (frameTick % 2 === 0 && zxingReaderRef.current) {
+          try {
+            const vid = videoRef.current;
+            const canvas = document.createElement('canvas');
+            canvas.width = 640;
+            canvas.height = 360;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(vid, 0, 0, canvas.width, canvas.height);
+
+            const luminanceSource = new window.ZXing.HTMLCanvasElementLuminanceSource(canvas);
+            const binaryBitmap = new window.ZXing.BinaryBitmap(new window.ZXing.HybridBinarizer(luminanceSource));
+            const zxingResult = zxingReaderRef.current.decodeBitmap(binaryBitmap);
+            if (zxingResult && zxingResult.getText()) {
+              const rawVal = String(zxingResult.getText()).trim();
+              const merged = mergeMultipleBarcodesFromFrame([{ rawValue: rawVal, format: '2D/Multi' }]);
+              const now = Date.now();
+              if (merged && !merged.allPureMarketingUrls && (rawVal !== lastScannedCodeRef.current || now - lastScanTimeRef.current > 6000)) {
+                lastScannedCodeRef.current = rawVal;
+                lastScanTimeRef.current = now;
+                processMergedScanResult(merged);
+              }
+            }
+          } catch (zErr) {}
+        }
+      }, 360);
     } catch (err) {
       showToast('Kamera-Zugriff', 'Bitte erlaube den Kamera-Zugriff im Browser.', '⚠️');
     }
@@ -892,6 +1580,17 @@ export default function PocketScanner({
       ? (isProductGlutenFree(finalName, resolvedCategory) ? 'yes' : 'no')
       : scanGlutenFree;
 
+    // Merke dir diesen Barcode/QR-Code dauerhaft im lokalen Vorrats-Gedächtnis!
+    if (scannedBarcode) {
+      saveLearnedProductToMemory(scannedBarcode, {
+        name: finalName,
+        quantity: scanQty.trim() || '1x',
+        location: scanLocation,
+        category: resolvedCategory,
+        glutenFree: resolvedGf
+      });
+    }
+
     onAddSingleToCart(
       finalName,
       scannedBarcode,
@@ -905,6 +1604,7 @@ export default function PocketScanner({
 
     setScanName('');
     setScannedBarcode('');
+    setLastDetectedFormat('');
     setScanCategory('auto');
     setScanGlutenFree('auto');
     setScanExpiry('');
@@ -936,7 +1636,7 @@ export default function PocketScanner({
             className={'py-2 px-2 rounded-xl text-[11px] font-black flex items-center justify-center gap-1 ' + (scannerMode === 'barcode' ? 'tw-active-nav' : 'tw-nav-inactive')}
           >
             <ScanLine className="w-3.5 h-3.5" />
-            <span>Scanner</span>
+            <span>Universal-Scan</span>
           </button>
           <button
             type="button"
@@ -944,7 +1644,7 @@ export default function PocketScanner({
             className={'py-2 px-2 rounded-xl text-[11px] font-black flex items-center justify-center gap-1 ' + (scannerMode === 'object_ai' ? 'tw-active-nav' : 'tw-nav-inactive')}
           >
             <Apple className="w-3.5 h-3.5" />
-            <span>🍎 Obst-KI</span>
+            <span>🍎 Frische-KI</span>
           </button>
           <button
             type="button"
@@ -979,7 +1679,7 @@ export default function PocketScanner({
 
       {scannerMode !== 'receipt' ? (
         <div className={'p-3.5 rounded-3xl border space-y-3 shadow-lg ' + themeStyles.card}>
-          {/* LIVE-KAMERA-SUCHER (NUR WENN AKTIV) */}
+          {/* LIVE-KAMERA-SUCHER MIT MULTI-CODE-FUSION (EAN + QR + GS1 + DATAMATRIX + PDF417) */}
           {cameraActive && (
             <div className="space-y-2">
               <div
@@ -995,14 +1695,14 @@ export default function PocketScanner({
                 />
 
                 <div className="absolute top-2 left-2 right-2 flex items-center justify-between gap-2 z-10">
-                  <span className="text-[10px] font-black bg-black/75 text-amber-300 px-2.5 py-1 rounded-lg border border-amber-400/40">
-                    {isLookingUpProduct
-                      ? '⏳ Suche Produkt & kürze Namen...'
-                      : scannerMode === 'object_ai'
-                      ? '🍎 Obst/Gemüse zeigen & antippen'
-                      : '🎯 Barcode oder MHD-Datum in Rahmen halten'}
+                  <span className="text-[10px] font-black bg-black/80 text-amber-300 px-2.5 py-1 rounded-lg border border-amber-400/40 truncate">
+                    {isLookingUpProduct || isReadingFullLabel
+                      ? '⏳ Prüfe Datenbanken & Verpackung...'
+                      : lastDetectedFormat
+                      ? ('✅ ' + lastDetectedFormat + ' • ' + scannedBarcode)
+                      : ('🎯 ' + activeFormatCount + ' Code-Typen aktiv (EAN, QR, GS1, 2D)')}
                   </span>
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1 shrink-0">
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); toggleCameraZoom(); }}
@@ -1022,43 +1722,54 @@ export default function PocketScanner({
                   </div>
                 </div>
 
-                <div className="absolute inset-x-6 top-[26%] bottom-[26%] border-2 border-amber-400 rounded-xl pointer-events-none shadow-[0_0_0_9999px_rgba(0,0,0,0.35)] flex flex-col justify-center">
+                <div className="absolute inset-x-5 top-[22%] bottom-[22%] border-2 border-amber-400 rounded-xl pointer-events-none shadow-[0_0_0_9999px_rgba(0,0,0,0.35)] flex flex-col justify-center">
                   <div className="w-full h-0.5 bg-emerald-400/90 shadow-[0_0_10px_#10b981] animate-pulse" />
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-1.5">
                 <button
                   type="button"
                   onClick={() => captureMhdFromLiveCamera(false)}
                   disabled={isReadingMhd}
-                  className="tw-active-nav py-2 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 shadow-md"
+                  className="tw-active-nav py-2 px-2 rounded-xl text-[11px] font-black flex items-center justify-center gap-1 shadow-md"
                 >
                   <ScanLine className={'w-3.5 h-3.5 shrink-0 ' + (isReadingMhd ? 'animate-spin' : '')} />
-                  <span>{isReadingMhd ? '⏳ Lese MHD...' : '📸 MHD ablesen'}</span>
+                  <span>{isReadingMhd ? 'Lese...' : '📅 Nur MHD'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => captureProductLabelFromLiveCamera(false)}
+                  disabled={isReadingFullLabel}
+                  title="Liest Produktname, Marke, Gewicht & MHD direkt von jeder Verpackung"
+                  className="py-2 px-2 rounded-xl bg-sky-600 text-white text-[11px] font-black flex items-center justify-center gap-1 shadow-md"
+                >
+                  <Tag className={'w-3.5 h-3.5 shrink-0 ' + (isReadingFullLabel ? 'animate-spin' : '')} />
+                  <span>{isReadingFullLabel ? 'Lese...' : '🏷️ Etikett+MHD'}</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={recognizeProduceFromCamera}
                   disabled={isDetectingObject}
-                  className="py-2 px-3 rounded-xl bg-emerald-600 text-white text-xs font-black flex items-center justify-center gap-1.5 shadow-md"
+                  className="py-2 px-2 rounded-xl bg-emerald-600 text-white text-[11px] font-black flex items-center justify-center gap-1 shadow-md"
                 >
                   <Sparkles className={'w-3.5 h-3.5 shrink-0 ' + (isDetectingObject ? 'animate-spin' : '')} />
-                  <span>{isDetectingObject ? '⏳ Erkenne...' : '🍎 Obst/Gemüse KI'}</span>
+                  <span>{isDetectingObject ? 'KI...' : '🍎 Obst-KI'}</span>
                 </button>
               </div>
             </div>
           )}
 
-          {/* EINKLAPPBARES FRISCHE-DROPDOWN STATT DAUERHAFT OFFENER LEISTE */}
+          {/* EINKLAPPBARES FRISCHE-DROPDOWN */}
           <div className="rounded-2xl bg-emerald-500/10 border border-emerald-400/30 overflow-hidden">
             <button
               type="button"
               onClick={() => setShowProduceDrawer(prev => !prev)}
               className="w-full px-3 py-2 flex items-center justify-between text-left text-xs font-black text-emerald-300"
             >
-              <span>🥒🍎 Schnellwahl: Frisches Obst & Gemüse (inkl. Auto-MHD)</span>
+              <span>🥒🍎🥩 Schnellwahl: Frisches Obst, Gemüse & Fleisch (Auto-MHD)</span>
               {showProduceDrawer ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
             </button>
 
@@ -1090,9 +1801,7 @@ export default function PocketScanner({
             </div>
           )}
 
-          {/* =========================================================
-              AUFGERÄUMTES EINGABE-FORMULAR MIT DROPDOWNS & NAMENS-OPTIMIERER
-             ========================================================= */}
+          {/* AUFGERÄUMTES EINGABE-FORMULAR MIT DROPDOWNS & NAMENS-OPTIMIERER */}
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -1112,7 +1821,7 @@ export default function PocketScanner({
                   required
                   value={scanName}
                   onChange={(e) => handleNameInputChange(e.target.value)}
-                  placeholder="Produktname (z.B. Pfifferlinge TK / Bayer.)..."
+                  placeholder="Produktname (z.B. Vollmilch / Schwarzwaldmilch)..."
                   className={'w-full h-11 pl-3 pr-16 rounded-2xl border text-xs sm:text-sm font-extrabold ' + themeStyles.input}
                 />
                 {scanName.trim().length > 3 && (
@@ -1167,7 +1876,6 @@ export default function PocketScanner({
                 </button>
               </div>
 
-              {/* LAGERORT ALS ÜBERSICHTLICHES DROPDOWN */}
               <select
                 value={scanLocation}
                 onChange={(e) => setScanLocation(e.target.value)}
@@ -1180,7 +1888,6 @@ export default function PocketScanner({
                 ))}
               </select>
 
-              {/* KATEGORIE ALS ÜBERSICHTLICHES DROPDOWN */}
               <select
                 value={scanCategory}
                 onChange={(e) => setScanCategory(e.target.value)}
@@ -1205,7 +1912,7 @@ export default function PocketScanner({
                 </span>
                 <div className="flex items-center gap-1">
                   {[
-                    { l: '+5T', d: 5 },
+                    { l: '+4T', d: 4 },
                     { l: '+1W', d: 7 },
                     { l: '+2W', d: 14 },
                     { l: '+6M (TK)', d: 180 }
