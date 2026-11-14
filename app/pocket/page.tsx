@@ -7,7 +7,8 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Calendar, CheckSquare, ShoppingCart, Camera, Package,
   RefreshCw, Smartphone, LogOut, Cloud, BellRing, Download,
-  WifiOff, Pencil, Check, ArrowUpDown
+  WifiOff, Pencil, Check, Search, Menu, X,
+  Trash2, Wand2, CheckCircle2, AlertTriangle
 } from 'lucide-react';
 
 import * as Cfg from '../touchwallConfig';
@@ -29,12 +30,19 @@ import {
   detectFoodCategory,
   getFoodEmoji,
   decrementItemPieceCount,
+  stepMobileQty,
   playMobileBeep
 } from '../foodUtils';
 
 import PocketAgenda from './PocketAgenda';
 import PocketTasks from './PocketTasks';
-import PocketScanner from './PocketScanner';
+import PocketScanner, {
+  FOOD_EMOJI_PICKER,
+  simplifyProductName,
+  detectSmartCategory,
+  detectSmartLocation,
+  isProductGlutenFree
+} from './PocketScanner';
 import PocketShopping from './PocketShopping';
 
 const {
@@ -79,9 +87,8 @@ function readAuthSession() {
       accountId: localStorage.getItem('richter_tw_account_id') || '',
       authKey: localStorage.getItem('richter_tw_auth_key') || ''
     };
-  } catch (e) {
-    return { active: false, accountId: '', authKey: '' };
-  }
+  } catch (e) {}
+  return { active: false, accountId: '', authKey: '' };
 }
 
 function getItemAddedTimestamp(item) {
@@ -91,6 +98,13 @@ function getItemAddedTimestamp(item) {
   if (idMatch) return Number(idMatch[1]);
   if (item.updatedAt && Number(item.updatedAt) > 0) return Number(item.updatedAt);
   return 0;
+}
+
+function getDaysUntilMhd(expiryDateStr, todayStr) {
+  if (!expiryDateStr) return 999;
+  const exp = new Date(expiryDateStr + 'T12:00:00');
+  const tod = new Date(todayStr + 'T12:00:00');
+  return Math.round((exp.getTime() - tod.getTime()) / 86400000);
 }
 
 function getShopNormKey(textStr) {
@@ -186,7 +200,6 @@ function reconcileFamilyTasks(localTasks, incomingTasks, syncMeta) {
 
   const mergedMap = new Map();
 
-  // 1. Eingehende Aufgaben aus Cloud oder Todoist abgleichen
   incomingList.forEach(rawT => {
     if (isDeletedTask(rawT)) return;
     const norm = getTaskNormKey(rawT);
@@ -215,7 +228,6 @@ function reconcileFamilyTasks(localTasks, incomingTasks, syncMeta) {
     });
   });
 
-  // 2. Lokal erledigte Aufgaben behalten (da die Todoist-API nur offene Aufgaben liefert!)
   localList.forEach(loc => {
     if (isDeletedTask(loc)) return;
     const norm = getTaskNormKey(loc);
@@ -255,7 +267,7 @@ export default function TouchwallPocketApp() {
   const [activeTab, setActiveTab] = useState('scanner');
   const [selectedPerson, setSelectedPerson] = useState('all');
   const [currentTheme, setCurrentTheme] = useState('metal');
-  const [todayStr] = useState(() => formatDateStr(new Date()));
+  const [todayStr, setTodayStr] = useState(() => formatDateStr(new Date()));
 
   const [members, setMembers] = useState(DEFAULT_MEMBERS);
   const [events, setEvents] = useState([]);
@@ -274,15 +286,32 @@ export default function TouchwallPocketApp() {
   });
 
   const [cartItems, setCartItems] = useState([]);
-  const [stockSortMode, setStockSortMode] = useState('newest');
+
+  // Bestands-Filter, Suche, Hamburger-Menü & Vollwertiges Bearbeiten-Modal
+  const [stockSearchQuery, setStockSearchQuery] = useState('');
+  const [showStockMenu, setShowStockMenu] = useState(false);
+  const [stockSortMode, setStockSortMode] = useState('newest'); // 'newest' | 'expiry' | 'glutenfree' | 'az'
   const [stockLocationFilter, setStockLocationFilter] = useState('all');
-  const [editingStockId, setEditingStockId] = useState(null);
-  const [editStockQty, setEditStockQty] = useState('');
+  const [stockCategoryFilter, setStockCategoryFilter] = useState('all');
+  const [stockOnlyGlutenFree, setStockOnlyGlutenFree] = useState(false);
+
+  const [editStockModal, setEditStockModal] = useState({
+    open: false,
+    id: null,
+    name: '',
+    quantity: '1x',
+    location: 'fridge',
+    category: 'produce',
+    glutenFree: 'auto',
+    expiryDate: '',
+    customEmoji: ''
+  });
 
   const [notifPermission, setNotifPermission] = useState('default');
   const [installPromptEvent, setInstallPromptEvent] = useState(null);
   const [isOnline, setIsOnline] = useState(true);
   const knownShoppingTextsRef = useRef(null);
+  const mhdPushLogRef = useRef({});
   const pendingOfflineSaveRef = useRef(false);
 
   const preservedWallStateRef = useRef({});
@@ -296,7 +325,7 @@ export default function TouchwallPocketApp() {
 
   const showToast = (title, msg, icon = '📲') => {
     setToast({ title, msg, icon });
-    setTimeout(() => setToast(null), 3500);
+    setTimeout(() => setToast(null), 4000);
   };
 
   const themeStyles = useMemo(() => buildThemeStyles(currentTheme), [currentTheme]);
@@ -319,16 +348,58 @@ export default function TouchwallPocketApp() {
   const safeTrash = useMemo(() => Array.isArray(pantryTrash) ? pantryTrash : [], [pantryTrash]);
   const safeCart = useMemo(() => Array.isArray(cartItems) ? cartItems : [], [cartItems]);
 
+  const totalGlutenFreeInStock = useMemo(() => {
+    return safeStock.filter(it => isProductGlutenFree(it)).length;
+  }, [safeStock]);
+
+  // Produkte in den 2 kritischen MHD-Warnstufen (Stufe 2: Heute 0 Tage | Stufe 1: Noch 1-2 Tage)
+  const mhdAlertGroups = useMemo(() => {
+    const finalToday = [];
+    const warnTwoDays = [];
+    safeStock.forEach(item => {
+      if (!item?.expiryDate) return;
+      const d = getDaysUntilMhd(item.expiryDate, todayStr);
+      if (d === 0) finalToday.push(item);
+      else if (d === 1 || d === 2) warnTwoDays.push({ ...item, daysLeft: d });
+    });
+    return { finalToday, warnTwoDays };
+  }, [safeStock, todayStr]);
+
   const sortedStockForTab = useMemo(() => {
+    const q = stockSearchQuery.trim().toLowerCase();
     return safeStock
+      .map(it => ({
+        ...it,
+        resolvedCategory: detectSmartCategory(it.name, it.category),
+        resolvedGlutenFree: isProductGlutenFree(it),
+        resolvedAddedTs: getItemAddedTimestamp(it)
+      }))
       .filter(it => stockLocationFilter === 'all' || it.location === stockLocationFilter)
+      .filter(it => stockCategoryFilter === 'all' || it.resolvedCategory === stockCategoryFilter)
+      .filter(it => !stockOnlyGlutenFree || it.resolvedGlutenFree)
+      .filter(it => {
+        if (!q) return true;
+        const catTitle = FOOD_CATEGORIES.find(c => c.id === it.resolvedCategory)?.title || '';
+        return (
+          String(it.name || '').toLowerCase().includes(q) ||
+          String(it.quantity || '').toLowerCase().includes(q) ||
+          catTitle.toLowerCase().includes(q)
+        );
+      })
       .sort((a, b) => {
+        if (stockSortMode === 'glutenfree') {
+          if (a.resolvedGlutenFree !== b.resolvedGlutenFree) return a.resolvedGlutenFree ? -1 : 1;
+          return b.resolvedAddedTs - a.resolvedAddedTs;
+        }
+        if (stockSortMode === 'az') {
+          return String(a.name || '').localeCompare(String(b.name || ''), 'de');
+        }
         if (stockSortMode === 'newest') {
-          return getItemAddedTimestamp(b) - getItemAddedTimestamp(a);
+          return b.resolvedAddedTs - a.resolvedAddedTs;
         }
         return String(a.expiryDate || '9999').localeCompare(String(b.expiryDate || '9999'));
       });
-  }, [safeStock, stockLocationFilter, stockSortMode]);
+  }, [safeStock, stockLocationFilter, stockCategoryFilter, stockOnlyGlutenFree, stockSearchQuery, stockSortMode]);
 
   const updateCartAndPersist = (nextCart) => {
     const clean = Array.isArray(nextCart) ? nextCart : [];
@@ -347,6 +418,10 @@ export default function TouchwallPocketApp() {
         const parsedCart = JSON.parse(savedCart);
         if (Array.isArray(parsedCart)) setCartItems(parsedCart);
       }
+      const savedMhdLog = localStorage.getItem('richter_tw_mhd_push_log_v1');
+      if (savedMhdLog) {
+        mhdPushLogRef.current = JSON.parse(savedMhdLog) || {};
+      }
     } catch (e) {}
 
     if ('serviceWorker' in navigator) {
@@ -356,6 +431,11 @@ export default function TouchwallPocketApp() {
     if ('Notification' in window) {
       setNotifPermission(Notification.permission);
     }
+
+    const dayWatcher = setInterval(() => {
+      const nowStr = formatDateStr(new Date());
+      setTodayStr(prev => (prev !== nowStr ? nowStr : prev));
+    }, 30000);
 
     const onBeforeInstall = (e) => {
       e.preventDefault();
@@ -376,6 +456,7 @@ export default function TouchwallPocketApp() {
     window.addEventListener('offline', onNetOffline);
 
     return () => {
+      clearInterval(dayWatcher);
       window.removeEventListener('beforeinstallprompt', onBeforeInstall);
       window.removeEventListener('online', onNetOnline);
       window.removeEventListener('offline', onNetOffline);
@@ -389,29 +470,50 @@ export default function TouchwallPocketApp() {
     setInstallPromptEvent(null);
   };
 
+  // ============================================================================
+  // PUSH-BENACHRICHTIGUNGS-ENGINE (FÜR EINKAUF + 2-STUFIGEN MHD-ABLAUF-ALARM)
+  // ============================================================================
+  const sendPhonePushNotification = async (title, bodyText, tagId, vibrationPattern = [200, 100, 250]) => {
+    playMobileBeep('shopping');
+    try { navigator.vibrate?.(vibrationPattern); } catch (e) {}
+
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+      try {
+        if ('serviceWorker' in navigator) {
+          const reg = await navigator.serviceWorker.ready;
+          await reg.showNotification(title, {
+            body: bodyText,
+            icon: '/icon-512.png',
+            badge: '/icon-512.png',
+            vibrate: vibrationPattern,
+            tag: tagId || ('tw-push-' + Date.now())
+          });
+        } else {
+          new Notification(title, {
+            body: bodyText,
+            icon: '/icon-512.png'
+          });
+        }
+      } catch (e) {}
+    }
+  };
+
   const requestShoppingPushPermission = async () => {
     playMobileBeep('shopping');
     if (typeof window === 'undefined' || !('Notification' in window)) {
-      showToast('Ton- & Vibrations-Alarm aktiv', 'Du wirst bei neuen Einkäufen sofort benachrichtigt.', '🔔');
+      showToast('Ton- & Vibrations-Alarm aktiv', 'Du wirst bei Einkäufen und ablaufendem MHD benachrichtigt.', '🔔');
       return;
     }
     try {
       const perm = await Notification.requestPermission();
       setNotifPermission(perm);
       if (perm === 'granted') {
-        if ('serviceWorker' in navigator) {
-          const reg = await navigator.serviceWorker.ready;
-          await reg.showNotification('🛒 Einkaufslisten-Push aktiv!', {
-            body: 'Du erhältst sofort eine Nachricht in der Statusleiste, sobald etwas auf der Einkaufsliste landet.',
-            vibrate: [180, 90, 220],
-            tag: 'tw-shopping-test'
-          });
-        } else {
-          new Notification('🛒 Einkaufslisten-Push aktiv!', {
-            body: 'Du erhältst sofort eine Nachricht, sobald etwas auf der Einkaufsliste landet.'
-          });
-        }
-        showToast('Push aktiviert!', 'Android-Benachrichtigungen für die Einkaufsliste sind scharf.', '🔔');
+        await sendPhonePushNotification(
+          '🔔 Touchwall Push-Alarme aktiv!',
+          'Du erhältst Push-Warnungen bei neuen Einkäufen sowie 2 Tage vor MHD-Ablauf & am Ablauftag.',
+          'tw-push-test'
+        );
+        showToast('Push aktiviert!', 'Einkaufs- & MHD-Ablauf-Warnungen sind scharf.', '🔔');
       }
     } catch (e) {}
   };
@@ -419,27 +521,124 @@ export default function TouchwallPocketApp() {
   const triggerShoppingPhoneNotification = async (addedNamesList) => {
     if (!Array.isArray(addedNamesList) || addedNamesList.length === 0) return;
     const summaryText = addedNamesList.join(', ');
-    playMobileBeep('shopping');
-    try { navigator.vibrate?.([180, 90, 220]); } catch (e) {}
     showToast('🛒 Neu auf der Einkaufsliste!', summaryText, '🛒');
+    await sendPhonePushNotification(
+      '🛒 Neu auf der Einkaufsliste (' + addedNamesList.length + ')',
+      summaryText,
+      'tw-shopping-' + Date.now(),
+      [200, 100, 250]
+    );
+  };
 
-    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
-      try {
-        if ('serviceWorker' in navigator) {
-          const reg = await navigator.serviceWorker.ready;
-          await reg.showNotification('🛒 Neu auf der Einkaufsliste (' + addedNamesList.length + ')', {
-            body: summaryText,
-            vibrate: [200, 100, 250],
-            tag: 'tw-shopping-' + Date.now()
-          });
-        } else {
-          new Notification('🛒 Neu auf der Einkaufsliste (' + addedNamesList.length + ')', {
-            body: summaryText
-          });
+  // Löst die 2-stufige MHD-Push-Warnung aus (automatisch 1x täglich pro Produkt oder manuell per Button)
+  const triggerMhdExpiryPushWarnings = async (forceManual = false) => {
+    const log = mhdPushLogRef.current || {};
+    const finalItemsToNotify = [];
+    const warnItemsToNotify = [];
+
+    safeStock.forEach(item => {
+      if (!item?.expiryDate) return;
+      const daysLeft = getDaysUntilMhd(item.expiryDate, todayStr);
+
+      // STUFE 2: Tag des Ablaufs (daysLeft === 0) -> Letzte Warnung vor dem Mülleimer!
+      if (daysLeft === 0) {
+        const key0 = 'final0d_' + item.id + '_' + todayStr;
+        if (forceManual || !log[key0]) {
+          finalItemsToNotify.push(item);
+          log[key0] = Date.now();
         }
-      } catch (e) {}
+      }
+      // STUFE 1: Letzte 2 Tage vor Ablauf (daysLeft === 1 oder 2) -> Vorwarnung!
+      else if (daysLeft === 1 || daysLeft === 2) {
+        const keyWarn = 'warn_' + daysLeft + 'd_' + item.id + '_' + todayStr;
+        if (forceManual || !log[keyWarn]) {
+          warnItemsToNotify.push({ ...item, daysLeft });
+          log[keyWarn] = Date.now();
+        }
+      }
+    });
+
+    if (finalItemsToNotify.length === 0 && warnItemsToNotify.length === 0) {
+      if (forceManual) {
+        showToast('MHD-Check ✓', 'Aktuell laufen keine Produkte heute oder in den nächsten 2 Tagen ab.', '🌱');
+      }
+      return;
+    }
+
+    try {
+      localStorage.setItem('richter_tw_mhd_push_log_v1', JSON.stringify(log));
+    } catch (e) {}
+
+    // 1. Letzte Warnung am Ablauftag (Stufe 2) senden
+    if (finalItemsToNotify.length > 0) {
+      const names = finalItemsToNotify.map(it => getFoodEmoji(it.name, it.customEmoji) + ' ' + it.name + ' (' + (it.quantity || '1x') + ')').join(', ');
+      const title = '🚨 LETZTE WARNUNG: Läuft HEUTE ab (' + finalItemsToNotify.length + ')!';
+      const body = names + ' — Heute verbrauchen, sonst wandert es morgen automatisch in den Mülleimer!';
+      showToast(title, body, '🚨');
+      await sendPhonePushNotification(title, body, 'tw-mhd-final-' + todayStr, [320, 120, 320, 120, 450]);
+    }
+
+    // 2. Vorwarnung für die letzten 2 Tage vor Ablauf (Stufe 1) senden
+    if (warnItemsToNotify.length > 0) {
+      const names = warnItemsToNotify
+        .map(it => getFoodEmoji(it.name, it.customEmoji) + ' ' + it.name + ' (' + (it.daysLeft === 1 ? 'morgen' : 'in 2 Tagen') + ')')
+        .join(', ');
+      const title = '⚠️ MHD-Warnung: Läuft in 1–2 Tagen ab (' + warnItemsToNotify.length + ')';
+      const body = names + ' — Bitte bald einplanen & verbrauchen!';
+      if (finalItemsToNotify.length === 0) {
+        showToast(title, body, '⚠️');
+      }
+      await sendPhonePushNotification(title, body, 'tw-mhd-warn-' + todayStr, [200, 100, 240]);
     }
   };
+
+  // Automatischer Wächter: Prüft abgelaufene Produkte (< todayStr -> Mülleimer) & sendet MHD-Push-Warnungen
+  useEffect(() => {
+    if (!isAuthenticated || safeStock.length === 0) return;
+
+    // 1. Produkte, deren Ablaufdatum gestern oder früher war (< todayStr), automatisch in den Mülleimer verschieben
+    const expiredPast = safeStock.filter(it => it.expiryDate && it.expiryDate < todayStr);
+    if (expiredPast.length > 0) {
+      const now = Date.now();
+      lastLocalEditRef.current = now;
+      expiredPast.forEach(it => {
+        syncMetaRef.current.deletedPantryIds[String(it.id)] = now;
+      });
+      saveLocalSyncMeta(syncMetaRef.current);
+
+      const remainingStock = safeStock.filter(it => !it.expiryDate || it.expiryDate >= todayStr);
+      const movedToTrash = expiredPast.map((it, idx) => ({
+        ...it,
+        trashedAt: todayStr,
+        trashedTimestamp: now + idx,
+        reason: 'expired',
+        reasonLabel: '⚠️ Automatisch abgelaufen am ' + it.expiryDate,
+        updatedAt: now,
+        fromMobile: true
+      }));
+
+      const nextTrash = [...movedToTrash, ...safeTrash];
+      setPantryItems(remainingStock);
+      setPantryTrash(nextTrash);
+      saveStateToCloud({ pantryItems: remainingStock, pantryTrash: nextTrash });
+
+      const expiredNames = expiredPast.map(x => x.name).join(', ');
+      showToast('🗑️ MHD überschritten!', expiredNames + ' wurde automatisch in den Mülleimer verschoben.', '🗑️');
+      sendPhonePushNotification(
+        '🗑️ MHD abgelaufen – In Mülleimer verschoben',
+        expiredNames + ' ist abgelaufen und liegt jetzt im Mülleimer.',
+        'tw-mhd-trashed-' + todayStr
+      );
+      return;
+    }
+
+    // 2. Für Produkte mit 2 Tagen, 1 Tag oder 0 Tagen Restlaufzeit Push-Warnung prüfen
+    const timer = setTimeout(() => {
+      triggerMhdExpiryPushWarnings(false);
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, [isAuthenticated, safeStock, todayStr]);
 
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -805,15 +1004,19 @@ export default function TouchwallPocketApp() {
     return () => clearInterval(interval);
   }, [isAuthenticated, accountId, authKey]);
 
-  const handleAddSingleToCart = (nameVal, barcodeVal, qtyVal, locVal, catVal, expVal, imgVal) => {
+  const handleAddSingleToCart = (nameVal, barcodeVal, qtyVal, locVal, catVal, expVal, imgVal, gfVal = 'auto') => {
     const now = Date.now();
+    const cleanName = simplifyProductName(nameVal);
+    const resolvedCat = catVal || detectSmartCategory(cleanName);
+    const resolvedLoc = locVal || detectSmartLocation(cleanName, resolvedCat);
     const newCartEntry = {
       id: 'cart_' + now + '_' + Math.floor(Math.random() * 1000),
-      name: nameVal,
+      name: cleanName,
       barcode: barcodeVal || '',
       quantity: qtyVal || '1x',
-      location: locVal || 'kitchen',
-      category: catVal || detectFoodCategory(nameVal),
+      location: resolvedLoc,
+      category: resolvedCat,
+      glutenFree: gfVal,
       expiryDate: expVal,
       imageUrl: imgVal || '',
       scannedAt: now
@@ -827,17 +1030,22 @@ export default function TouchwallPocketApp() {
   const handleAddBatchToCart = (selectedList) => {
     const now = Date.now();
     const total = selectedList.length;
-    const newCartEntries = selectedList.map((it, idx) => ({
-      id: 'cart_' + now + '_' + idx + '_' + Math.floor(Math.random() * 1000),
-      name: it.name.trim(),
-      barcode: '',
-      quantity: it.quantity || '1x',
-      location: it.location || 'fridge',
-      category: detectFoodCategory(it.name, it.category),
-      expiryDate: it.expiryDate,
-      imageUrl: '',
-      scannedAt: now + (total - idx)
-    }));
+    const newCartEntries = selectedList.map((it, idx) => {
+      const cleanName = simplifyProductName(it.name);
+      const resolvedCat = detectSmartCategory(cleanName, it.category);
+      return {
+        id: 'cart_' + now + '_' + idx + '_' + Math.floor(Math.random() * 1000),
+        name: cleanName,
+        barcode: '',
+        quantity: it.quantity || '1x',
+        location: it.location || detectSmartLocation(cleanName, resolvedCat),
+        category: resolvedCat,
+        glutenFree: it.glutenFree || (isProductGlutenFree(cleanName, resolvedCat) ? 'yes' : 'auto'),
+        expiryDate: it.expiryDate,
+        imageUrl: '',
+        scannedAt: now + (total - idx)
+      };
+    });
     const nextCart = [...newCartEntries, ...safeCart];
     updateCartAndPersist(nextCart);
     playMobileBeep('scan');
@@ -853,13 +1061,16 @@ export default function TouchwallPocketApp() {
     if (!cartItem) return;
     const now = Date.now();
     lastLocalEditRef.current = now;
+    const cleanName = simplifyProductName(cartItem.name);
+    const resolvedCat = cartItem.category || detectSmartCategory(cleanName);
     const newStockItem = {
       id: 'p_' + now + '_' + Math.floor(Math.random() * 1000),
-      name: cartItem.name,
+      name: cleanName,
       barcode: cartItem.barcode || '',
       quantity: cartItem.quantity || '1x',
-      location: cartItem.location || 'kitchen',
-      category: cartItem.category || detectFoodCategory(cartItem.name),
+      location: cartItem.location || detectSmartLocation(cleanName, resolvedCat),
+      category: resolvedCat,
+      glutenFree: cartItem.glutenFree || 'auto',
       expiryDate: cartItem.expiryDate,
       imageUrl: cartItem.imageUrl || '',
       addedAt: todayStr,
@@ -884,13 +1095,16 @@ export default function TouchwallPocketApp() {
 
     const newStockEntries = sorted.map((cItem, idx) => {
       const stamp = now + (total - idx);
+      const cleanName = simplifyProductName(cItem.name);
+      const resolvedCat = cItem.category || detectSmartCategory(cleanName);
       return {
         id: 'p_' + stamp + '_' + Math.floor(Math.random() * 1000),
-        name: cItem.name,
+        name: cleanName,
         barcode: cItem.barcode || '',
         quantity: cItem.quantity || '1x',
-        location: cItem.location || 'kitchen',
-        category: cItem.category || detectFoodCategory(cItem.name),
+        location: cItem.location || detectSmartLocation(cleanName, resolvedCat),
+        category: resolvedCat,
+        glutenFree: cItem.glutenFree || 'auto',
         expiryDate: cItem.expiryDate,
         imageUrl: cItem.imageUrl || '',
         addedAt: todayStr,
@@ -907,14 +1121,137 @@ export default function TouchwallPocketApp() {
     showToast('Einkaufswagen eingelagert!', newStockEntries.length + ' Produkte sind jetzt im Bestand.', '🥫');
   };
 
-  const handleUpdateStockQty = async (itemId, newQtyStr) => {
+  const openEditStockItemModal = (item) => {
+    const initialGf =
+      item.glutenFree === true || item.glutenFree === 'yes'
+        ? 'yes'
+        : item.glutenFree === false || item.glutenFree === 'no'
+        ? 'no'
+        : 'auto';
+
+    setEditStockModal({
+      open: true,
+      id: item.id,
+      name: item.name || '',
+      quantity: item.quantity || '1x',
+      location: item.location || 'fridge',
+      category: detectSmartCategory(item.name, item.category),
+      glutenFree: initialGf,
+      expiryDate: item.expiryDate || todayStr,
+      customEmoji: item.customEmoji || getFoodEmoji(item.name)
+    });
+  };
+
+  const handleSaveEditStockModal = async (e) => {
+    if (e && typeof e.preventDefault === 'function') e.preventDefault();
+    if (!editStockModal.name.trim() || !editStockModal.expiryDate) {
+      showToast('Pflichtfelder', 'Bitte Name und Ablaufdatum (MHD) ausfüllen.', '⚠️');
+      return;
+    }
+
     const now = Date.now();
     lastLocalEditRef.current = now;
-    const nextStock = safeStock.map(x =>
-      x.id === itemId ? { ...x, quantity: newQtyStr, updatedAt: now, fromMobile: true } : x
+    const nextStock = safeStock.map(it =>
+      it.id === editStockModal.id
+        ? {
+            ...it,
+            name: editStockModal.name.trim(),
+            quantity: editStockModal.quantity.trim() || '1x',
+            location: editStockModal.location,
+            category: editStockModal.category,
+            glutenFree: editStockModal.glutenFree,
+            expiryDate: editStockModal.expiryDate,
+            customEmoji: editStockModal.customEmoji,
+            updatedAt: now,
+            fromMobile: true
+          }
+        : it
+    );
+    setPantryItems(nextStock);
+    setEditStockModal({ ...editStockModal, open: false });
+    await saveStateToCloud({ pantryItems: nextStock });
+    showToast('Gespeichert & synchronisiert!', editStockModal.name, editStockModal.customEmoji || '✅');
+  };
+
+  const handleDeleteFromEditStockModal = async () => {
+    const target = safeStock.find(x => x.id === editStockModal.id);
+    if (!target) {
+      setEditStockModal({ ...editStockModal, open: false });
+      return;
+    }
+    const now = Date.now();
+    lastLocalEditRef.current = now;
+    syncMetaRef.current.deletedPantryIds[String(target.id)] = now;
+    saveLocalSyncMeta(syncMetaRef.current);
+
+    const nextStock = safeStock.filter(x => x.id !== target.id);
+    const nextTrash = [
+      {
+        ...target,
+        trashedAt: todayStr,
+        trashedTimestamp: now,
+        reason: 'wasted',
+        reasonLabel: '🗑️ Gelöscht am ' + todayStr,
+        updatedAt: now,
+        fromMobile: true
+      },
+      ...safeTrash
+    ];
+    setPantryItems(nextStock);
+    setPantryTrash(nextTrash);
+    setEditStockModal({ ...editStockModal, open: false });
+    await saveStateToCloud({ pantryItems: nextStock, pantryTrash: nextTrash });
+    showToast('Produkt gelöscht', target.name + ' wurde in den Mülleimer verschoben.', '🗑️');
+  };
+
+  const toggleStockItemGlutenFreeDirectly = async (e, item) => {
+    e.stopPropagation();
+    const now = Date.now();
+    lastLocalEditRef.current = now;
+    const currentlyGf = isProductGlutenFree(item);
+    const nextGf = currentlyGf ? 'no' : 'yes';
+    const nextStock = safeStock.map(it =>
+      it.id === item.id ? { ...it, glutenFree: nextGf, updatedAt: now, fromMobile: true } : it
     );
     setPantryItems(nextStock);
     await saveStateToCloud({ pantryItems: nextStock });
+    showToast(
+      nextGf === 'yes' ? '🌾✓ Als Glutenfrei markiert' : '🚫 Als glutenhaltig markiert',
+      item.name,
+      nextGf === 'yes' ? '🌾' : '🥖'
+    );
+  };
+
+  const handleSimplifyAllStockNames = async () => {
+    if (safeStock.length === 0) return;
+    const now = Date.now();
+    lastLocalEditRef.current = now;
+    let changedCount = 0;
+
+    const nextStock = safeStock.map(it => {
+      const simplified = simplifyProductName(it.name);
+      const smartCat = detectSmartCategory(simplified, it.category);
+      if (simplified !== it.name || smartCat !== it.category) {
+        changedCount++;
+        return {
+          ...it,
+          name: simplified,
+          category: smartCat,
+          updatedAt: now,
+          fromMobile: true
+        };
+      }
+      return it;
+    });
+
+    setPantryItems(nextStock);
+    setShowStockMenu(false);
+    await saveStateToCloud({ pantryItems: nextStock });
+    showToast(
+      'Namen optimiert ✨',
+      changedCount > 0 ? (changedCount + ' Produktnamen vereinfacht & synchronisiert.') : 'Alle Produktnamen sind bereits optimal kurz.',
+      '✨'
+    );
   };
 
   const handleConsumeFromPocket = async (item) => {
@@ -928,7 +1265,7 @@ export default function TouchwallPocketApp() {
       );
       setPantryItems(nextStock);
       await saveStateToCloud({ pantryItems: nextStock });
-      showToast('1 Stück verzehrt!', item.name + ' → Rest: ' + dec.nextQtyStr, getFoodEmoji(item.name));
+      showToast('1 Stück verzehrt!', item.name + ' → Rest: ' + dec.nextQtyStr, getFoodEmoji(item.name, item.customEmoji));
       return;
     }
 
@@ -995,9 +1332,6 @@ export default function TouchwallPocketApp() {
     }
   };
 
-  // =========================================================
-  // GESCHÜTZTE AUFGABEN-HANDLER (KEIN WIEDERAUFTAUCHEN / FLACKERN!)
-  // =========================================================
   const handleAddQuickTask = async (cleanTitle, targetMemberId) => {
     const now = Date.now();
     lastLocalEditRef.current = now;
@@ -1253,13 +1587,18 @@ export default function TouchwallPocketApp() {
     lastLocalEditRef.current = now;
     await markShopItemsPermanentlyRemoved([shopItem]);
 
-    const expStr = formatDateStr(addDays(new Date(), mhdDays));
+    const cleanName = simplifyProductName(shopItem.text);
+    const resolvedCat = detectSmartCategory(cleanName);
+    const resolvedLoc = detectSmartLocation(cleanName, resolvedCat);
+    const expStr = formatDateStr(addDays(new Date(), resolvedLoc === 'freezer' ? 180 : mhdDays));
+
     const newItem = {
       id: 'p_' + now + '_' + Math.floor(Math.random() * 1000),
-      name: shopItem.text,
+      name: cleanName,
       quantity: '1x',
-      location: 'fridge',
-      category: detectFoodCategory(shopItem.text),
+      location: resolvedLoc,
+      category: resolvedCat,
+      glutenFree: isProductGlutenFree(cleanName, resolvedCat) ? 'yes' : 'auto',
       expiryDate: expStr,
       addedAt: todayStr,
       addedTimestamp: now,
@@ -1274,7 +1613,7 @@ export default function TouchwallPocketApp() {
     setPantryItems(nextStock);
     setFamilyNotes(nextNotes);
     await saveStateToCloud({ pantryItems: nextStock, familyNotes: nextNotes });
-    showToast('In Bestand gebucht!', shopItem.text + ' (MHD: +' + mhdDays + 'T)', getFoodEmoji(shopItem.text));
+    showToast('In Bestand gebucht!', cleanName + ' (MHD: +' + mhdDays + 'T)', getFoodEmoji(cleanName));
   };
 
   const handleMoveAllBoughtToPantry = async (boughtList, mhdDays = 7) => {
@@ -1288,12 +1627,16 @@ export default function TouchwallPocketApp() {
 
     const newItems = boughtList.map((it, idx) => {
       const stamp = now + (total - idx);
+      const cleanName = simplifyProductName(it.text);
+      const resolvedCat = detectSmartCategory(cleanName);
+      const resolvedLoc = detectSmartLocation(cleanName, resolvedCat);
       return {
         id: 'p_' + stamp + '_' + Math.floor(Math.random() * 1000),
-        name: it.text,
+        name: cleanName,
         quantity: '1x',
-        location: 'fridge',
-        category: detectFoodCategory(it.text),
+        location: resolvedLoc,
+        category: resolvedCat,
+        glutenFree: isProductGlutenFree(cleanName, resolvedCat) ? 'yes' : 'auto',
         expiryDate: expStr,
         addedAt: todayStr,
         addedTimestamp: stamp,
@@ -1471,7 +1814,7 @@ export default function TouchwallPocketApp() {
               )}
               <button
                 onClick={requestShoppingPushPermission}
-                title="Einkaufslisten-Push aktivieren"
+                title="Einkaufs- & MHD-Push aktivieren"
                 className={'p-2.5 rounded-xl ' + (notifPermission === 'granted' ? 'bg-emerald-500/25 text-emerald-300 border border-emerald-400/40' : 'tw-glow-btn')}
               >
                 <BellRing className="w-4 h-4" />
@@ -1593,32 +1936,229 @@ export default function TouchwallPocketApp() {
             />
           )}
 
+          {/* =========================================================
+              BESTANDS-TAB INKL. 2-STUFIGEM MHD-WARN-BANNER, SUCHE & HAMBURGER-MENÜ
+             ========================================================= */}
           {activeTab === 'stock' && (
             <div className="space-y-3">
-              <div className={'p-3.5 rounded-3xl border space-y-2.5 ' + themeStyles.card}>
+              {/* 2-STUFIGES MHD-WARN-BANNER (HEUTE LETZTE WARNUNG & 1-2 TAGE VORWARNUNG) */}
+              {(mhdAlertGroups.finalToday.length > 0 || mhdAlertGroups.warnTwoDays.length > 0) && (
+                <div className="p-3.5 rounded-3xl border-2 border-rose-500/80 bg-rose-950/35 space-y-2.5 shadow-lg">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-black uppercase text-rose-300 flex items-center gap-1.5">
+                      <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                      <span>🔔 MHD-Ablauf-Warnung</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => triggerMhdExpiryPushWarnings(true)}
+                      className="px-2.5 py-1 rounded-xl bg-rose-500/30 border border-rose-400/50 text-rose-100 text-[10px] font-black flex items-center gap-1"
+                    >
+                      <BellRing className="w-3 h-3" />
+                      <span>Push erneut senden</span>
+                    </button>
+                  </div>
+
+                  {mhdAlertGroups.finalToday.length > 0 && (
+                    <div className="p-2.5 rounded-2xl bg-rose-500/25 border border-rose-400/60 space-y-1">
+                      <div className="text-[11px] font-black text-rose-200">
+                        🚨 LETZTE WARNUNG – Läuft HEUTE ab (wandert morgen in den Mülleimer):
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {mhdAlertGroups.finalToday.map(it => (
+                          <button
+                            key={it.id}
+                            type="button"
+                            onClick={() => openEditStockItemModal(it)}
+                            className="px-2.5 py-1 rounded-xl bg-black/45 border border-rose-300/40 text-xs font-extrabold text-white flex items-center gap-1.5"
+                          >
+                            <span>{getFoodEmoji(it.name, it.customEmoji)}</span>
+                            <span>{it.name}</span>
+                            <span className="text-rose-300 font-black">({it.quantity})</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {mhdAlertGroups.warnTwoDays.length > 0 && (
+                    <div className="p-2.5 rounded-2xl bg-amber-500/20 border border-amber-400/50 space-y-1">
+                      <div className="text-[11px] font-black text-amber-200">
+                        ⚠️ Vorwarnung – Läuft in den nächsten 1–2 Tagen ab:
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {mhdAlertGroups.warnTwoDays.map(it => (
+                          <button
+                            key={it.id}
+                            type="button"
+                            onClick={() => openEditStockItemModal(it)}
+                            className="px-2.5 py-1 rounded-xl bg-black/40 border border-amber-300/40 text-xs font-extrabold text-white flex items-center gap-1.5"
+                          >
+                            <span>{getFoodEmoji(it.name, it.customEmoji)}</span>
+                            <span>{it.name}</span>
+                            <span className="text-amber-300 font-black">
+                              ({it.daysLeft === 1 ? 'morgen' : 'in 2 T.'})
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className={'p-3.5 rounded-3xl border space-y-2.5 shadow-md ' + themeStyles.card}>
+                {/* ZEILE 1: TITEL + GLUTENFREI-SCHNELLFILTER + HAMBURGER-MENÜ */}
                 <div className="flex items-center justify-between gap-2">
                   <div>
                     <h2 className="font-black text-base flex items-center gap-1.5">
-                      <span>🥫 Speisekammer-Bestand ({sortedStockForTab.length})</span>
+                      <span>🥫 Bestand ({sortedStockForTab.length})</span>
                     </h2>
-                    <p className="text-[11px] opacity-75 font-semibold">
+                    <p className="text-[10px] opacity-75 font-bold">
                       {stockSortMode === 'newest'
-                        ? '🕒 Sortiert: Zuletzt gescanntes Produkt steht ganz oben'
-                        : '📅 Sortiert: Bald ablaufende Produkte (MHD) zuerst'}
+                        ? '🕒 Zuletzt gescannt oben'
+                        : stockSortMode === 'expiry'
+                        ? '📅 Nach Ablaufdatum (MHD)'
+                        : stockSortMode === 'glutenfree'
+                        ? '🌾✓ Glutenfrei zuerst'
+                        : '🔤 Alphabetisch (A–Z)'}
                     </p>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => setStockSortMode(prev => prev === 'newest' ? 'expiry' : 'newest')}
-                    className="tw-glow-btn px-3 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 shrink-0"
-                  >
-                    <ArrowUpDown className="w-3.5 h-3.5" />
-                    <span>{stockSortMode === 'newest' ? '🕒 Neueste oben' : '📅 Nach MHD'}</span>
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setStockOnlyGlutenFree(prev => !prev)}
+                      className={'px-2.5 py-2 rounded-xl text-[11px] font-black flex items-center gap-1 border ' +
+                        (stockOnlyGlutenFree
+                          ? 'bg-emerald-500 text-slate-950 border-emerald-300 shadow-md'
+                          : 'bg-emerald-500/15 text-emerald-300 border-emerald-400/40')}
+                    >
+                      <span>🌾✓ GF ({totalGlutenFreeInStock})</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setShowStockMenu(prev => !prev)}
+                      className={'px-3 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 ' +
+                        (showStockMenu ? 'tw-active-nav' : 'tw-glow-btn')}
+                    >
+                      {showStockMenu ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
+                      <span>Menü</span>
+                    </button>
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-1.5 overflow-x-auto pt-1">
+                {/* ZEILE 2: SUCHFELD FÜR DEN BESTAND */}
+                <div className="relative">
+                  <Search className="w-4 h-4 text-sky-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={stockSearchQuery}
+                    onChange={(e) => setStockSearchQuery(e.target.value)}
+                    placeholder="Produkt, Marke oder Kategorie suchen..."
+                    className={'w-full h-11 pl-10 pr-9 rounded-2xl border text-xs sm:text-sm font-extrabold ' + themeStyles.input}
+                  />
+                  {stockSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setStockSearchQuery('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-white/10 flex items-center justify-center text-xs font-black"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+
+                {/* AUFKLAPPBARES HAMBURGER-MENÜ FÜR SORTIERUNG, KATEGORIEN & PUSH-TEST */}
+                {showStockMenu && (
+                  <div className={'p-3 rounded-2xl border space-y-3 ' + themeStyles.subtle}>
+                    <div className="space-y-1.5">
+                      <span className="text-[10px] font-black uppercase text-sky-400 block">
+                        ↕️ Sortierung wählen:
+                      </span>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        {[
+                          { id: 'newest',     label: '🕒 Neueste oben' },
+                          { id: 'expiry',     label: '📅 Nach MHD' },
+                          { id: 'glutenfree', label: '🌾✓ Glutenfrei oben' },
+                          { id: 'az',         label: '🔤 Name (A–Z)' }
+                        ].map(sOpt => (
+                          <button
+                            key={sOpt.id}
+                            type="button"
+                            onClick={() => setStockSortMode(sOpt.id)}
+                            className={'py-2 px-2.5 rounded-xl text-xs font-extrabold text-left ' +
+                              (stockSortMode === sOpt.id ? 'tw-active-nav' : 'tw-nav-inactive')}
+                          >
+                            {sOpt.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-[10px] font-black uppercase text-emerald-400 block mb-1">
+                          🏠 Lagerort:
+                        </label>
+                        <select
+                          value={stockLocationFilter}
+                          onChange={(e) => setStockLocationFilter(e.target.value)}
+                          className={'w-full h-10 px-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+                        >
+                          <option value="all" className="bg-slate-800 text-white">🏠 Alle Orte ({safeStock.length})</option>
+                          {STORAGE_PILLS.map(loc => (
+                            <option key={loc.id} value={loc.id} className="bg-slate-800 text-white">
+                              {loc.label} ({safeStock.filter(x => x.location === loc.id).length})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="text-[10px] font-black uppercase text-purple-300 block mb-1">
+                          🍱 Kategorie:
+                        </label>
+                        <select
+                          value={stockCategoryFilter}
+                          onChange={(e) => setStockCategoryFilter(e.target.value)}
+                          className={'w-full h-10 px-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+                        >
+                          <option value="all" className="bg-slate-800 text-white">🍱 Alle Kategorien</option>
+                          {FOOD_CATEGORIES.map(cat => (
+                            <option key={cat.id} value={cat.id} className="bg-slate-800 text-white">
+                              {cat.icon} {cat.title.split(',')[0]}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={handleSimplifyAllStockNames}
+                        className="tw-glow-btn w-full py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5"
+                      >
+                        <Wand2 className="w-4 h-4 text-sky-300" />
+                        <span>✨ Alle Namen kürzen</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => triggerMhdExpiryPushWarnings(true)}
+                        className="tw-glow-btn w-full py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5"
+                      >
+                        <BellRing className="w-4 h-4 text-amber-300" />
+                        <span>🔔 MHD-Push jetzt prüfen</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* SCHNELLE LAGERORT-PILLS */}
+                <div className="flex items-center gap-1.5 overflow-x-auto pt-0.5">
                   <button
                     type="button"
                     onClick={() => setStockLocationFilter('all')}
@@ -1644,83 +2184,144 @@ export default function TouchwallPocketApp() {
                 </div>
               </div>
 
-              <div className={'p-3 rounded-3xl border space-y-1.5 ' + themeStyles.card}>
+              {/* GRÖSSERE, ÜBERSICHTLICHE PRODUKT-KACHELN */}
+              <div className="space-y-2.5">
                 {sortedStockForTab.length === 0 ? (
-                  <div className="py-8 text-center text-xs opacity-50 font-bold">
-                    🥫 Noch keine Produkte in dieser Auswahl.
+                  <div className={'p-8 rounded-3xl border text-center space-y-2 ' + themeStyles.card}>
+                    <div className="text-2xl">🥫</div>
+                    <div className="text-xs font-extrabold opacity-70">
+                      Keine Produkte für diese Suche oder Filterung gefunden.
+                    </div>
                   </div>
                 ) : (
                   sortedStockForTab.map((item, idx) => {
-                    const catObj = FOOD_CATEGORIES.find(c => c.id === detectFoodCategory(item.name, item.category)) || FOOD_CATEGORIES[1];
+                    const catObj = FOOD_CATEGORIES.find(c => c.id === item.resolvedCategory) || FOOD_CATEGORIES[1];
                     const locObj = STORAGE_PILLS.find(l => l.id === item.location) || STORAGE_PILLS[0];
                     const decPreview = decrementItemPieceCount(item.quantity);
-                    const isNewestTop = stockSortMode === 'newest' && idx === 0;
+                    const daysLeft = getDaysUntilMhd(item.expiryDate, todayStr);
+                    const isFinalDayZero = daysLeft <= 0;
+                    const isWarnTwoDays = daysLeft === 1 || daysLeft === 2;
+                    const isWarnWeek = daysLeft > 2 && daysLeft <= 7;
+                    const isNewestTop = stockSortMode === 'newest' && idx === 0 && !stockSearchQuery;
+                    const isGf = Boolean(item.resolvedGlutenFree);
+                    const emojiIcon = getFoodEmoji(item.name, item.customEmoji);
+
+                    const daysLabel = daysLeft <= 0
+                      ? '🚨 HEUTE LETZTER TAG!'
+                      : daysLeft === 1
+                      ? '⚠️ Morgen (1 T.)'
+                      : daysLeft === 2
+                      ? '⚠️ Noch 2 Tage'
+                      : (daysLeft + ' Tage');
 
                     return (
                       <div
                         key={item.id}
-                        className={'px-3 py-2.5 rounded-2xl border flex items-center justify-between gap-2 ' +
-                          (isNewestTop ? 'border-sky-400/70 bg-sky-500/10' : themeStyles.subtle)}
+                        onClick={() => openEditStockItemModal(item)}
+                        className={'p-3.5 rounded-3xl border flex flex-col gap-3 cursor-pointer shadow-sm transition-all ' +
+                          themeStyles.card + ' ' +
+                          (isFinalDayZero
+                            ? 'border-rose-500 border-2 bg-rose-950/35'
+                            : isWarnTwoDays
+                            ? 'border-rose-400/80 bg-rose-950/20'
+                            : isWarnWeek
+                            ? 'border-amber-400/80 bg-amber-950/20'
+                            : isNewestTop
+                            ? 'border-sky-400/80 bg-sky-500/10'
+                            : '')}
                       >
-                        <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                          <span className="text-xl shrink-0">{getFoodEmoji(item.name)}</span>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-1.5">
-                              {isNewestTop && (
-                                <span className="px-1.5 py-0.2 rounded bg-sky-500 text-white text-[9px] font-black shrink-0">
-                                  ZULETZT HINZUGEFÜGT
+                        <div className="flex items-start justify-between gap-2.5">
+                          <div className="flex items-start gap-3 min-w-0 flex-1">
+                            <span className="w-12 h-12 rounded-2xl bg-black/35 border border-white/10 flex items-center justify-center text-2xl shrink-0">
+                              {emojiIcon}
+                            </span>
+
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
+                                {isNewestTop && (
+                                  <span className="px-1.5 py-0.2 rounded bg-sky-500 text-white text-[9px] font-black shrink-0">
+                                    ZULETZT ERFASST
+                                  </span>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={(e) => toggleStockItemGlutenFreeDirectly(e, item)}
+                                  className={'px-1.5 py-0.2 rounded text-[9px] font-black shrink-0 ' +
+                                    (isGf
+                                      ? 'bg-emerald-500/25 border border-emerald-400/50 text-emerald-300'
+                                      : 'bg-white/5 border border-white/10 text-slate-400')}
+                                >
+                                  {isGf ? '🌾✓ GF' : '🌾?'}
+                                </button>
+                                <span className="text-[10px] font-bold opacity-75 truncate">
+                                  {catObj.icon} {catObj.title.split(',')[0]}
                                 </span>
-                              )}
-                              <span className="font-extrabold text-xs truncate">{item.name}</span>
+                              </div>
+
+                              <h3 className="font-black text-sm sm:text-base leading-snug break-words">
+                                {item.name}
+                              </h3>
                             </div>
-                            <div className="text-[10px] text-amber-400 font-bold flex items-center gap-1.5 flex-wrap mt-0.5">
-                              <span>{item.quantity}</span>
-                              <span>•</span>
-                              <span>{locObj.label}</span>
-                              <span>•</span>
-                              <span>MHD: {item.expiryDate.slice(8, 10)}.{item.expiryDate.slice(5, 7)}.{item.expiryDate.slice(2, 4)}</span>
-                              <span className="text-sky-300 opacity-85 truncate">• {catObj.icon}</span>
+                          </div>
+
+                          <div
+                            className={'px-2.5 py-1.5 rounded-2xl border text-right shrink-0 ' +
+                              (isFinalDayZero
+                                ? 'bg-rose-500/35 border-rose-300 text-rose-100'
+                                : isWarnTwoDays
+                                ? 'bg-rose-500/25 border-rose-400 text-rose-100'
+                                : isWarnWeek
+                                ? 'bg-amber-500/30 border-amber-400 text-amber-100'
+                                : 'bg-black/30 border-white/10')}
+                          >
+                            <div className="text-xs font-black">
+                              {item.expiryDate.slice(8, 10)}.{item.expiryDate.slice(5, 7)}.{item.expiryDate.slice(2, 4)}
+                            </div>
+                            <div className={'text-[10px] font-black ' + (isFinalDayZero || isWarnTwoDays ? 'text-rose-300' : isWarnWeek ? 'text-amber-300' : 'text-emerald-400')}>
+                              {daysLabel}
                             </div>
                           </div>
                         </div>
 
-                        {editingStockId === item.id ? (
-                          <div className="flex items-center gap-1">
-                            <input
-                              type="text"
-                              value={editStockQty}
-                              onChange={(e) => setEditStockQty(e.target.value)}
-                              className={'w-16 px-2 py-1.5 rounded-lg border text-xs font-bold ' + themeStyles.input}
-                            />
-                            <button
-                              onClick={() => {
-                                handleUpdateStockQty(item.id, editStockQty || '1x');
-                                setEditingStockId(null);
-                              }}
-                              className="tw-glow-btn p-2 rounded-lg"
-                            >
-                              <Check className="w-4 h-4" />
-                            </button>
+                        <div className="flex items-center justify-between gap-2 pt-2 border-t border-white/10">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="px-2.5 py-1 rounded-xl bg-black/40 border border-amber-400/30 text-xs font-black text-amber-300">
+                              📦 {item.quantity}
+                            </span>
+                            <span className="px-2.5 py-1 rounded-xl bg-black/30 border border-white/10 text-xs font-extrabold">
+                              {locObj.label}
+                            </span>
                           </div>
-                        ) : (
-                          <div className="flex items-center gap-1.5 shrink-0">
+
+                          <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
                             <button
-                              onClick={() => {
-                                setEditingStockId(item.id);
-                                setEditStockQty(item.quantity);
-                              }}
-                              className="tw-nav-inactive p-2 rounded-xl text-sky-300"
+                              type="button"
+                              onClick={() => openEditStockItemModal(item)}
+                              className="tw-nav-inactive px-3 py-2 rounded-xl text-xs font-black text-sky-300 flex items-center gap-1"
                             >
                               <Pencil className="w-3.5 h-3.5" />
+                              <span>Edit</span>
                             </button>
+
                             <button
-                              onClick={() => handleConsumeFromPocket(item)}
-                              className="tw-glow-btn px-3 py-2 rounded-xl text-xs font-black"
+                              type="button"
+                              onClick={() => handleAddQuickShopItem(item.name)}
+                              title="Auf die Einkaufsliste setzen"
+                              className="tw-nav-inactive p-2 rounded-xl text-amber-300"
                             >
-                              {decPreview.remaining > 0 ? '🍽️ -1' : '🍽️ Weg'}
+                              <ShoppingCart className="w-4 h-4" />
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleConsumeFromPocket(item)}
+                              className="tw-glow-btn px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-300" />
+                              <span>{decPreview.remaining > 0 ? '-1' : 'Weg'}</span>
                             </button>
                           </div>
-                        )}
+                        </div>
                       </div>
                     );
                   })
@@ -1731,13 +2332,252 @@ export default function TouchwallPocketApp() {
         </div>
       </main>
 
+      {/* VOLLWERTIGES BEARBEITEN-MODAL FÜR DEN BESTAND */}
+      {editStockModal.open && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-3 overflow-y-auto">
+          <form
+            onSubmit={handleSaveEditStockModal}
+            className={'w-full max-w-md rounded-3xl border-2 p-4 sm:p-5 shadow-2xl space-y-3.5 my-auto ' + themeStyles.modal}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2.5">
+                <span className="w-11 h-11 rounded-2xl bg-black/35 border border-white/15 flex items-center justify-center text-2xl shrink-0">
+                  {editStockModal.customEmoji || getFoodEmoji(editStockModal.name)}
+                </span>
+                <div>
+                  <h3 className="text-base font-black">✏️ Produkt bearbeiten</h3>
+                  <p className="text-[11px] opacity-75 font-semibold">
+                    Synchronisiert sofort mit der großen Touchwall
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditStockModal({ ...editStockModal, open: false })}
+                className="tw-nav-inactive w-9 h-9 rounded-full flex items-center justify-center"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-[11px] font-black uppercase text-sky-400">
+                  Produktname
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const simplified = simplifyProductName(editStockModal.name);
+                    setEditStockModal({
+                      ...editStockModal,
+                      name: simplified,
+                      category: detectSmartCategory(simplified, editStockModal.category)
+                    });
+                  }}
+                  className="px-2 py-0.5 rounded-lg bg-sky-500/20 border border-sky-400/40 text-sky-300 text-[10px] font-black flex items-center gap-1"
+                >
+                  <Wand2 className="w-3 h-3" />
+                  <span>✨ Name auf „Produkt / Marke“ kürzen</span>
+                </button>
+              </div>
+              <input
+                type="text"
+                required
+                value={editStockModal.name}
+                onChange={(e) => setEditStockModal({ ...editStockModal, name: e.target.value })}
+                className={'w-full px-3.5 py-2.5 rounded-xl border text-sm font-extrabold ' + themeStyles.input}
+              />
+            </div>
+
+            <div className="grid grid-cols-12 gap-2">
+              <div className="col-span-5">
+                <label className="block text-[10px] font-black uppercase text-amber-400 mb-1">
+                  Menge / Stück
+                </label>
+                <div className="flex items-center bg-black/25 p-1 rounded-xl border border-white/10 h-10">
+                  <button
+                    type="button"
+                    onClick={() => setEditStockModal({ ...editStockModal, quantity: stepMobileQty(editStockModal.quantity, -1) })}
+                    className="tw-nav-inactive w-8 h-full rounded-lg font-black text-sm flex items-center justify-center shrink-0"
+                  >
+                    -
+                  </button>
+                  <input
+                    type="text"
+                    value={editStockModal.quantity}
+                    onChange={(e) => setEditStockModal({ ...editStockModal, quantity: e.target.value })}
+                    className="w-full bg-transparent text-center text-xs font-black focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setEditStockModal({ ...editStockModal, quantity: stepMobileQty(editStockModal.quantity, 1) })}
+                    className="tw-glow-btn w-8 h-full rounded-lg font-black text-sm flex items-center justify-center shrink-0"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+
+              <div className="col-span-7">
+                <label className="block text-[10px] font-black uppercase text-emerald-400 mb-1">
+                  🌾 Glutenfrei-Status
+                </label>
+                <select
+                  value={editStockModal.glutenFree}
+                  onChange={(e) => setEditStockModal({ ...editStockModal, glutenFree: e.target.value })}
+                  className={'w-full h-10 px-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+                >
+                  <option value="auto" className="bg-slate-800 text-sky-300">
+                    ✨ Auto ({isProductGlutenFree(editStockModal.name, editStockModal.category, 'auto') ? 'Glutenfrei ✓' : 'Normal'})
+                  </option>
+                  <option value="yes" className="bg-slate-800 text-emerald-300">🌾✓ Ja, garantiert glutenfrei</option>
+                  <option value="no" className="bg-slate-800 text-rose-300">🚫 Nein, enthält Gluten</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-12 gap-2">
+              <div className="col-span-7">
+                <label className="block text-[10px] font-black uppercase text-purple-300 mb-1">
+                  Lebensmittel-Kategorie
+                </label>
+                <select
+                  value={editStockModal.category}
+                  onChange={(e) => setEditStockModal({ ...editStockModal, category: e.target.value })}
+                  className={'w-full h-10 px-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+                >
+                  {FOOD_CATEGORIES.map(cat => (
+                    <option key={cat.id} value={cat.id} className="bg-slate-800 text-white">
+                      {cat.icon} {cat.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="col-span-5">
+                <label className="block text-[10px] font-black uppercase text-emerald-400 mb-1">
+                  Lagerort
+                </label>
+                <select
+                  value={editStockModal.location}
+                  onChange={(e) => setEditStockModal({ ...editStockModal, location: e.target.value })}
+                  className={'w-full h-10 px-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+                >
+                  {STORAGE_PILLS.map(loc => (
+                    <option key={loc.id} value={loc.id} className="bg-slate-800 text-white">
+                      {loc.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className={'p-3 rounded-2xl border space-y-2 ' + themeStyles.subtle}>
+              <div className="flex items-center justify-between flex-wrap gap-1">
+                <label className="text-[11px] font-black uppercase text-amber-400">
+                  📅 Ablaufdatum (MHD)
+                </label>
+                <div className="flex flex-wrap gap-1">
+                  {[
+                    { l: '+3T', d: 3 },
+                    { l: '+1W', d: 7 },
+                    { l: '+2W', d: 14 },
+                    { l: '+1M', d: 30 },
+                    { l: '+6M', d: 180 }
+                  ].map(b => (
+                    <button
+                      key={b.d}
+                      type="button"
+                      onClick={() => setEditStockModal({ ...editStockModal, expiryDate: formatDateStr(addDays(new Date(), b.d)) })}
+                      className="tw-glow-btn px-2 py-0.5 rounded-lg text-[10px] font-black"
+                    >
+                      {b.l}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <input
+                type="date"
+                required
+                value={editStockModal.expiryDate}
+                onChange={(e) => setEditStockModal({ ...editStockModal, expiryDate: e.target.value })}
+                className={'w-full px-3 py-2 rounded-xl border text-xs font-black ' + themeStyles.input}
+              />
+            </div>
+
+            <div className={'p-2.5 rounded-2xl border space-y-1.5 ' + themeStyles.subtle}>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-black uppercase">🎨 Emoji anpassen</span>
+                <button
+                  type="button"
+                  onClick={() => setEditStockModal({ ...editStockModal, customEmoji: getFoodEmoji(editStockModal.name) })}
+                  className="text-[10px] font-extrabold text-sky-400"
+                >
+                  🔄 Automatisch
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-1 max-h-20 overflow-y-auto p-0.5">
+                {FOOD_EMOJI_PICKER.map(em => (
+                  <button
+                    key={em}
+                    type="button"
+                    onClick={() => setEditStockModal({ ...editStockModal, customEmoji: em })}
+                    className={'w-8 h-8 rounded-xl border text-base flex items-center justify-center ' +
+                      (editStockModal.customEmoji === em ? 'ring-2 ring-sky-400 bg-sky-500/25' : 'bg-black/25 border-white/10')}
+                  >
+                    {em}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between gap-2 pt-2 border-t border-white/10">
+              <button
+                type="button"
+                onClick={handleDeleteFromEditStockModal}
+                className="px-3.5 py-2.5 rounded-2xl bg-rose-600 text-white text-xs font-black flex items-center gap-1"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>Löschen</span>
+              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditStockModal({ ...editStockModal, open: false })}
+                  className="tw-nav-inactive px-3.5 py-2.5 rounded-2xl text-xs font-bold"
+                >
+                  Abbrechen
+                </button>
+                <button
+                  type="submit"
+                  className="tw-active-nav px-4 py-2.5 rounded-2xl text-xs font-black flex items-center gap-1.5 shadow-lg"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>Speichern</span>
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
+      )}
+
       <nav className={'shrink-0 z-40 border-t px-2 py-2 flex items-center justify-around gap-1 shadow-2xl ' + themeStyles.header}>
         {[
           { id: 'agenda',   label: 'Kalender', icon: Calendar,     badge: filteredEvents.filter(e => e.date === todayStr).length },
           { id: 'tasks',    label: 'Aufgaben', icon: CheckSquare,  badge: openTasks.length },
           { id: 'scanner',  label: 'Scanner',  icon: Camera,       badge: safeCart.length },
           { id: 'shopping', label: 'Einkauf',  icon: ShoppingCart, badge: openShop.length + safeCart.length },
-          { id: 'stock',    label: 'Bestand',  icon: Package,      badge: safeStock.length }
+          {
+            id: 'stock',
+            label: 'Bestand',
+            icon: Package,
+            badge: mhdAlertGroups.finalToday.length + mhdAlertGroups.warnTwoDays.length > 0
+              ? (mhdAlertGroups.finalToday.length + mhdAlertGroups.warnTwoDays.length)
+              : safeStock.length,
+            urgent: mhdAlertGroups.finalToday.length > 0
+          }
         ].map(tab => {
           const Icon = tab.icon;
           const active = activeTab === tab.id;
@@ -1750,7 +2590,9 @@ export default function TouchwallPocketApp() {
               <Icon className="w-4 h-4 sm:w-5 sm:h-5" />
               <span>{tab.label}</span>
               {tab.badge > 0 && (
-                <span className="absolute top-1 right-1.5 px-1.5 py-0.2 rounded-full bg-amber-500 text-slate-950 text-[9px] font-black">
+                <span className={'absolute top-1 right-1.5 px-1.5 py-0.2 rounded-full text-[9px] font-black ' +
+                  (tab.urgent ? 'bg-rose-500 text-white animate-pulse' : 'bg-amber-500 text-slate-950')}
+                >
                   {tab.badge}
                 </span>
               )}
