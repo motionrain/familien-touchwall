@@ -3,7 +3,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Send } from 'lucide-react';
+import { Send, Trash2 } from 'lucide-react';
 import * as Cfg from '../touchwallConfig';
 
 const { pushTodoistTaskToPhoneNow } = Cfg;
@@ -17,6 +17,8 @@ export default function PocketTasks({
   themeStyles,
   onAddQuickTask,
   onToggleTask,
+  onDeleteTask,
+  onClearDoneTasks,
   showToast
 }) {
   const [quickTaskText, setQuickTaskText] = useState('');
@@ -29,6 +31,11 @@ export default function PocketTasks({
     onAddQuickTask(quickTaskText.trim(), targetMemberId);
     setQuickTaskText('');
   };
+
+  // Zuletzt abgehakte Aufgaben stehen im Erledigt-Bereich immer ganz oben
+  const sortedDoneTasks = Array.isArray(doneTasks)
+    ? [...doneTasks].sort((a, b) => Number(b.doneAt || 0) - Number(a.doneAt || 0))
+    : [];
 
   return (
     <div className="space-y-3.5">
@@ -83,48 +90,101 @@ export default function PocketTasks({
               <div
                 key={task.id}
                 onClick={() => onToggleTask(task)}
-                className={'p-3.5 rounded-2xl border flex items-center justify-between gap-3 cursor-pointer ' + themeStyles.subtle}
+                className={'p-3.5 rounded-2xl border flex items-center justify-between gap-2.5 cursor-pointer ' + themeStyles.subtle}
               >
-                <div className="flex items-center gap-3 min-w-0">
+                <div className="flex items-center gap-3 min-w-0 flex-1">
                   <input type="checkbox" checked={false} readOnly className="w-5 h-5 accent-indigo-600 rounded shrink-0" />
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                     <div className="font-bold text-sm break-words">{task.title}</div>
                     <div className="text-[11px] font-semibold opacity-75">
                       👤 {mem.name.split(' ')[0]} • ⏳ {task.due || 'Offen'}
                     </div>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (task.todoistId && todoistConfig?.apiToken) {
-                      pushTodoistTaskToPhoneNow(todoistConfig.apiToken, task.todoistId, task.title, mem.todoistUserId, todoistConfig.collaborators);
-                      showToast('Handy-Ping gesendet!', task.title, '📲');
-                    }
-                  }}
-                  className="tw-glow-btn px-3 py-2 rounded-xl text-xs font-black shrink-0"
-                >
-                  📲 Ping
-                </button>
+
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (task.todoistId && todoistConfig?.apiToken) {
+                        pushTodoistTaskToPhoneNow(todoistConfig.apiToken, task.todoistId, task.title, mem.todoistUserId, todoistConfig.collaborators);
+                        showToast('Handy-Ping gesendet!', task.title, '📲');
+                      } else {
+                        showToast('Hinweis', 'Aufgabe ist lokal gespeichert.', 'ℹ️');
+                      }
+                    }}
+                    className="tw-glow-btn px-2.5 py-2 rounded-xl text-xs font-black"
+                  >
+                    📲 Ping
+                  </button>
+
+                  {onDeleteTask && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDeleteTask(task);
+                      }}
+                      className="tw-nav-inactive p-2 rounded-xl text-rose-400"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
               </div>
             );
           })
         )}
 
-        {doneTasks.length > 0 && (
-          <div className="pt-3 mt-3 border-t border-white/10 space-y-1.5">
-            <div className="text-xs font-extrabold opacity-60">☑️ Erledigt ({doneTasks.length})</div>
-            {doneTasks.slice(0, 5).map(task => (
-              <div
-                key={task.id}
-                onClick={() => onToggleTask(task)}
-                className={'p-2.5 rounded-xl border flex items-center gap-2.5 opacity-55 ' + themeStyles.subtle}
-              >
-                <input type="checkbox" checked={true} readOnly className="w-4 h-4 accent-emerald-500 rounded" />
-                <span className="text-xs font-bold line-through truncate">{task.title}</span>
-              </div>
-            ))}
+        {sortedDoneTasks.length > 0 && (
+          <div className="pt-3.5 mt-3.5 border-t border-white/10 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-black uppercase text-emerald-400">
+                ☑️ Erledigt ({sortedDoneTasks.length})
+              </span>
+              {onClearDoneTasks && (
+                <button
+                  type="button"
+                  onClick={() => onClearDoneTasks(sortedDoneTasks)}
+                  className="px-3 py-1.5 rounded-xl bg-rose-600/90 text-white text-[11px] font-black flex items-center gap-1 shadow-md"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Erledigte leeren</span>
+                </button>
+              )}
+            </div>
+
+            {sortedDoneTasks.map(task => {
+              const mem = safeMembers.find(m => m.id === task.member) || safeMembers[1];
+              return (
+                <div
+                  key={task.id}
+                  className={'p-2.5 rounded-xl border flex items-center justify-between gap-2 ' + themeStyles.subtle}
+                >
+                  <div
+                    onClick={() => onToggleTask(task)}
+                    className="flex items-center gap-2.5 min-w-0 flex-1 opacity-65 cursor-pointer"
+                  >
+                    <input type="checkbox" checked={true} readOnly className="w-4 h-4 accent-emerald-500 rounded shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-bold line-through truncate">{task.title}</div>
+                      <div className="text-[10px] opacity-75">👤 {mem.name.split(' ')[0]}</div>
+                    </div>
+                  </div>
+
+                  {onDeleteTask && (
+                    <button
+                      type="button"
+                      onClick={() => onDeleteTask(task)}
+                      className="tw-nav-inactive p-1.5 rounded-xl text-rose-400 shrink-0"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
