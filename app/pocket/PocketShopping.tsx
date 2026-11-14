@@ -42,140 +42,77 @@ export default function PocketShopping({
 
   return (
     <div className="space-y-3.5">
-      <div className={'p-3 rounded-2xl border flex items-center justify-between gap-2 ' + themeStyles.card}>
-        <div className="text-xs font-extrabold">
-          🔔 Android-Alarm bei neuen Einkäufen
-        </div>
-        <button
-          type="button"
-          onClick={onRequestPushPermission}
-          className={'px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 ' +
-            (notifPermission === 'granted' ? 'bg-emerald-500/25 text-emerald-300 border border-emerald-400/40' : 'tw-active-nav')}
-        >
-          <BellRing className="w-3.5 h-3.5" />
-          <span>{notifPermission === 'granted' ? 'Push-Alarm aktiv ✓' : 'Push aktivieren'}</span>
-        </button>
-      </div>
-
-      {/* BEREICH 1: EINKAUFSWAGEN (GESCANNTE PRODUKTE & BON-ARTIKEL) */}
-      <div className={'rounded-3xl border-2 border-amber-400/40 p-4 space-y-2.5 ' + themeStyles.card}>
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h3 className="font-black text-sm text-amber-300 flex items-center gap-1.5">
-              <ShoppingCart className="w-4 h-4" />
-              <span>🛒 Einkaufswagen – Gescannte Produkte ({sortedCart.length})</span>
-            </h3>
-            <p className="text-[10px] opacity-75 font-semibold">
-              Neuestes gescanntes Produkt steht immer ganz oben
-            </p>
-          </div>
-
-          {sortedCart.length > 0 && (
-            <button
-              type="button"
-              onClick={onTransferAllCartToStock}
-              className="tw-active-nav px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-lg"
-            >
-              <PackagePlus className="w-4 h-4" />
-              <span>📦 Alle in Bestand buchen</span>
-            </button>
-          )}
-        </div>
-
-        {sortedCart.length === 0 ? (
-          <div className="py-3 text-center text-xs opacity-55 font-bold">
-            Noch keine Produkte im Scanner-Einkaufswagen.
-          </div>
-        ) : (
-          <div className="space-y-1.5">
-            {sortedCart.map((cItem, idx) => (
-              <div
-                key={cItem.id}
-                className={'px-3 py-2.5 rounded-2xl border flex items-center justify-between gap-2 ' +
-                  (idx === 0 ? 'border-amber-400/70 bg-amber-500/10' : themeStyles.subtle)}
-              >
-                <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                  <span className="text-xl shrink-0">{getFoodEmoji(cItem.name)}</span>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5">
-                      {idx === 0 && (
-                        <span className="px-1.5 py-0.2 rounded bg-amber-500 text-slate-950 text-[9px] font-black shrink-0">
-                          ZULETZT GESCANNT
-                        </span>
-                      )}
-                      <span className="font-extrabold text-xs truncate">{cItem.name}</span>
-                    </div>
-                    <div className="text-[10px] text-amber-300 font-bold">
-                      {cItem.quantity} • MHD: {cItem.expiryDate.slice(8, 10)}.{cItem.expiryDate.slice(5, 7)}.{cItem.expiryDate.slice(2, 4)}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => onTransferSingleCartItemToStock(cItem)}
-                    className="tw-glow-btn px-2.5 py-1.5 rounded-xl text-[10px] font-black flex items-center gap-1"
-                  >
-                    <Check className="w-3.5 h-3.5 text-emerald-300" />
-                    <span>Bestand</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onRemoveCartItem(cItem.id)}
-                    className="tw-nav-inactive p-1.5 rounded-xl text-rose-400"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* BEREICH 2: EINKAUFSLISTE & ABGEHAKTE ARTIKEL */}
+      {/* SCHNELLER EINGABE-BALKEN OBEN */}
       <form onSubmit={handleSubmit} className="flex gap-2">
         <input
           type="text"
           value={quickShopText}
           onChange={(e) => setQuickShopText(e.target.value)}
           placeholder="Artikel auf die Einkaufsliste setzen..."
-          className={'flex-1 min-h-[48px] px-4 py-3 rounded-2xl border text-sm font-bold ' + themeStyles.input}
+          className={'flex-1 min-h-[52px] px-4 py-3 rounded-2xl border text-base font-extrabold ' + themeStyles.input}
         />
-        <button type="submit" className="tw-active-nav min-h-[48px] px-5 rounded-2xl font-black text-base">
+        <button type="submit" className="tw-active-nav min-h-[52px] px-5 rounded-2xl font-black text-lg shadow-md">
           +
         </button>
       </form>
 
-      <div className={'rounded-3xl border p-4 space-y-2 ' + themeStyles.card}>
-        <div className="font-extrabold text-sm">📝 Offene Einkaufsliste ({openShop.length})</div>
+      {/* BEREICH 1: OFFENE EINKAUFSLISTE MIT GROSSER SCHRIFT & GROSSEN PRODUKT-ICONS */}
+      <div className={'rounded-3xl border p-4 space-y-2.5 ' + themeStyles.card}>
+        <div className="flex items-center justify-between gap-2">
+          <div className="font-black text-base">
+            📝 Offene Einkaufsliste ({openShop.length})
+          </div>
+          <button
+            type="button"
+            onClick={onRequestPushPermission}
+            className={'px-3 py-1.5 rounded-xl text-[11px] font-black flex items-center gap-1 ' +
+              (notifPermission === 'granted' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/40' : 'tw-glow-btn')}
+          >
+            <BellRing className="w-3.5 h-3.5" />
+            <span>{notifPermission === 'granted' ? 'Push aktiv ✓' : 'Push'}</span>
+          </button>
+        </div>
+
         {openShop.length === 0 ? (
-          <div className="py-5 text-center text-xs opacity-50 font-bold">🛒 Einkaufsliste ist leer!</div>
+          <div className="py-6 text-center text-sm opacity-55 font-bold">
+            🛒 Deine Einkaufsliste ist leer!
+          </div>
         ) : (
           openShop.map(item => (
             <div
               key={item.origIdx}
               onClick={() => onToggleShopItem(item.origIdx)}
-              className={'p-3.5 rounded-2xl border flex items-center justify-between gap-3 cursor-pointer ' + themeStyles.subtle}
+              className={'p-3.5 rounded-2xl border flex items-center justify-between gap-3.5 cursor-pointer transition-all ' + themeStyles.subtle}
             >
-              <div className="flex items-center gap-3 min-w-0">
-                <input type="checkbox" checked={false} readOnly className="w-5 h-5 accent-amber-500 rounded shrink-0" />
-                <span className="text-lg shrink-0">{getFoodEmoji(item.text)}</span>
-                <span className="font-bold text-sm break-words">{item.text}</span>
+              <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                <input
+                  type="checkbox"
+                  checked={false}
+                  readOnly
+                  className="w-6 h-6 accent-amber-500 rounded shrink-0"
+                />
+                {/* GROSSES PRODUKT-ICON (w-12 h-12 text-3xl) */}
+                <span className="w-12 h-12 rounded-2xl bg-black/35 border border-white/10 flex items-center justify-center text-3xl shrink-0">
+                  {getFoodEmoji(item.text)}
+                </span>
+                {/* GROSSER PRODUKT-TEXT (text-base sm:text-lg font-black) */}
+                <span className="font-black text-base sm:text-lg leading-snug break-words">
+                  {item.text}
+                </span>
               </div>
             </div>
           ))
         )}
 
+        {/* ABGEHAKTE EINKÄUFE */}
         {sortedDoneShop.length > 0 && (
-          <div className="pt-3.5 mt-3.5 border-t border-white/10 space-y-2.5">
+          <div className="pt-4 mt-3.5 border-t border-white/10 space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="text-xs font-black uppercase text-emerald-400">
-                🛍️ Erledigt im Einkaufswagen ({sortedDoneShop.length}):
+                🛍️ Im Einkaufswagen abgehakt ({sortedDoneShop.length}):
               </span>
               <div className="flex items-center gap-1">
-                <span className="text-[10px] font-bold opacity-75">MHD:</span>
+                <span className="text-xs font-bold opacity-75">MHD:</span>
                 {[
                   { l: '+5T', d: 5 },
                   { l: '+1W', d: 7 },
@@ -186,7 +123,7 @@ export default function PocketShopping({
                     key={b.d}
                     type="button"
                     onClick={() => setQuickMhdDays(b.d)}
-                    className={'px-2 py-0.5 rounded-lg text-[10px] font-black ' + (quickMhdDays === b.d ? 'tw-active-nav' : 'tw-nav-inactive')}
+                    className={'px-2.5 py-1 rounded-lg text-xs font-black ' + (quickMhdDays === b.d ? 'tw-active-nav' : 'tw-nav-inactive')}
                   >
                     {b.l}
                   </button>
@@ -197,22 +134,25 @@ export default function PocketShopping({
             {sortedDoneShop.map(item => (
               <div
                 key={item.origIdx}
-                className={'p-2.5 rounded-xl border flex items-center justify-between gap-2 ' + themeStyles.subtle}
+                className={'p-3 rounded-2xl border flex items-center justify-between gap-2.5 ' + themeStyles.subtle}
               >
                 <div
                   onClick={() => onToggleShopItem(item.origIdx)}
-                  className="flex items-center gap-2.5 min-w-0 flex-1 opacity-75 cursor-pointer"
+                  className="flex items-center gap-3 min-w-0 flex-1 opacity-80 cursor-pointer"
                 >
-                  <input type="checkbox" checked={true} readOnly className="w-4 h-4 accent-emerald-500 rounded shrink-0" />
-                  <span className="text-xs font-bold line-through truncate">{item.text}</span>
+                  <input type="checkbox" checked={true} readOnly className="w-5 h-5 accent-emerald-500 rounded shrink-0" />
+                  <span className="text-2xl shrink-0">{getFoodEmoji(item.text)}</span>
+                  <span className="text-sm sm:text-base font-extrabold line-through break-words">
+                    {item.text}
+                  </span>
                 </div>
 
                 <button
                   type="button"
                   onClick={() => onMoveBoughtItemToPantry(item, quickMhdDays)}
-                  className="tw-glow-btn px-2.5 py-1.5 rounded-xl text-[10px] font-black flex items-center gap-1 shrink-0"
+                  className="tw-glow-btn px-3 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 shrink-0"
                 >
-                  <PackagePlus className="w-3.5 h-3.5 text-emerald-300" />
+                  <PackagePlus className="w-4 h-4 text-emerald-300" />
                   <span>Bestand (+{quickMhdDays}T)</span>
                 </button>
               </div>
@@ -222,7 +162,7 @@ export default function PocketShopping({
               <button
                 type="button"
                 onClick={() => onMoveAllBoughtToPantry(sortedDoneShop, quickMhdDays)}
-                className="tw-active-nav w-full py-3 px-3 rounded-2xl text-xs font-black flex items-center justify-center gap-1.5 shadow-lg"
+                className="tw-active-nav w-full py-3.5 px-3 rounded-2xl text-xs sm:text-sm font-black flex items-center justify-center gap-1.5 shadow-lg"
               >
                 <PackagePlus className="w-4 h-4 shrink-0" />
                 <span>📦 Alle {sortedDoneShop.length} in Bestand buchen</span>
@@ -232,13 +172,92 @@ export default function PocketShopping({
                 <button
                   type="button"
                   onClick={() => onClearDoneShopItems(sortedDoneShop)}
-                  className="w-full py-3 px-3 rounded-2xl bg-rose-600/90 text-white text-xs font-black flex items-center justify-center gap-1.5 shadow-lg"
+                  className="w-full py-3.5 px-3 rounded-2xl bg-rose-600/90 text-white text-xs sm:text-sm font-black flex items-center justify-center gap-1.5 shadow-lg"
                 >
                   <Trash2 className="w-4 h-4 shrink-0" />
                   <span>🗑️ Erledigte endgültig leeren</span>
                 </button>
               )}
             </div>
+          </div>
+        )}
+      </div>
+
+      {/* BEREICH 2: GESCANNTE PRODUKTE IM EINKAUFSWAGEN (GROSSE DARSTELLUNG) */}
+      <div className={'rounded-3xl border-2 border-amber-400/40 p-4 space-y-3 ' + themeStyles.card}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h3 className="font-black text-base text-amber-300 flex items-center gap-1.5">
+              <ShoppingCart className="w-5 h-5" />
+              <span>🛒 Gescannte Produkte ({sortedCart.length})</span>
+            </h3>
+            <p className="text-xs opacity-75 font-semibold">
+              Aus dem Kamera-Scanner • Neuestes steht oben
+            </p>
+          </div>
+
+          {sortedCart.length > 0 && (
+            <button
+              type="button"
+              onClick={onTransferAllCartToStock}
+              className="tw-active-nav px-4 py-2.5 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-lg"
+            >
+              <PackagePlus className="w-4 h-4" />
+              <span>📦 Alle in Bestand</span>
+            </button>
+          )}
+        </div>
+
+        {sortedCart.length === 0 ? (
+          <div className="py-4 text-center text-xs opacity-55 font-bold">
+            Noch keine Produkte im Scanner-Einkaufswagen.
+          </div>
+        ) : (
+          <div className="space-y-2.5">
+            {sortedCart.map((cItem, idx) => (
+              <div
+                key={cItem.id}
+                className={'p-3.5 rounded-2xl border flex items-center justify-between gap-3 ' +
+                  (idx === 0 ? 'border-amber-400/80 bg-amber-500/10' : themeStyles.subtle)}
+              >
+                <div className="flex items-center gap-3 min-w-0 flex-1">
+                  <span className="w-13 h-13 rounded-2xl bg-black/35 border border-white/10 flex items-center justify-center text-3xl shrink-0">
+                    {getFoodEmoji(cItem.name)}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    {idx === 0 && (
+                      <span className="inline-block px-2 py-0.5 rounded bg-amber-500 text-slate-950 text-[10px] font-black mb-0.5">
+                        ZULETZT GESCANNT
+                      </span>
+                    )}
+                    <div className="font-black text-base leading-snug break-words">
+                      {cItem.name}
+                    </div>
+                    <div className="text-xs text-amber-300 font-extrabold mt-0.5">
+                      {cItem.quantity} • MHD: {cItem.expiryDate.slice(8, 10)}.{cItem.expiryDate.slice(5, 7)}.{cItem.expiryDate.slice(2, 4)}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => onTransferSingleCartItemToStock(cItem)}
+                    className="tw-glow-btn px-3 py-2.5 rounded-xl text-xs font-black flex items-center gap-1"
+                  >
+                    <Check className="w-4 h-4 text-emerald-300" />
+                    <span>Bestand</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onRemoveCartItem(cItem.id)}
+                    className="tw-nav-inactive p-2.5 rounded-xl text-rose-400"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>
