@@ -19,7 +19,8 @@ export default function PocketShopping({
   onTransferSingleCartItemToStock,
   onTransferAllCartToStock,
   onMoveBoughtItemToPantry,
-  onMoveAllBoughtToPantry
+  onMoveAllBoughtToPantry,
+  onClearDoneShopItems
 }) {
   const [quickShopText, setQuickShopText] = useState('');
   const [quickMhdDays, setQuickMhdDays] = useState(7);
@@ -31,12 +32,10 @@ export default function PocketShopping({
     setQuickShopText('');
   };
 
-  // Gescannte Einkaufswagen-Artikel: Zuletzt gescanntes Produkt immer ganz oben!
   const sortedCart = Array.isArray(cartItems)
     ? [...cartItems].sort((a, b) => Number(b.scannedAt || 0) - Number(a.scannedAt || 0))
     : [];
 
-  // Abgehakte Einkaufslisten-Artikel: Zuletzt abgehaktes Produkt immer ganz oben!
   const sortedDoneShop = Array.isArray(doneShop)
     ? [...doneShop].sort((a, b) => Number(b.doneAt || 0) - Number(a.doneAt || 0))
     : [];
@@ -58,10 +57,7 @@ export default function PocketShopping({
         </button>
       </div>
 
-      {/* =========================================================
-          BEREICH 1: EINKAUFSWAGEN (GESCANNTE- PRODUKTE & BON-ARTIKEL)
-          ZULETZT GESCANNTES PRODUKT STEHT IMMER GANZ OBEN!
-         ========================================================= */}
+      {/* BEREICH 1: EINKAUFSWAGEN (GESCANNTE PRODUKTE & BON-ARTIKEL) */}
       <div className={'rounded-3xl border-2 border-amber-400/40 p-4 space-y-2.5 ' + themeStyles.card}>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
@@ -138,9 +134,7 @@ export default function PocketShopping({
         )}
       </div>
 
-      {/* =========================================================
-          BEREICH 2: EINKAUFSLISTE & ABGEHAKTE ARTIKEL
-         ========================================================= */}
+      {/* BEREICH 2: EINKAUFSLISTE & ABGEHAKTE ARTIKEL */}
       <form onSubmit={handleSubmit} className="flex gap-2">
         <input
           type="text"
@@ -178,7 +172,7 @@ export default function PocketShopping({
           <div className="pt-3.5 mt-3.5 border-t border-white/10 space-y-2.5">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="text-xs font-black uppercase text-emerald-400">
-                🛍️ Abgehakt im Einkaufswagen ({sortedDoneShop.length}):
+                🛍️ Erledigt im Einkaufswagen ({sortedDoneShop.length}):
               </span>
               <div className="flex items-center gap-1">
                 <span className="text-[10px] font-bold opacity-75">MHD:</span>
@@ -224,14 +218,27 @@ export default function PocketShopping({
               </div>
             ))}
 
-            <button
-              type="button"
-              onClick={() => onMoveAllBoughtToPantry(sortedDoneShop, quickMhdDays)}
-              className="tw-active-nav w-full py-3 rounded-2xl text-xs font-black flex items-center justify-center gap-2 shadow-lg"
-            >
-              <PackagePlus className="w-4 h-4" />
-              <span>📦 Alle {sortedDoneShop.length} abgehakten Artikel in Bestand übernehmen</span>
-            </button>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => onMoveAllBoughtToPantry(sortedDoneShop, quickMhdDays)}
+                className="tw-active-nav w-full py-3 px-3 rounded-2xl text-xs font-black flex items-center justify-center gap-1.5 shadow-lg"
+              >
+                <PackagePlus className="w-4 h-4 shrink-0" />
+                <span>📦 Alle {sortedDoneShop.length} in Bestand buchen</span>
+              </button>
+
+              {onClearDoneShopItems && (
+                <button
+                  type="button"
+                  onClick={() => onClearDoneShopItems(sortedDoneShop)}
+                  className="w-full py-3 px-3 rounded-2xl bg-rose-600/90 text-white text-xs font-black flex items-center justify-center gap-1.5 shadow-lg"
+                >
+                  <Trash2 className="w-4 h-4 shrink-0" />
+                  <span>🗑️ Erledigte endgültig leeren</span>
+                </button>
+              )}
+            </div>
           </div>
         )}
       </div>
