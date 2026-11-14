@@ -7,49 +7,193 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   Package, Trash2, Plus, CheckCircle2,
   ShoppingCart, RotateCcw, ChefHat, Pencil, Check, X,
-  Table as TableIcon, LayoutGrid, ArrowUpDown
+  Table as TableIcon, LayoutGrid, ArrowUpDown, Wand2,
+  AlertTriangle, BellRing, Search
 } from 'lucide-react';
-import { formatDateStr, addDays } from './touchwallConfig';
+import * as Cfg from './touchwallConfig';
 import PantryRecipes from './PantryRecipes';
 
-const STORAGE_LOCATIONS = [
-  { id: 'all',     label: '🏠 Alle Orte',       short: '🏠 Alle' },
-  { id: 'fridge',  label: '🧊 Kühlschrank',     short: '🧊 Kühl.' },
-  { id: 'freezer', label: '❄️ Gefrierschrank',  short: '❄️ TK' },
-  { id: 'pantry',  label: '🗄️ Keller / Vorrat', short: '🗄️ Keller' },
-  { id: 'kitchen', label: '🍎 Küche',           short: '🍎 Küche' }
+const {
+  formatDateStr,
+  addDays,
+  createTodoistTaskItem,
+  playTouchwallAlarmSound
+} = Cfg;
+
+// ============================================================================
+// ERWEITERTE LAGERORTE (INKL. VORRATSSCHRANK & TIERFUTTER)
+// ============================================================================
+export const STORAGE_LOCATIONS = [
+  { id: 'all',      label: '🏠 Alle Orte',       short: '🏠 Alle' },
+  { id: 'fridge',   label: '🧊 Kühlschrank',     short: '🧊 Kühl.' },
+  { id: 'freezer',  label: '❄️ Gefrierschrank',  short: '❄️ TK' },
+  { id: 'cupboard', label: '🚪 Vorratsschrank',  short: '🚪 Schrank' },
+  { id: 'pantry',   label: '🗄️ Keller / Vorrat', short: '🗄️ Keller' },
+  { id: 'kitchen',  label: '🍎 Küche',           short: '🍎 Küche' },
+  { id: 'petfood',  label: '🐾 Tierfutter',      short: '🐾 Tierfutter' }
 ];
 
 export const FOOD_CATEGORIES = [
   { id: 'drinks',         icon: '🧃', title: 'Getränke',                               desc: 'Wasser, Kaffee, Tee und ungesüßte Säfte.' },
-  { id: 'produce',        icon: '🥦', title: 'Obst und Gemüse',                        desc: 'Frisches Obst, Gemüse, Salate und Hülsenfrüchte.' },
+  { id: 'produce',        icon: '🥦', title: 'Obst und Gemüse',                        desc: 'Frisches Obst, Gemüse, Salate, Pilze und Hülsenfrüchte.' },
   { id: 'grains',         icon: '🌾', title: 'Getreide, Getreideprodukte & Kartoffeln', desc: 'Brot, Nudeln, Reis, Flocken und Kartoffeln.' },
   { id: 'dairy',          icon: '🧀', title: 'Milch und Milchprodukte',                desc: 'Milch, Joghurt, Quark, Sahne und Käse.' },
   { id: 'meat_fish_eggs', icon: '🥩', title: 'Fleisch, Fisch, Wurst und Eier',         desc: 'Eiweiß- und Nährstofflieferanten.' },
   { id: 'oils_fats',      icon: '🧈', title: 'Öle und Fette (inkl. Würzmittel)',       desc: 'Öle, Butter, Kräuterbutter, Essig, Senf und Soßen.' },
-  { id: 'sweets_snacks',  icon: '🍫', title: 'Süßwaren, Knabbereien & Sonstiges',      desc: 'Chips, Schokolade, Zuckerwaren und Sonstiges.' }
+  { id: 'sweets_snacks',  icon: '🍫', title: 'Süßwaren, Knabbereien & Tierfutter',     desc: 'Snacks, Schokolade, Tiernahrung und Sonstiges.' }
 ];
 
 const FOOD_EMOJI_PICKER = [
   '🌭', '🥩', '🍗', '🥓', '🍔', '🐟', '🥚', '🧀', '🧈', '🥛',
   '🥣', '🥬', '🥒', '🍅', '🫑', '🥕', '🥔', '🧅', '🥦', '🌽',
   '🍄', '🥑', '🍊', '🍎', '🍌', '🍓', '🍋', '🍇', '🍝', '🍚',
-  '🥖', '🥐', '🍕', '🌮', '🥫', '🌾', '🍫', '🍪', '🧃', '🐶'
+  '🥖', '🥐', '🍕', '🌮', '🥫', '🌾', '🍫', '🍪', '🧃', '🐶',
+  '🐾', '🦴', '🐱', '🐴'
 ];
 
+const KNOWN_BRAND_PREFIXES = [
+  'K-Classic', 'K-Bio', 'K-Favourites', 'ja!', 'GUT&GÜNSTIG', 'Gut & Günstig',
+  'EDEKA', 'REWE Beste Wahl', 'REWE Bio', 'REWE', 'Milbona', 'Milsani', 'Bellarom',
+  'Kania', 'Combino', 'Alnatura', 'dmBio', 'Schär', 'Dr. Schär', 'Gefro', 'Meggle',
+  'Philadelphia', 'Thomy', 'Heinz', 'Hengstenberg', 'Pfanni', 'Barilla', 'Dr. Oetker',
+  'Iglo', 'Frosta', 'Landfein', 'Schwarzwaldmilch', 'Weihenstephan', 'Bärenmarke',
+  'Kerrygold', 'Oro di Parma', 'Alnavit', 'Bauckhof', 'Müller', 'Ehrmann', 'Zott',
+  'Danone', 'Arla', 'Exquisa', 'miree', 'Rama', 'Lätta', 'Bonduelle', 'Kühne',
+  'Knorr', 'Maggi', 'Löwensenf', 'Ernte Krone', 'mysmile', 'Die süße Susi',
+  'Rinti', 'Wolfsblut', 'Josera', 'Belcando', 'Animonda', 'Premiere', 'Pedigree'
+];
+
+// ============================================================================
+// INTELLIGENTE NAMENS-OPTIMIERUNG ("Pfifferlinge TK / Bayer.")
+// ============================================================================
+export function shortenBrandString(rawBrand) {
+  if (!rawBrand) return '';
+  let b = String(rawBrand).split(',')[0].trim();
+
+  b = b
+    .replace(/\b(GmbH\s*&\s*Co\.?\s*KG|GmbH\s*&\s*Co\.?\s*OHG|GmbH|AG|KG|OHG|SE|mbH|e\.?\s*G\.?|Inc\.?|Ltd\.?|S\.?p\.?A\.?|S\.?A\.?)\b/gi, '')
+    .replace(/\b(Pilze\s*&\s*Waldfrüchte|Uwe\s+Niklas|Warenhandel|Nahrungsmittel|Lebensmittel|Molkerei|Privatmolkerei|Käserei|Fleischwerke|Feinkost|Vertriebs|Handels|Werke|Deutschland|International)\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!b) return '';
+
+  const multiBrandMatch = KNOWN_BRAND_PREFIXES.find(
+    kb => b.toLowerCase() === kb.toLowerCase() || b.toLowerCase().startsWith(kb.toLowerCase() + ' ')
+  );
+  if (multiBrandMatch) return multiBrandMatch;
+
+  const tokens = b.split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return '';
+  if (tokens[0].toLowerCase() === 'dr.' && tokens[1]) {
+    return tokens[0] + ' ' + tokens[1];
+  }
+  return tokens[0].replace(/^[,;-]+|[,;-]+$/g, '');
+}
+
+export function simplifyProductName(rawInputName, explicitBrand = '') {
+  let raw = String(rawInputName || '').replace(/\s+/g, ' ').trim();
+  if (!raw) return '';
+
+  let extractedBrand = explicitBrand ? shortenBrandString(explicitBrand) : '';
+  let productPart = raw;
+
+  if (productPart.includes(' / ')) {
+    const parts = productPart.split(' / ');
+    productPart = parts[0].trim();
+    if (!extractedBrand && parts[1]) {
+      extractedBrand = shortenBrandString(parts[1]);
+    }
+  }
+
+  if (explicitBrand) {
+    const cleanExp = String(explicitBrand).split(',')[0].trim();
+    if (cleanExp && productPart.toLowerCase().startsWith(cleanExp.toLowerCase())) {
+      productPart = productPart.slice(cleanExp.length).trim();
+    }
+  }
+
+  const legalSplitRegex = /^(.*?)\b(?:GmbH\s*&\s*Co\.?\s*KG|GmbH\s*&\s*Co\.?\s*OHG|GmbH|AG|KG|OHG|SE|mbH|e\.?\s*G\.?)\.?\s+(.+)$/i;
+  const legalMatch = productPart.match(legalSplitRegex);
+  if (legalMatch) {
+    const companyLeft = legalMatch[1].trim();
+    const itemRight = legalMatch[2].trim();
+    if (itemRight.length >= 2) {
+      if (!extractedBrand) extractedBrand = shortenBrandString(companyLeft);
+      productPart = itemRight;
+    }
+  }
+
+  for (const kb of KNOWN_BRAND_PREFIXES) {
+    const reg = new RegExp('^' + kb.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b\\s*', 'i');
+    if (reg.test(productPart)) {
+      const rest = productPart.replace(reg, '').trim();
+      if (rest.length >= 2) {
+        if (!extractedBrand) extractedBrand = kb;
+        productPart = rest;
+        break;
+      }
+    }
+  }
+
+  productPart = productPart
+    .replace(/\b(tiefgekühlt|tiefgefroren|tiefkühlkost|tiefkühl)\b/gi, 'TK')
+    .replace(/\b(delikatess|das komplette|flow pack de|unter schutzatmosphäre|servierfertig|küchenfertig|erntefrisch|feinste|klassische)\b/gi, '')
+    .replace(/\b\d+(?:[.,]\d+)?\s*(?:g|gr|kg|ml|l)\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .replace(/^[,;.\-/]+|[,;.\-/]+$/g, '')
+    .trim();
+
+  if (!productPart) productPart = raw;
+  productPart = productPart.charAt(0).toUpperCase() + productPart.slice(1);
+
+  if (extractedBrand && !productPart.toLowerCase().includes(extractedBrand.toLowerCase())) {
+    return productPart + ' / ' + extractedBrand;
+  }
+  return productPart;
+}
+
+// ============================================================================
+// INTELLIGENTE KATEGORIE- & LAGERORT-ERKENNUNG (INKL. VORRATSSCHRANK & TIERFUTTER)
+// ============================================================================
 export function detectFoodCategory(nameStr, customCategory = '') {
-  if (customCategory && FOOD_CATEGORIES.some(c => c.id === customCategory)) {
+  if (customCategory && customCategory !== 'auto' && FOOD_CATEGORIES.some(c => c.id === customCategory)) {
     return customCategory;
   }
   const n = String(nameStr || '').toLowerCase();
+  if (/hundefutter|katzenfutter|tierfutter|pferdefutter|futter|leckerli|kauknochen|pansen|rinti|wolfsblut|josera|belcando|animonda|pedigree|whiskas|felix/.test(n)) return 'sweets_snacks';
+  if (/pilz|pfifferling|steinpilz|champignon|kräuterseitling|waldfrüchte|obst|apfel|äpfel|elstar|apfelmus|banane|clementine|mandarine|orange|susi|beere|erdbeer|himbeer|heidelbeer|traube|birne|zitrone|limette|kiwi|mango|ananas|melone|gemüse|salat|eisberg|mâche|mache|feldsalat|rucola|spinat|gurke|tomate|tomatenmark|passierte|oro di parma|paprika|karotte|möhre|zwiebel|knoblauch|brokkoli|blumenkohl|spargel|stangenspargel|rotkohl|kraut|avocado|mais|erbse|bohne|linse|kichererbse|chili sin carne|gefro/.test(n)) return 'produce';
   if (/butter|kräuterbutter|meggle|margarine|öl|sonnenblumenöl|olivenöl|rapsöl|kokosöl|fett|schmalz|essig|hengstenberg|senf|thomy|ketchup|mayo|mayonnaise|dressing|burger sauce|heinz|soße|sauce|pesto/.test(n)) return 'oils_fats';
-  if (/schokolade|choco|schoko|nutella|keks|cookie|gummibär|chips|flips|eis|bonbon|praline|zuckerware/.test(n)) return 'sweets_snacks';
   if (/wasser|mineralwasser|kaffee|espresso|tee|saft|apfelsaft|orangensaft|schorle|cola|limo|getränk|sirup|kakao|\bbier\b|\bwein\b/.test(n)) return 'drinks';
   if (/milch|vollmilch|schwarzwaldmilch|landfein|joghurt|quark|käse|frischkäse|philadelphia|scheibenkäse|gouda|mozzarella|parmesan|emmentaler|camembert|feta|schlagsahne|sahne|schmand|creme fraiche|mascarpone|ayran|kefir/.test(n)) return 'dairy';
   if (/fleisch|hackfleisch|rinderhack|rind|schwein|hähnchen|huhn|pute|geflügel|schnitzel|steak|gulasch|wurst|bratwurst|rostbratwurst|leberwurst|würstchen|wiener|lyoner|salami|schinken|speck|aufschnitt|fisch|lachs|thunfisch|fischstäbchen|forelle|garnele|\bei\b|eier/.test(n)) return 'meat_fish_eggs';
-  if (/brot|landbrot|mehrkorn|brötchen|toast|baguette|croissant|nudel|spaghetti|pasta|penne|rigatoni|tortellini|ravioli|spätzle|reis|spitzenreis|langkorn|basmati|jasmin|milchreis|getreide|haferflocken|müsli|cornflakes|mehl|grieß|stärke|wraps|wrap|tortilla|taco|schär|kartoffel|kartoffelpüree|pfanni|gnocchi|schupfnudel|pommes|knödel/.test(n)) return 'grains';
-  if (/obst|apfel|äpfel|elstar|apfelmus|banane|clementine|mandarine|orange|susi|beere|erdbeer|himbeer|heidelbeer|traube|birne|zitrone|limette|kiwi|mango|ananas|melone|gemüse|salat|eisberg|mâche|mache|feldsalat|rucola|spinat|gurke|tomate|tomatenmark|passierte|oro di parma|paprika|karotte|möhre|zwiebel|knoblauch|brokkoli|blumenkohl|spargel|stangenspargel|rotkohl|kraut|pilz|champignon|avocado|mais|erbse|bohne|linse|kichererbse|chili sin carne|gefro/.test(n)) return 'produce';
+  if (/brot|landbrot|mehrkorn|brötchen|toast|baguette|croissant|nudel|spaghetti|pasta|penne|rigatoni|tortellini|ravioli|spätzle|reis|spitzenreis|langkorn|basmati|jasmin|milchreis|getreide|haferflocken|müsli|cornflakes|choco balls|mehl|grieß|stärke|wraps|wrap|tortilla|taco|schär|kartoffel|kartoffelpüree|pfanni|gnocchi|schupfnudel|pommes|knödel/.test(n)) return 'grains';
+  if (/schokolade|choco|schoko|nutella|keks|cookie|gummibär|chips|flips|eis|bonbon|praline|zuckerware/.test(n)) return 'sweets_snacks';
   return 'sweets_snacks';
+}
+
+export function detectSmartLocation(nameStr, categoryId = '') {
+  const n = String(nameStr || '').toLowerCase();
+  if (/hundefutter|katzenfutter|tierfutter|pferdefutter|futter|leckerli|kauknochen|pansen|trockenfutter|nassfutter|rinti|wolfsblut|josera|belcando|animonda|pedigree|whiskas|felix/.test(n)) {
+    return 'petfood';
+  }
+  if (/\btk\b|tiefkühl|tiefgekühlt|tiefgefroren|gefrier|eiscreme|speiseeis|fischstäbchen|pommes/.test(n)) {
+    return 'freezer';
+  }
+  if (/nudel|spaghetti|pasta|penne|reis|basmati|langkorn|mehl|zucker|salz|haferflocken|müsli|cornflakes|choco balls|wraps|wrap|schär|backpulver|vanillezucker|kaffee|tee|kakao|schokolade|keks|cookie|chips|nüsse|gefro|chili sin carne|kartoffelpüree|pfanni|tomatenmark|pesto|öl|olivenöl|sonnenblumenöl|essig|senf|ketchup|mayo|burger sauce/.test(n)) {
+    return 'cupboard';
+  }
+  if (/konserve|dose|im glas|apfelmus|rotkohl|spargel|stangenspargel|passierte|kartoffel|zwiebel|knoblauch|wasser|mineralwasser|saft|apfelsaft|orangensaft|schorle|cola|limo|\bbier\b|\bwein\b|vorrat|haltbare/.test(n)) {
+    return 'pantry';
+  }
+  const resolvedCat = categoryId || detectFoodCategory(nameStr);
+  if (resolvedCat === 'dairy' || resolvedCat === 'meat_fish_eggs') {
+    return 'fridge';
+  }
+  if (/salat|feldsalat|mâche|eisberg|rucola|spinat|gurke|paprika|brokkoli|karotte|möhre|beere|erdbeer|himbeer|heidelbeer|pilz|pfifferling|champignon|butter|kräuterbutter/.test(n)) {
+    return 'fridge';
+  }
+  return 'kitchen';
 }
 
 export function isProductGlutenFree(itemOrName, customCategory = '', manualFlag = undefined) {
@@ -86,7 +230,10 @@ export function isProductGlutenFree(itemOrName, customCategory = '', manualFlag 
 export function getFoodEmoji(nameStr, customEmoji = '') {
   if (customEmoji && String(customEmoji).trim() !== '') return String(customEmoji).trim();
   const n = String(nameStr || '').toLowerCase();
-  if (/hunde|katzen|tierfutter|futter/.test(n)) return '🐶';
+  if (/kauknochen|knochen/.test(n)) return '🦴';
+  if (/katzenfutter|katze|whiskas|felix/.test(n)) return '🐱';
+  if (/pferdefutter|pony|hafer|heu/.test(n)) return '🐴';
+  if (/hunde|tierfutter|futter|leckerli|pansen|rinti|wolfsblut|josera|belcando|animonda|pedigree/.test(n)) return '🐶';
   if (/butter|kräuterbutter|meggle|margarine/.test(n)) return '🧈';
   if (/bratwurst|rostbratwurst|leberwurst|wurst|würstchen|wiener|lyoner|aufschnitt|schinken|salami|speck/.test(n)) return '🌭';
   if (/burger|cheeseburger/.test(n)) return '🍔';
@@ -104,7 +251,7 @@ export function getFoodEmoji(nameStr, customEmoji = '') {
   if (/zwiebel|knoblauch/.test(n)) return '🧅';
   if (/brokkoli|blumenkohl|spargel/.test(n)) return '🥦';
   if (/mais/.test(n)) return '🌽';
-  if (/pilz|champignon/.test(n)) return '🍄';
+  if (/pilz|pfifferling|steinpilz|champignon/.test(n)) return '🍄';
   if (/avocado/.test(n)) return '🥑';
   if (/käse|frischkäse|philadelphia|scheibenkäse|gouda|mozzarella|parmesan|emmentaler|camembert|feta/.test(n)) return '🧀';
   if (/milch|vollmilch|schwarzwaldmilch|landfein|hafermilch|kakao/.test(n)) return '🥛';
@@ -193,6 +340,7 @@ export default function PantrySection({
   const [onlyGlutenFree, setOnlyGlutenFree] = useState(false);
   const [locationFilter, setLocationFilter] = useState('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
 
   // Formular: Neues Produkt
@@ -224,7 +372,22 @@ export default function PantrySection({
     return safeStock.filter(it => isProductGlutenFree(it)).length;
   }, [safeStock]);
 
-  // Automatischer Mülleimer für abgelaufene Produkte
+  // Gruppierung für die 2-stufige MHD-Warnung (Stufe 2: 0 Tage = Heute letzte Warnung | Stufe 1: 1-2 Tage Vorwarnung)
+  const mhdWarningGroups = useMemo(() => {
+    const finalToday = [];
+    const warnTwoDays = [];
+    safeStock.forEach(item => {
+      if (!item?.expiryDate) return;
+      const d = getDaysUntil(item.expiryDate, todayStr);
+      if (d === 0) finalToday.push(item);
+      else if (d === 1 || d === 2) warnTwoDays.push({ ...item, daysLeft: d });
+    });
+    return { finalToday, warnTwoDays };
+  }, [safeStock, todayStr]);
+
+  // ============================================================================
+  // 1. AUTOMATISCHER MÜLLEIMER FÜR BEREITS ABGELAUFENE PRODUKTE (< todayStr)
+  // ============================================================================
   useEffect(() => {
     const expiredNow = safeStock.filter(item => item.expiryDate && item.expiryDate < todayStr);
     if (expiredNow.length > 0) {
@@ -243,18 +406,155 @@ export default function PantrySection({
     }
   }, [safeStock, todayStr, setPantryItems, setPantryTrash, showToast]);
 
+  // ============================================================================
+  // 2. ZWEISTUFIGER MHD-PUSH-ALARM + TODOIST-NOTFALLAUFGABE AM ABLAUFTAG (0 TAGE)
+  // ============================================================================
+  const triggerMhdWarningsAndTodoistPush = async (forceManual = false) => {
+    if (!safeStock || safeStock.length === 0) return;
+
+    let log = {};
+    try {
+      log = JSON.parse(localStorage.getItem('richter_tw_wall_mhd_push_v1') || '{}') || {};
+    } catch (e) {}
+
+    const finalTodayToNotify = [];
+    const warnTwoDaysToNotify = [];
+
+    safeStock.forEach(item => {
+      if (!item?.expiryDate) return;
+      const daysLeft = getDaysUntil(item.expiryDate, todayStr);
+
+      if (daysLeft === 0) {
+        const k0 = 'wall_final0d_' + item.id + '_' + todayStr;
+        if (forceManual || !log[k0]) {
+          finalTodayToNotify.push(item);
+          log[k0] = Date.now();
+        }
+      } else if (daysLeft === 1 || daysLeft === 2) {
+        const kw = 'wall_warn_' + daysLeft + 'd_' + item.id + '_' + todayStr;
+        if (forceManual || !log[kw]) {
+          warnTwoDaysToNotify.push({ ...item, daysLeft });
+          log[kw] = Date.now();
+        }
+      }
+    });
+
+    if (finalTodayToNotify.length === 0 && warnTwoDaysToNotify.length === 0) {
+      if (forceManual) {
+        showToast('MHD-Check ✓', 'Aktuell laufen keine Produkte heute oder in den nächsten 2 Tagen ab.', '🌱');
+      }
+      return;
+    }
+
+    try {
+      localStorage.setItem('richter_tw_wall_mhd_push_v1', JSON.stringify(log));
+    } catch (e) {}
+
+    // STUFE 2: Tag des Ablaufs (daysLeft === 0) -> Letzte Warnung + Automatische Todoist-Erinnerung aufs Handy!
+    if (finalTodayToNotify.length > 0) {
+      const names = finalTodayToNotify.map(x => getFoodEmoji(x.name, x.customEmoji) + ' ' + x.name).join(', ');
+      try { playTouchwallAlarmSound?.(); } catch (e) {}
+      showToast(
+        '🚨 LETZTE WARNUNG (Läuft HEUTE ab!)',
+        names + ' – heute verbrauchen, sonst wandert es morgen in den Mülleimer!',
+        '🚨'
+      );
+
+      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+        try {
+          new Notification('🚨 LETZTE WARNUNG – Läuft HEUTE ab!', {
+            body: names + ' muss heute verbraucht werden (wandert morgen in den Mülleimer)!',
+            icon: '/icon-512.png'
+          });
+        } catch (e) {}
+      }
+
+      // Automatische Todoist-Erinnerungsaufgabe erstellen, damit das Handy garantiert klingelt
+      try {
+        const rawSaved = typeof localStorage !== 'undefined' ? localStorage.getItem('richter_touchwall_v6') : null;
+        const parsedSaved = rawSaved ? JSON.parse(rawSaved) : null;
+        const tdCfg = parsedSaved?.todoistConfig;
+        const firstMember = Array.isArray(parsedSaved?.members)
+          ? parsedSaved.members.find(m => m.id !== 'all')
+          : null;
+        const projId = firstMember?.todoistProjectId || tdCfg?.tasksProjectId || tdCfg?.shoppingProjectId || '';
+
+        if (tdCfg?.apiToken && projId && typeof createTodoistTaskItem === 'function') {
+          for (const expItem of finalTodayToNotify) {
+            const todoKey = 'todoist_mhd0_' + expItem.id + '_' + todayStr;
+            if (!log[todoKey] || forceManual) {
+              log[todoKey] = Date.now();
+              await createTodoistTaskItem(
+                tdCfg.apiToken,
+                projId,
+                '🚨 HEUTE MHD-Ablauf: ' + expItem.name + ' (' + (expItem.quantity || '1x') + ') verbrauchen!',
+                firstMember,
+                todayStr,
+                '17:00',
+                4,
+                'Letzte Warnung der Speisekammer: Morgen wandert dieses Produkt automatisch in den Mülleimer.',
+                '15m',
+                tdCfg.collaborators || [],
+                true
+              );
+            }
+          }
+          localStorage.setItem('richter_tw_wall_mhd_push_v1', JSON.stringify(log));
+        }
+      } catch (e) {}
+    }
+
+    // STUFE 1: Vorwarnung (1–2 Tage vor Ablauf)
+    if (warnTwoDaysToNotify.length > 0) {
+      const names = warnTwoDaysToNotify
+        .map(x => getFoodEmoji(x.name, x.customEmoji) + ' ' + x.name + ' (' + (x.daysLeft === 1 ? 'morgen' : 'in 2 Tagen') + ')')
+        .join(', ');
+      if (finalTodayToNotify.length === 0) {
+        showToast('⚠️ MHD-Vorwarnung (Noch 1–2 Tage)', names + ' läuft bald ab!', '⚠️');
+      }
+      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+        try {
+          new Notification('⚠️ MHD-Vorwarnung (Noch 1–2 Tage)', {
+            body: names + ' — Bitte zeitnah einplanen & verbrauchen!',
+            icon: '/icon-512.png'
+          });
+        } catch (e) {}
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (!safeStock || safeStock.length === 0) return;
+    const timer = setTimeout(() => {
+      triggerMhdWarningsAndTodoistPush(false);
+    }, 1800);
+    return () => clearTimeout(timer);
+  }, [safeStock, todayStr]);
+
   const setQuickExpiryDays = (days) => {
     setItemExpiry(formatDateStr(addDays(new Date(), days)));
   };
 
+  const handleNameInputWithSmartDefaults = (val) => {
+    setItemName(val);
+    if (val.trim().length >= 3) {
+      const smartLoc = detectSmartLocation(val);
+      setItemLocation(smartLoc);
+      if (smartLoc === 'freezer' && !itemExpiry) {
+        setQuickExpiryDays(180);
+      }
+    }
+  };
+
   const handleAddProduct = (e) => {
     e.preventDefault();
-    const cleanName = itemName.trim();
-    if (!cleanName || !itemExpiry) {
+    const rawName = itemName.trim();
+    if (!rawName || !itemExpiry) {
       showToast('Pflichtfelder', 'Bitte Produktname und Ablaufdatum (MHD) eingeben.', '⚠️');
       return;
     }
 
+    const cleanName = simplifyProductName(rawName);
     const now = Date.now();
     const finalCat = itemCategory === 'auto' ? detectFoodCategory(cleanName) : itemCategory;
 
@@ -280,6 +580,29 @@ export default function PantrySection({
     setItemExpiry('');
     setShowAddForm(false);
     showToast('In Speisekammer gespeichert', cleanName + ' (MHD: ' + itemExpiry + ')', getFoodEmoji(cleanName));
+  };
+
+  // 1-Klick-Namensbereinigung für den gesamten vorhandenen Bestand
+  const handleSimplifyAllStockNames = () => {
+    if (safeStock.length === 0) return;
+    const now = Date.now();
+    let changedCount = 0;
+
+    setPantryItems(prev => (Array.isArray(prev) ? prev : []).map(it => {
+      const simplified = simplifyProductName(it.name);
+      const smartCat = detectFoodCategory(simplified, it.category);
+      if (simplified !== it.name) {
+        changedCount++;
+        return { ...it, name: simplified, category: smartCat, updatedAt: now };
+      }
+      return it;
+    }));
+
+    showToast(
+      'Namen optimiert ✨',
+      changedCount > 0 ? (changedCount + ' Produktnamen auf „Produkt / Marke“ gekürzt.') : 'Alle Produktnamen sind bereits optimal kurz.',
+      '✨'
+    );
   };
 
   const toggleItemGlutenFreeDirectly = (e, item) => {
@@ -413,6 +736,7 @@ export default function PantrySection({
   }, [safeStock]);
 
   const filteredStock = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
     return safeStock
       .map(it => ({
         ...it,
@@ -423,6 +747,7 @@ export default function PantrySection({
       .filter(it => locationFilter === 'all' || it.location === locationFilter)
       .filter(it => categoryFilter === 'all' || it.resolvedCategory === categoryFilter)
       .filter(it => !onlyGlutenFree || it.resolvedGlutenFree)
+      .filter(it => !q || String(it.name || '').toLowerCase().includes(q) || String(it.quantity || '').toLowerCase().includes(q))
       .sort((a, b) => {
         if (sortMode === 'glutenfree') {
           if (a.resolvedGlutenFree !== b.resolvedGlutenFree) return a.resolvedGlutenFree ? -1 : 1;
@@ -431,7 +756,7 @@ export default function PantrySection({
         if (sortMode === 'newest') return b.resolvedAddedTs - a.resolvedAddedTs;
         return String(a.expiryDate || '9999').localeCompare(String(b.expiryDate || '9999'));
       });
-  }, [safeStock, locationFilter, categoryFilter, onlyGlutenFree, sortMode]);
+  }, [safeStock, locationFilter, categoryFilter, onlyGlutenFree, searchQuery, sortMode]);
 
   const groupedByCategory = useMemo(() => {
     const groups = FOOD_CATEGORIES.map(cat => {
@@ -531,9 +856,9 @@ export default function PantrySection({
 
             {group.items.map((item, idx) => {
               const daysLeft = getDaysUntil(item.expiryDate, todayStr);
-              const locObj = STORAGE_LOCATIONS.find(l => l.id === item.location) || STORAGE_LOCATIONS[3];
-              const isUrgentRed = daysLeft <= 3;
-              const isWarningOrange = daysLeft > 3 && daysLeft <= 7;
+              const locObj = STORAGE_LOCATIONS.find(l => l.id === item.location) || STORAGE_LOCATIONS[4];
+              const isUrgentRed = daysLeft <= 2;
+              const isWarningOrange = daysLeft > 2 && daysLeft <= 7;
               const emojiIcon = getFoodEmoji(item.name, item.customEmoji);
               const decPreview = decrementItemPieceCount(item.quantity);
               const isLatestOverall = latestOverallItem && item.id === latestOverallItem.id;
@@ -548,7 +873,7 @@ export default function PantrySection({
                 ? ' border-sky-400/80 bg-sky-500/10'
                 : themeStyles.subtle;
 
-              const daysText = daysLeft <= 0 ? '🔴 HEUTE!' : daysLeft === 1 ? '🔴 1 Tag' : (daysLeft + ' T.');
+              const daysText = daysLeft <= 0 ? '🚨 HEUTE!' : daysLeft === 1 ? '⚠️ 1 Tag' : daysLeft === 2 ? '⚠️ 2 T.' : (daysLeft + ' T.');
 
               return (
                 <div key={item.id} className={'tw-pantry-row grid grid-cols-12 items-center gap-1.5 px-2.5 py-1.5 rounded-xl border ' + rowGlowClass}>
@@ -644,9 +969,9 @@ export default function PantrySection({
           <div className="p-2 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
             {group.items.map((item, idx) => {
               const daysLeft = getDaysUntil(item.expiryDate, todayStr);
-              const locObj = STORAGE_LOCATIONS.find(l => l.id === item.location) || STORAGE_LOCATIONS[3];
-              const isUrgentRed = daysLeft <= 3;
-              const isWarningOrange = daysLeft > 3 && daysLeft <= 7;
+              const locObj = STORAGE_LOCATIONS.find(l => l.id === item.location) || STORAGE_LOCATIONS[4];
+              const isUrgentRed = daysLeft <= 2;
+              const isWarningOrange = daysLeft > 2 && daysLeft <= 7;
               const emojiIcon = getFoodEmoji(item.name, item.customEmoji);
               const decPreview = decrementItemPieceCount(item.quantity);
               const isLatestOverall = latestOverallItem && item.id === latestOverallItem.id;
@@ -697,7 +1022,7 @@ export default function PantrySection({
 
                   <div className="flex items-center justify-between gap-1 pt-1 border-t border-white/10">
                     <span onClick={() => openEditProductModal(item)} className={'text-xs font-black cursor-pointer ' + (isUrgentRed ? 'text-rose-300' : isWarningOrange ? 'text-amber-300' : 'text-emerald-400')}>
-                      {item.expiryDate.slice(8, 10)}.{item.expiryDate.slice(5, 7)}.{item.expiryDate.slice(2, 4)} • {daysLeft}T
+                      {item.expiryDate.slice(8, 10)}.{item.expiryDate.slice(5, 7)}.{item.expiryDate.slice(2, 4)} • {daysLeft <= 0 ? '🚨 HEUTE!' : (daysLeft + 'T')}
                     </span>
                     <div className="flex items-center gap-1">
                       <button type="button" onClick={() => handleConsumeClick(item)} className="tw-glow-btn px-2 py-1 rounded-lg text-[10px] font-black cursor-pointer">
@@ -721,7 +1046,7 @@ export default function PantrySection({
     <div className="p-3 sm:p-4 flex flex-col gap-2.5 overflow-x-hidden">
       <style>{pantryAnimationStyles}</style>
 
-      {/* KOPFLEISTE MIT 1-KLICK GLUTENFREI-FILTER & 3-WEGE-SORTIERUNG */}
+      {/* KOPFLEISTE MIT LAGERORTEN (INKL. VORRATSSCHRANK & TIERFUTTER), GLUTENFREI-FILTER & SORTIERUNG */}
       <div className={'px-3.5 py-2.5 rounded-2xl border shadow-xs flex flex-wrap items-center justify-between gap-2 ' + themeStyles.card}>
         <div className="flex items-center gap-2 flex-wrap">
           <h2 className="text-base sm:text-lg font-black">🥫 Speisekammer</h2>
@@ -750,31 +1075,49 @@ export default function PantrySection({
             </button>
           )}
 
-          <div className="flex items-center gap-1 ml-1">
-            {STORAGE_LOCATIONS.map(loc => (
-              <button
-                key={loc.id}
-                onClick={() => setLocationFilter(loc.id)}
-                className={'px-2 py-1 rounded-lg text-[10px] font-extrabold cursor-pointer ' + (locationFilter === loc.id ? 'tw-active-nav' : 'tw-nav-inactive')}
-              >
-                {loc.short}
-              </button>
-            ))}
+          <div className="flex items-center gap-1 flex-wrap ml-1">
+            {STORAGE_LOCATIONS.map(loc => {
+              const locCount = loc.id === 'all' ? safeStock.length : safeStock.filter(x => x.location === loc.id).length;
+              return (
+                <button
+                  key={loc.id}
+                  onClick={() => setLocationFilter(loc.id)}
+                  className={'px-2 py-1 rounded-lg text-[10px] font-extrabold cursor-pointer flex items-center gap-1 ' + (locationFilter === loc.id ? 'tw-active-nav' : 'tw-nav-inactive')}
+                >
+                  <span>{loc.short}</span>
+                  {loc.id !== 'all' && locCount > 0 && (
+                    <span className="opacity-75">({locCount})</span>
+                  )}
+                </button>
+              );
+            })}
           </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5">
           {activeSubTab === 'stock' && (
-            <button
-              type="button"
-              onClick={cycleSortMode}
-              className="tw-glow-btn px-3 py-1.5 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer"
-            >
-              <ArrowUpDown className="w-3.5 h-3.5 text-sky-300" />
-              <span>
-                {sortMode === 'newest' ? '🕒 Neueste oben' : sortMode === 'expiry' ? '📅 Nach MHD' : '🌾✓ Glutenfrei oben'}
-              </span>
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={handleSimplifyAllStockNames}
+                title="Alle vorhandenen Produktnamen auf 'Produkt / Marke' kürzen"
+                className="tw-glow-btn px-2.5 py-1.5 rounded-xl text-xs font-black flex items-center gap-1 cursor-pointer"
+              >
+                <Wand2 className="w-3.5 h-3.5 text-sky-300" />
+                <span>✨ Namen kürzen</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={cycleSortMode}
+                className="tw-glow-btn px-3 py-1.5 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer"
+              >
+                <ArrowUpDown className="w-3.5 h-3.5 text-sky-300" />
+                <span>
+                  {sortMode === 'newest' ? '🕒 Neueste oben' : sortMode === 'expiry' ? '📅 Nach MHD' : '🌾✓ Glutenfrei oben'}
+                </span>
+              </button>
+            </>
           )}
 
           <button
@@ -793,7 +1136,7 @@ export default function PantrySection({
             <Package className="w-3.5 h-3.5" />
             <span>Bestand ({safeStock.length})</span>
             {expiringSoonItems.length > 0 && (
-              <span className="px-1.5 py-0.2 rounded-full bg-amber-500 text-slate-950 text-[9px] font-black">
+              <span className={'px-1.5 py-0.2 rounded-full text-[9px] font-black ' + (mhdWarningGroups.finalToday.length > 0 ? 'bg-rose-500 text-white animate-pulse' : 'bg-amber-500 text-slate-950')}>
                 {expiringSoonItems.length}
               </span>
             )}
@@ -838,6 +1181,59 @@ export default function PantrySection({
         </div>
       </div>
 
+      {/* ZWEISTUFIGES MHD-WARN-BANNER (HEUTE LETZTE WARNUNG & 1-2 TAGE VORWARNUNG) */}
+      {activeSubTab === 'stock' && (mhdWarningGroups.finalToday.length > 0 || mhdWarningGroups.warnTwoDays.length > 0) && (
+        <div className="px-4 py-3 rounded-2xl border-2 border-rose-500/80 bg-rose-950/35 flex flex-wrap items-center justify-between gap-3 shadow-lg">
+          <div className="space-y-1.5 flex-1 min-w-[260px]">
+            {mhdWarningGroups.finalToday.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="px-2 py-0.5 rounded-lg bg-rose-600 text-white text-[11px] font-black flex items-center gap-1">
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  <span>🚨 LETZTE WARNUNG (Läuft HEUTE ab – morgen im Mülleimer!):</span>
+                </span>
+                {mhdWarningGroups.finalToday.map(it => (
+                  <button
+                    key={it.id}
+                    type="button"
+                    onClick={() => openEditProductModal(it)}
+                    className="px-2.5 py-0.5 rounded-lg bg-black/50 border border-rose-400/60 text-xs font-extrabold text-rose-100 hover:border-white cursor-pointer"
+                  >
+                    {getFoodEmoji(it.name, it.customEmoji)} {it.name} ({it.quantity})
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {mhdWarningGroups.warnTwoDays.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="px-2 py-0.5 rounded-lg bg-amber-500/30 border border-amber-400/50 text-amber-200 text-[11px] font-black">
+                  ⚠️ MHD-Vorwarnung (Noch 1–2 Tage haltbar):
+                </span>
+                {mhdWarningGroups.warnTwoDays.map(it => (
+                  <button
+                    key={it.id}
+                    type="button"
+                    onClick={() => openEditProductModal(it)}
+                    className="px-2.5 py-0.5 rounded-lg bg-black/40 border border-amber-400/40 text-xs font-extrabold text-amber-100 hover:border-white cursor-pointer"
+                  >
+                    {getFoodEmoji(it.name, it.customEmoji)} {it.name} ({it.daysLeft === 1 ? 'morgen' : 'in 2 T.'})
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => triggerMhdWarningsAndTodoistPush(true)}
+            className="tw-glow-btn px-3 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer shrink-0"
+          >
+            <BellRing className="w-3.5 h-3.5 text-amber-300" />
+            <span>📲 Push & Todoist-Warnung senden</span>
+          </button>
+        </div>
+      )}
+
       {/* SUB-TAB 1: BESTAND */}
       {activeSubTab === 'stock' && (
         <div className="space-y-2.5">
@@ -852,8 +1248,8 @@ export default function PantrySection({
                     type="text"
                     required
                     value={itemName}
-                    onChange={(e) => setItemName(e.target.value)}
-                    placeholder="Produktname (z.B. Schär Wraps, Vollmilch)..."
+                    onChange={(e) => handleNameInputWithSmartDefaults(e.target.value)}
+                    placeholder="Produktname (wird automatisch gekürzt)..."
                     className={'w-full px-3 py-1.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
                   />
                 </div>
@@ -863,7 +1259,7 @@ export default function PantrySection({
                   value={itemQty}
                   onChange={(e) => setItemQty(e.target.value)}
                   placeholder="Menge (z.B. 2x)"
-                  className={'md:col-span-2 px-2.5 py-1.5 rounded-xl border text-xs font-bold ' + themeStyles.input}
+                  className={'md:col-span-1 px-2.5 py-1.5 rounded-xl border text-xs font-bold ' + themeStyles.input}
                 />
 
                 <select
@@ -894,10 +1290,10 @@ export default function PantrySection({
                 <select
                   value={itemLocation}
                   onChange={(e) => setItemLocation(e.target.value)}
-                  className={'md:col-span-1 px-2 py-1.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+                  className={'md:col-span-2 px-2 py-1.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
                 >
                   {STORAGE_LOCATIONS.filter(l => l.id !== 'all').map(loc => (
-                    <option key={loc.id} value={loc.id} className="bg-slate-800 text-white">{loc.short}</option>
+                    <option key={loc.id} value={loc.id} className="bg-slate-800 text-white">{loc.label}</option>
                   ))}
                 </select>
 
@@ -922,7 +1318,7 @@ export default function PantrySection({
                     { label: '+1 Wo.', days: 7 },
                     { label: '+2 Wo.', days: 14 },
                     { label: '+1 Mon.', days: 30 },
-                    { label: '+3 Mon.', days: 90 },
+                    { label: '+6 Mon. (TK)', days: 180 },
                     { label: '+1 Jahr', days: 365 }
                   ].map(b => (
                     <button key={b.days} type="button" onClick={() => setQuickExpiryDays(b.days)} className="tw-glow-btn px-2 py-0.5 rounded-lg text-[10px] font-extrabold cursor-pointer">
@@ -932,6 +1328,14 @@ export default function PantrySection({
                 </div>
 
                 <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setItemName(simplifyProductName(itemName))}
+                    className="tw-glow-btn px-2.5 py-1 rounded-xl text-xs font-extrabold flex items-center gap-1 cursor-pointer"
+                  >
+                    <Wand2 className="w-3 h-3 text-sky-300" />
+                    <span>✨ Name kürzen</span>
+                  </button>
                   <button type="button" onClick={() => setShowAddForm(false)} className="tw-nav-inactive px-3 py-1 rounded-xl text-xs font-bold cursor-pointer">
                     Schließen
                   </button>
@@ -948,30 +1352,53 @@ export default function PantrySection({
             </form>
           )}
 
-          <div className={'px-3 py-2 rounded-2xl border flex flex-wrap items-center gap-1.5 ' + themeStyles.card}>
-            <button
-              type="button"
-              onClick={() => setCategoryFilter('all')}
-              className={'px-2.5 py-1 rounded-xl text-[11px] font-extrabold cursor-pointer ' + (categoryFilter === 'all' ? 'tw-active-nav' : 'tw-nav-inactive')}
-            >
-              🍱 Alle 7 Kategorien ({safeStock.length})
-            </button>
-            {FOOD_CATEGORIES.map(cat => {
-              const count = safeStock.filter(it => detectFoodCategory(it.name, it.category) === cat.id).length;
-              return (
+          {/* KATEGORIEN-LEISTE + DIREKT-SUCHFELD */}
+          <div className={'px-3 py-2 rounded-2xl border flex flex-wrap items-center justify-between gap-2 ' + themeStyles.card}>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setCategoryFilter('all')}
+                className={'px-2.5 py-1 rounded-xl text-[11px] font-extrabold cursor-pointer ' + (categoryFilter === 'all' ? 'tw-active-nav' : 'tw-nav-inactive')}
+              >
+                🍱 Alle 7 Kategorien ({safeStock.length})
+              </button>
+              {FOOD_CATEGORIES.map(cat => {
+                const count = safeStock.filter(it => detectFoodCategory(it.name, it.category) === cat.id).length;
+                return (
+                  <button
+                    key={cat.id}
+                    type="button"
+                    onClick={() => setCategoryFilter(categoryFilter === cat.id ? 'all' : cat.id)}
+                    title={cat.desc}
+                    className={'px-2.5 py-1 rounded-xl text-[11px] font-extrabold flex items-center gap-1 cursor-pointer ' + (categoryFilter === cat.id ? 'tw-active-nav' : 'tw-nav-inactive')}
+                  >
+                    <span>{cat.icon}</span>
+                    <span>{cat.title.split(',')[0]}</span>
+                    <span className="px-1.5 py-0.2 rounded-full bg-black/35 text-[9px] font-black text-amber-300">{count}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="relative min-w-[200px] flex-1 max-w-xs">
+              <Search className="w-3.5 h-3.5 text-sky-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Vorrat durchsuchen..."
+                className={'w-full pl-8 pr-7 py-1 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+              />
+              {searchQuery && (
                 <button
-                  key={cat.id}
                   type="button"
-                  onClick={() => setCategoryFilter(categoryFilter === cat.id ? 'all' : cat.id)}
-                  title={cat.desc}
-                  className={'px-2.5 py-1 rounded-xl text-[11px] font-extrabold flex items-center gap-1 cursor-pointer ' + (categoryFilter === cat.id ? 'tw-active-nav' : 'tw-nav-inactive')}
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-xs font-black opacity-70 hover:opacity-100 cursor-pointer"
                 >
-                  <span>{cat.icon}</span>
-                  <span>{cat.title.split(',')[0]}</span>
-                  <span className="px-1.5 py-0.2 rounded-full bg-black/35 text-[9px] font-black text-amber-300">{count}</span>
+                  ✕
                 </button>
-              );
-            })}
+              )}
+            </div>
           </div>
 
           {groupedByCategory.length === 0 ? (
@@ -1091,7 +1518,7 @@ export default function PantrySection({
         </div>
       )}
 
-      {/* BEARBEITEN-MODAL INKL. GLUTENFREI-SCHALTER */}
+      {/* BEARBEITEN-MODAL INKL. NAMENS-KÜRZER, GLUTENFREI-SCHALTER & ALLEN 6 LAGERORTEN */}
       {editModal.open && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
           <form onSubmit={handleAcceptEditModal} className={'w-full max-w-lg rounded-3xl border-2 p-6 shadow-2xl space-y-4 my-auto ' + themeStyles.modal}>
@@ -1103,7 +1530,7 @@ export default function PantrySection({
                 <div>
                   <h3 className="text-lg font-extrabold">✏️ Produkt bearbeiten</h3>
                   <p className={'text-xs font-semibold ' + themeStyles.textMuted}>
-                    Name, Menge, Kategorie, Glutenfrei-Status oder MHD anpassen
+                    Name, Menge, Kategorie, Lagerort, Glutenfrei-Status oder MHD anpassen
                   </p>
                 </div>
               </div>
@@ -1114,7 +1541,24 @@ export default function PantrySection({
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="sm:col-span-2">
-                <label className="block text-[11px] font-black uppercase text-sky-400 mb-1">Produktname</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[11px] font-black uppercase text-sky-400">Produktname</label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const simplified = simplifyProductName(editModal.name);
+                      setEditModal({
+                        ...editModal,
+                        name: simplified,
+                        category: detectFoodCategory(simplified, editModal.category)
+                      });
+                    }}
+                    className="px-2 py-0.5 rounded-lg bg-sky-500/20 border border-sky-400/40 text-sky-300 text-[10px] font-black flex items-center gap-1 cursor-pointer"
+                  >
+                    <Wand2 className="w-3 h-3" />
+                    <span>✨ Auf „Produkt / Marke“ kürzen</span>
+                  </button>
+                </div>
                 <input
                   type="text"
                   required
@@ -1166,7 +1610,7 @@ export default function PantrySection({
 
             <div>
               <label className="block text-[11px] font-black uppercase text-emerald-400 mb-1.5">Lagerort</label>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 {STORAGE_LOCATIONS.filter(l => l.id !== 'all').map(loc => (
                   <button
                     key={loc.id}
@@ -1174,7 +1618,7 @@ export default function PantrySection({
                     onClick={() => setEditModal({ ...editModal, location: loc.id })}
                     className={'py-2 px-2.5 rounded-xl text-xs font-extrabold cursor-pointer ' + (editModal.location === loc.id ? 'tw-active-nav' : 'tw-nav-inactive')}
                   >
-                    {loc.short}
+                    {loc.label}
                   </button>
                 ))}
               </div>
