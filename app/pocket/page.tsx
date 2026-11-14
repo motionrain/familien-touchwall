@@ -8,7 +8,7 @@ import {
   Calendar, CheckSquare, ShoppingCart, Camera, Package,
   RefreshCw, Smartphone, LogOut, Cloud, BellRing, Download,
   WifiOff, Pencil, Check, Search, Menu, X,
-  Trash2, Wand2, CheckCircle2, AlertTriangle
+  Trash2, Wand2, CheckCircle2, AlertTriangle, SlidersHorizontal
 } from 'lucide-react';
 
 import * as Cfg from '../touchwallConfig';
@@ -148,7 +148,6 @@ function reconcileShoppingNotes(localNotes, incomingNotes, syncMeta, source = 'c
 
   const mergedMap = new Map();
 
-  // Schritt 1: Eingehende Artikel (aus Cloud oder Todoist) übernehmen
   incomingFirstItems.forEach(rawIt => {
     const it = typeof rawIt === 'string' ? { text: rawIt, done: false } : { ...rawIt };
     if (isDeletedItem(it)) return;
@@ -173,7 +172,6 @@ function reconcileShoppingNotes(localNotes, incomingNotes, syncMeta, source = 'c
     });
   });
 
-  // Schritt 2: Lokale Artikel abgleichen (kein Verschlucken offener oder in Todoist geschlossener Punkte!)
   localFirstItems.forEach(rawLoc => {
     const loc = typeof rawLoc === 'string' ? { text: rawLoc, done: false } : { ...rawLoc };
     if (isDeletedItem(loc)) return;
@@ -191,7 +189,6 @@ function reconcileShoppingNotes(localNotes, incomingNotes, syncMeta, source = 'c
 
     const doneTs = delMap['shop_done_' + norm];
 
-    // Fall A: Artikel war bereits erledigt -> im Erledigt-Bereich behalten
     if (loc.done || doneTs) {
       mergedMap.set(norm, {
         ...loc,
@@ -202,7 +199,6 @@ function reconcileShoppingNotes(localNotes, incomingNotes, syncMeta, source = 'c
       return;
     }
 
-    // Fall B: Quelle ist die Cloud -> Offene lokale Artikel niemals löschen!
     if (source === 'cloud') {
       mergedMap.set(norm, {
         ...loc,
@@ -213,8 +209,6 @@ function reconcileShoppingNotes(localNotes, incomingNotes, syncMeta, source = 'c
       return;
     }
 
-    // Fall C: Quelle ist Todoist ->
-    // 1. Hat der Artikel KEINE todoistId (oder wurde gerade erst vor < 25 Sek. angelegt), bleibt er offen!
     const isVeryRecent = loc.addedAtTs && (now - Number(loc.addedAtTs) < 25000);
     if (!loc.todoistId || isVeryRecent) {
       mergedMap.set(norm, {
@@ -224,7 +218,6 @@ function reconcileShoppingNotes(localNotes, incomingNotes, syncMeta, source = 'c
         doneAt: 0
       });
     } else {
-      // 2. Artikel hatte eine todoistId und ist in Todoist nicht mehr offen -> wurde in Todoist abgehakt!
       delMap['shop_done_' + norm] = now;
       mergedMap.set(norm, {
         ...loc,
@@ -266,7 +259,6 @@ function reconcileFamilyTasks(localTasks, incomingTasks, syncMeta, source = 'clo
   const mergedList = [];
   const usedLocalIndices = new Set();
 
-  // Schritt 1: Eingehende Aufgaben (aus Cloud oder Todoist) abgleichen
   incomingList.forEach(rawT => {
     if (isDeletedTask(rawT)) return;
     const idKey = String(rawT.id || '');
@@ -283,7 +275,6 @@ function reconcileFamilyTasks(localTasks, incomingTasks, syncMeta, source = 'clo
     const localMatch = localIdx >= 0 ? localList[localIdx] : null;
     if (localIdx >= 0) usedLocalIndices.add(localIdx);
 
-    // Behalte die spezifische Personen-Zuordnung bei, falls Todoist nur 'all' liefert
     const resolvedMember =
       (rawT.member && rawT.member !== 'all')
         ? rawT.member
@@ -310,7 +301,6 @@ function reconcileFamilyTasks(localTasks, incomingTasks, syncMeta, source = 'clo
     });
   });
 
-  // Schritt 2: Nicht gematchte lokale Aufgaben prüfen
   localList.forEach((loc, idx) => {
     if (usedLocalIndices.has(idx)) return;
     if (isDeletedTask(loc)) return;
@@ -326,7 +316,6 @@ function reconcileFamilyTasks(localTasks, incomingTasks, syncMeta, source = 'clo
       (idKey && delMap['task_done_id_' + idKey]) ||
       (tdKey && delMap['task_done_td_' + tdKey]);
 
-    // Fall A: Aufgabe war bereits erledigt -> behalten
     if (loc.done || doneTs) {
       mergedList.push({
         ...loc,
@@ -336,7 +325,6 @@ function reconcileFamilyTasks(localTasks, incomingTasks, syncMeta, source = 'clo
       return;
     }
 
-    // Fall B: Quelle ist die Cloud -> Offene lokale Aufgaben niemals löschen!
     if (source === 'cloud') {
       mergedList.push({
         ...loc,
@@ -346,8 +334,6 @@ function reconcileFamilyTasks(localTasks, incomingTasks, syncMeta, source = 'clo
       return;
     }
 
-    // Fall C: Quelle ist Todoist ->
-    // 1. Hat die Aufgabe KEINE todoistId (oder wurde vor < 25 Sek. angelegt), bleibt sie als offene Aufgabe erhalten!
     const createdMs = typeof loc.id === 'number' && loc.id > 1700000000000 ? loc.id : 0;
     const isVeryRecent = createdMs && (now - createdMs < 25000);
     if (!tdKey || isVeryRecent) {
@@ -357,7 +343,6 @@ function reconcileFamilyTasks(localTasks, incomingTasks, syncMeta, source = 'clo
         doneAt: 0
       });
     } else {
-      // 2. Aufgabe hatte eine todoistId und ist in Todoist nicht mehr offen -> wurde in Todoist erledigt!
       delMap['task_done_' + norm] = now;
       delMap['task_done_title_' + titleKey] = now;
       delMap['task_done_td_' + tdKey] = now;
@@ -389,6 +374,9 @@ export default function TouchwallPocketApp() {
   const [selectedPerson, setSelectedPerson] = useState('all');
   const [currentTheme, setCurrentTheme] = useState('metal');
   const [todayStr, setTodayStr] = useState(() => formatDateStr(new Date()));
+
+  // Neues 1-Hand-Schnellmenü (ersetzt die alte platzraubende Kopfzeile!)
+  const [quickCockpitOpen, setQuickCockpitOpen] = useState(false);
 
   const [members, setMembers] = useState(DEFAULT_MEMBERS);
   const [events, setEvents] = useState([]);
@@ -826,8 +814,6 @@ export default function TouchwallPocketApp() {
     );
   };
 
-  // Wenn deferTasksAndNotes = true ist (weil direkt danach Todoist abgefragt wird),
-  // berechnen wir Tasks & Notes nur im Speicher und setzen den React-State erst am Ende EINMALIG!
   const applyRemoteBundle = (bundle, deferTasksAndNotes = false) => {
     if (!bundle) return { resolvedNotes: safeNotes, resolvedTasks: safeTasks, resolvedTodoistCfg: todoistConfig };
     let nextNotes = safeNotes;
@@ -1000,9 +986,6 @@ export default function TouchwallPocketApp() {
     }
   };
 
-  // ============================================================================
-  // EINZIGER, FLACKERFREIER SYNC-DURCHGANG (CLOUD + TODOIST IN EINEM SCHRITT)
-  // ============================================================================
   const syncAllNow = async (showFeedback = false, accOverride = undefined, keyOverride = undefined) => {
     const activeAcc = accOverride !== undefined ? accOverride : accountId;
     const activeKey = keyOverride !== undefined ? keyOverride : authKey;
@@ -1055,7 +1038,6 @@ export default function TouchwallPocketApp() {
         }
       }
 
-      // Einmaliges, flackerfreies Setzen des zusammengeführten Endstandes!
       if (hasJsonChanged(safeTasks, workingTasks)) {
         setFamilyTasks(workingTasks);
       }
@@ -1142,6 +1124,11 @@ export default function TouchwallPocketApp() {
     }, 10000);
     return () => clearInterval(interval);
   }, [isAuthenticated, accountId, authKey]);
+
+  const handleSelectPersonFilter = (personId) => {
+    setSelectedPerson(personId);
+    try { localStorage.setItem('richter_tw_pocket_person', personId); } catch (e) {}
+  };
 
   const handleAddSingleToCart = (nameVal, barcodeVal, qtyVal, locVal, catVal, expVal, imgVal, gfVal = 'auto') => {
     const now = Date.now();
@@ -1926,6 +1913,8 @@ export default function TouchwallPocketApp() {
   const openShop = shopItems.map((it, idx) => ({ ...it, origIdx: idx })).filter(it => !it.done);
   const doneShop = shopItems.map((it, idx) => ({ ...it, origIdx: idx })).filter(it => it.done);
 
+  const activePersonObj = safeMembers.find(m => m.id === selectedPerson);
+
   return (
     <div
       style={{
@@ -1940,543 +1929,628 @@ export default function TouchwallPocketApp() {
     >
       <style>{pocketStyles}</style>
 
-      {activeTab !== 'scanner' && (
-        <header className={'shrink-0 z-30 px-3.5 pt-2.5 pb-2 border-b shadow-md ' + themeStyles.header}>
-          <div className="flex items-center justify-between gap-2 mb-2">
-            <div className="flex items-center gap-2 min-w-0">
-              <span className="px-2 py-0.5 rounded-lg bg-sky-500 text-white text-[10px] font-black">POCKET</span>
-              <h1 className="font-extrabold text-sm sm:text-base truncate">{familyName}</h1>
-              {!isOnline ? (
-                <span className="px-2 py-0.5 rounded-full bg-amber-500/25 text-amber-300 text-[10px] font-black flex items-center gap-1 shrink-0">
-                  <WifiOff className="w-3 h-3" /> Offline-Puffer
-                </span>
-              ) : accountId && accountId !== 'local' ? (
-                <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-extrabold border border-emerald-400/30 flex items-center gap-1 shrink-0">
-                  <Cloud className="w-3 h-3" /> {accountId}
-                </span>
-              ) : null}
-            </div>
-
-            <div className="flex items-center gap-1.5">
-              {installPromptEvent && (
+      {/* ============================================================================
+          KEINE OBERE HEADER-LEISTE MEHR! 100% VOLLE SICHT FÜR ALLE KATEGORIEN
+         ============================================================================ */}
+      <main
+        className={
+          'flex-1 overflow-x-hidden ' +
+          (activeTab === 'agenda'
+            ? 'overflow-hidden flex flex-col p-0 '
+            : 'overflow-y-auto px-2.5 pt-2.5 pb-5 ') +
+          themeStyles.viewport
+        }
+      >
+        {activeTab === 'agenda' ? (
+          <PocketAgenda
+            safeMembers={safeMembers}
+            filteredEvents={filteredEvents}
+            selectedPerson={selectedPerson}
+            onSelectPerson={handleSelectPersonFilter}
+            todayStr={todayStr}
+            themeStyles={themeStyles}
+            getMemberStyles={getMemberStyles}
+            renderAvatar={renderAvatar}
+            onCreateEvent={handleCreateMobileEvent}
+            onDeleteEvent={handleDeleteMobileEvent}
+          />
+        ) : (
+          <div className="max-w-lg w-full mx-auto space-y-3">
+            {/* Kompakte Personen-Filter-Zeile direkt in Aufgaben (ohne schweren Header) */}
+            {activeTab === 'tasks' && (
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
                 <button
-                  onClick={handleInstallAndroidApp}
-                  className="tw-active-nav px-2.5 py-2 rounded-xl text-[10px] font-black flex items-center gap-1"
+                  onClick={() => handleSelectPersonFilter('all')}
+                  className={'px-3.5 py-2 rounded-2xl text-xs font-black shrink-0 ' + (selectedPerson === 'all' ? 'tw-active-nav' : 'tw-nav-inactive')}
                 >
-                  <Download className="w-3.5 h-3.5" /> App
+                  👨‍👩‍👧‍👦 Alle
                 </button>
-              )}
-              <button
-                onClick={requestShoppingPushPermission}
-                title="Einkaufs- & MHD-Push aktivieren"
-                className={'p-2.5 rounded-xl ' + (notifPermission === 'granted' ? 'bg-emerald-500/25 text-emerald-300 border border-emerald-400/40' : 'tw-glow-btn')}
-              >
-                <BellRing className="w-4 h-4" />
-              </button>
-              <button onClick={() => syncAllNow(true)} className="tw-glow-btn p-2.5 rounded-xl">
-                <RefreshCw className={'w-4 h-4 ' + (isSyncing ? 'animate-spin text-sky-300' : '')} />
-              </button>
-              <a href="/" className="tw-glow-btn px-2.5 py-2 rounded-xl text-[11px] font-extrabold no-underline">
-                🖥️ Wand
-              </a>
-              <button
-                onClick={() => {
-                  localStorage.removeItem('richter_tw_auth_active');
-                  setIsAuthenticated(false);
-                }}
-                className="tw-nav-inactive p-2.5 rounded-xl text-rose-400"
-              >
-                <LogOut className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-
-          {activeTab !== 'stock' && (
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
-              <button
-                onClick={() => {
-                  setSelectedPerson('all');
-                  try { localStorage.setItem('richter_tw_pocket_person', 'all'); } catch (e) {}
-                }}
-                className={'px-3.5 py-1.5 rounded-xl text-xs font-extrabold shrink-0 ' + (selectedPerson === 'all' ? 'tw-active-nav' : 'tw-nav-inactive')}
-              >
-                👨‍👩‍👧‍👦 Alle
-              </button>
-
-              {safeMembers.filter(m => m.id !== 'all').map(m => {
-                const isSel = selectedPerson === m.id;
-                return (
-                  <button
-                    key={m.id}
-                    onClick={() => {
-                      setSelectedPerson(m.id);
-                      try { localStorage.setItem('richter_tw_pocket_person', m.id); } catch (e) {}
-                    }}
-                    className={'pr-3 pl-1.5 py-1 rounded-xl flex items-center gap-1.5 text-xs font-extrabold shrink-0 ' + (isSel ? 'tw-active-nav' : 'tw-nav-inactive')}
-                  >
-                    {renderAvatar(m, 'w-5 h-5', 'text-[10px]')}
-                    <span>{m.name.split(' ')[0]}</span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </header>
-      )}
-
-      <main className={'flex-1 overflow-y-auto overflow-x-hidden px-3 pt-2.5 pb-6 ' + themeStyles.viewport}>
-        <div className="max-w-lg w-full mx-auto space-y-3">
-          {activeTab === 'agenda' && (
-            <PocketAgenda
-              safeMembers={safeMembers}
-              filteredEvents={filteredEvents}
-              selectedPerson={selectedPerson}
-              todayStr={todayStr}
-              themeStyles={themeStyles}
-              getMemberStyles={getMemberStyles}
-              renderAvatar={renderAvatar}
-              onCreateEvent={handleCreateMobileEvent}
-              onDeleteEvent={handleDeleteMobileEvent}
-            />
-          )}
-
-          {activeTab === 'tasks' && (
-            <PocketTasks
-              safeMembers={safeMembers}
-              openTasks={openTasks}
-              doneTasks={doneTasks}
-              selectedPerson={selectedPerson}
-              todoistConfig={todoistConfig}
-              themeStyles={themeStyles}
-              onAddQuickTask={handleAddQuickTask}
-              onToggleTask={handleToggleMobileTask}
-              onDeleteTask={handleDeleteMobileTask}
-              onClearDoneTasks={handleClearDoneMobileTasks}
-              showToast={showToast}
-            />
-          )}
-
-          {activeTab === 'scanner' && (
-            <PocketScanner
-              cartItems={safeCart}
-              todayStr={todayStr}
-              isSyncing={isSyncing}
-              themeStyles={themeStyles}
-              onAddSingleToCart={handleAddSingleToCart}
-              onAddBatchToCart={handleAddBatchToCart}
-              onRemoveCartItem={handleRemoveCartItem}
-              onTransferSingleCartItemToStock={handleTransferSingleCartItemToStock}
-              onTransferAllCartToStock={handleTransferAllCartToStock}
-              showToast={showToast}
-            />
-          )}
-
-          {activeTab === 'shopping' && (
-            <PocketShopping
-              openShop={openShop}
-              doneShop={doneShop}
-              cartItems={safeCart}
-              notifPermission={notifPermission}
-              themeStyles={themeStyles}
-              onRequestPushPermission={requestShoppingPushPermission}
-              onAddShopItem={handleAddQuickShopItem}
-              onToggleShopItem={handleToggleShopItem}
-              onRemoveCartItem={handleRemoveCartItem}
-              onTransferSingleCartItemToStock={handleTransferSingleCartItemToStock}
-              onTransferAllCartToStock={handleTransferAllCartToStock}
-              onMoveBoughtItemToPantry={handleMoveBoughtItemToPantry}
-              onMoveAllBoughtToPantry={handleMoveAllBoughtToPantry}
-              onClearDoneShopItems={handleClearDoneShopItems}
-            />
-          )}
-
-          {activeTab === 'stock' && (
-            <div className="space-y-3">
-              {(mhdAlertGroups.finalToday.length > 0 || mhdAlertGroups.warnTwoDays.length > 0) && (
-                <div className="p-3.5 rounded-3xl border-2 border-rose-500/80 bg-rose-950/35 space-y-2.5 shadow-lg">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-black uppercase text-rose-300 flex items-center gap-1.5">
-                      <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
-                      <span>🔔 MHD-Ablauf-Warnung</span>
-                    </span>
+                {safeMembers.filter(m => m.id !== 'all').map(m => {
+                  const isSel = selectedPerson === m.id;
+                  return (
                     <button
-                      type="button"
-                      onClick={() => triggerMhdExpiryPushWarnings(true)}
-                      className="px-2.5 py-1 rounded-xl bg-rose-500/30 border border-rose-400/50 text-rose-100 text-[10px] font-black flex items-center gap-1"
+                      key={m.id}
+                      onClick={() => handleSelectPersonFilter(m.id)}
+                      className={'pr-3.5 pl-2 py-1.5 rounded-2xl flex items-center gap-1.5 text-xs font-black shrink-0 ' + (isSel ? 'tw-active-nav' : 'tw-nav-inactive')}
                     >
-                      <BellRing className="w-3 h-3" />
-                      <span>Push erneut senden</span>
+                      {renderAvatar(m, 'w-5 h-5', 'text-[10px]')}
+                      <span>{m.name.split(' ')[0]}</span>
                     </button>
-                  </div>
+                  );
+                })}
+              </div>
+            )}
 
-                  {mhdAlertGroups.finalToday.length > 0 && (
-                    <div className="p-2.5 rounded-2xl bg-rose-500/25 border border-rose-400/60 space-y-1">
-                      <div className="text-[11px] font-black text-rose-200">
-                        🚨 LETZTE WARNUNG – Läuft HEUTE ab (wandert morgen in den Mülleimer):
-                      </div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {mhdAlertGroups.finalToday.map(it => (
-                          <button
-                            key={it.id}
-                            type="button"
-                            onClick={() => openEditStockItemModal(it)}
-                            className="px-2.5 py-1 rounded-xl bg-black/45 border border-rose-300/40 text-xs font-extrabold text-white flex items-center gap-1.5"
-                          >
-                            <span>{getFoodEmoji(it.name, it.customEmoji)}</span>
-                            <span>{it.name}</span>
-                            <span className="text-rose-300 font-black">({it.quantity})</span>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+            {activeTab === 'tasks' && (
+              <PocketTasks
+                safeMembers={safeMembers}
+                openTasks={openTasks}
+                doneTasks={doneTasks}
+                selectedPerson={selectedPerson}
+                todoistConfig={todoistConfig}
+                themeStyles={themeStyles}
+                onAddQuickTask={handleAddQuickTask}
+                onToggleTask={handleToggleMobileTask}
+                onDeleteTask={handleDeleteMobileTask}
+                onClearDoneTasks={handleClearDoneMobileTasks}
+                showToast={showToast}
+              />
+            )}
 
-                  {mhdAlertGroups.warnTwoDays.length > 0 && (
-                    <div className="p-2.5 rounded-2xl bg-amber-500/20 border border-amber-400/50 space-y-1">
-                      <div className="text-[11px] font-black text-amber-200">
-                        ⚠️ Vorwarnung – Läuft in den nächsten 1–2 Tagen ab:
-                      </div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {mhdAlertGroups.warnTwoDays.map(it => (
-                          <button
-                            key={it.id}
-                            type="button"
-                            onClick={() => openEditStockItemModal(it)}
-                            className="px-2.5 py-1 rounded-xl bg-black/40 border border-amber-300/40 text-xs font-extrabold text-white flex items-center gap-1.5"
-                          >
-                            <span>{getFoodEmoji(it.name, it.customEmoji)}</span>
-                            <span>{it.name}</span>
-                            <span className="text-amber-300 font-black">
-                              ({it.daysLeft === 1 ? 'morgen' : 'in 2 T.'})
-                            </span>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
+            {activeTab === 'scanner' && (
+              <PocketScanner
+                cartItems={safeCart}
+                todayStr={todayStr}
+                isSyncing={isSyncing}
+                themeStyles={themeStyles}
+                onAddSingleToCart={handleAddSingleToCart}
+                onAddBatchToCart={handleAddBatchToCart}
+                onRemoveCartItem={handleRemoveCartItem}
+                onTransferSingleCartItemToStock={handleTransferSingleCartItemToStock}
+                onTransferAllCartToStock={handleTransferAllCartToStock}
+                showToast={showToast}
+              />
+            )}
 
-              <div className={'p-3.5 rounded-3xl border space-y-2.5 shadow-md ' + themeStyles.card}>
-                <div className="flex items-center justify-between gap-2">
-                  <div>
-                    <h2 className="font-black text-base flex items-center gap-1.5">
-                      <span>🥫 Bestand ({sortedStockForTab.length})</span>
-                    </h2>
-                    <p className="text-[10px] opacity-75 font-bold">
-                      {stockSortMode === 'newest'
-                        ? '🕒 Zuletzt gescannt oben'
-                        : stockSortMode === 'expiry'
-                        ? '📅 Nach Ablaufdatum (MHD)'
-                        : stockSortMode === 'glutenfree'
-                        ? '🌾✓ Glutenfrei zuerst'
-                        : '🔤 Alphabetisch (A–Z)'}
-                    </p>
-                  </div>
+            {activeTab === 'shopping' && (
+              <PocketShopping
+                openShop={openShop}
+                doneShop={doneShop}
+                cartItems={safeCart}
+                notifPermission={notifPermission}
+                themeStyles={themeStyles}
+                onRequestPushPermission={requestShoppingPushPermission}
+                onAddShopItem={handleAddQuickShopItem}
+                onToggleShopItem={handleToggleShopItem}
+                onRemoveCartItem={handleRemoveCartItem}
+                onTransferSingleCartItemToStock={handleTransferSingleCartItemToStock}
+                onTransferAllCartToStock={handleTransferAllCartToStock}
+                onMoveBoughtItemToPantry={handleMoveBoughtItemToPantry}
+                onMoveAllBoughtToPantry={handleMoveAllBoughtToPantry}
+                onClearDoneShopItems={handleClearDoneShopItems}
+              />
+            )}
 
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => setStockOnlyGlutenFree(prev => !prev)}
-                      className={'px-2.5 py-2 rounded-xl text-[11px] font-black flex items-center gap-1 border ' +
-                        (stockOnlyGlutenFree
-                          ? 'bg-emerald-500 text-slate-950 border-emerald-300 shadow-md'
-                          : 'bg-emerald-500/15 text-emerald-300 border-emerald-400/40')}
-                    >
-                      <span>🌾✓ GF ({totalGlutenFreeInStock})</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setShowStockMenu(prev => !prev)}
-                      className={'px-3 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 ' +
-                        (showStockMenu ? 'tw-active-nav' : 'tw-glow-btn')}
-                    >
-                      {showStockMenu ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
-                      <span>Menü</span>
-                    </button>
-                  </div>
-                </div>
-
-                <div className="relative">
-                  <Search className="w-4 h-4 text-sky-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                  <input
-                    type="text"
-                    value={stockSearchQuery}
-                    onChange={(e) => setStockSearchQuery(e.target.value)}
-                    placeholder="Produkt, Marke oder Kategorie suchen..."
-                    className={'w-full h-11 pl-10 pr-9 rounded-2xl border text-xs sm:text-sm font-extrabold ' + themeStyles.input}
-                  />
-                  {stockSearchQuery && (
-                    <button
-                      type="button"
-                      onClick={() => setStockSearchQuery('')}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-white/10 flex items-center justify-center text-xs font-black"
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
-
-                {showStockMenu && (
-                  <div className={'p-3 rounded-2xl border space-y-3 ' + themeStyles.subtle}>
-                    <div className="space-y-1.5">
-                      <span className="text-[10px] font-black uppercase text-sky-400 block">
-                        ↕️ Sortierung wählen:
+            {/* ============================================================================
+                BESTAND MIT EXTRA GROSSEN ICONS & GROSSER SCHRIFT FÜR KLEINE SMARTPHONES
+               ============================================================================ */}
+            {activeTab === 'stock' && (
+              <div className="space-y-3">
+                {(mhdAlertGroups.finalToday.length > 0 || mhdAlertGroups.warnTwoDays.length > 0) && (
+                  <div className="p-3.5 rounded-3xl border-2 border-rose-500/80 bg-rose-950/35 space-y-2.5 shadow-lg">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-black uppercase text-rose-300 flex items-center gap-1.5">
+                        <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                        <span>🔔 MHD-Ablauf-Warnung</span>
                       </span>
-                      <div className="grid grid-cols-2 gap-1.5">
-                        {[
-                          { id: 'newest',     label: '🕒 Neueste oben' },
-                          { id: 'expiry',     label: '📅 Nach MHD' },
-                          { id: 'glutenfree', label: '🌾✓ Glutenfrei oben' },
-                          { id: 'az',         label: '🔤 Name (A–Z)' }
-                        ].map(sOpt => (
-                          <button
-                            key={sOpt.id}
-                            type="button"
-                            onClick={() => setStockSortMode(sOpt.id)}
-                            className={'py-2 px-2.5 rounded-xl text-xs font-extrabold text-left ' +
-                              (stockSortMode === sOpt.id ? 'tw-active-nav' : 'tw-nav-inactive')}
-                          >
-                            {sOpt.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="text-[10px] font-black uppercase text-emerald-400 block mb-1">
-                          🏠 Lagerort:
-                        </label>
-                        <select
-                          value={stockLocationFilter}
-                          onChange={(e) => setStockLocationFilter(e.target.value)}
-                          className={'w-full h-10 px-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
-                        >
-                          <option value="all" className="bg-slate-800 text-white">🏠 Alle Orte ({safeStock.length})</option>
-                          {STORAGE_PILLS.map(loc => (
-                            <option key={loc.id} value={loc.id} className="bg-slate-800 text-white">
-                              {loc.label} ({safeStock.filter(x => x.location === loc.id).length})
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="text-[10px] font-black uppercase text-purple-300 block mb-1">
-                          🍱 Kategorie:
-                        </label>
-                        <select
-                          value={stockCategoryFilter}
-                          onChange={(e) => setStockCategoryFilter(e.target.value)}
-                          className={'w-full h-10 px-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
-                        >
-                          <option value="all" className="bg-slate-800 text-white">🍱 Alle Kategorien</option>
-                          {FOOD_CATEGORIES.map(cat => (
-                            <option key={cat.id} value={cat.id} className="bg-slate-800 text-white">
-                              {cat.icon} {cat.title.split(',')[0]}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={handleSimplifyAllStockNames}
-                        className="tw-glow-btn w-full py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5"
-                      >
-                        <Wand2 className="w-4 h-4 text-sky-300" />
-                        <span>✨ Alle Namen kürzen</span>
-                      </button>
-
                       <button
                         type="button"
                         onClick={() => triggerMhdExpiryPushWarnings(true)}
-                        className="tw-glow-btn w-full py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5"
+                        className="px-2.5 py-1.5 rounded-xl bg-rose-500/30 border border-rose-400/50 text-rose-100 text-xs font-black flex items-center gap-1"
                       >
-                        <BellRing className="w-4 h-4 text-amber-300" />
-                        <span>🔔 MHD-Push jetzt prüfen</span>
+                        <BellRing className="w-3.5 h-3.5" />
+                        <span>Push senden</span>
                       </button>
                     </div>
-                  </div>
-                )}
 
-                <div className="flex items-center gap-1.5 overflow-x-auto pt-0.5">
-                  <button
-                    type="button"
-                    onClick={() => setStockLocationFilter('all')}
-                    className={'px-3 py-1.5 rounded-xl text-xs font-extrabold shrink-0 ' +
-                      (stockLocationFilter === 'all' ? 'tw-active-nav' : 'tw-nav-inactive')}
-                  >
-                    🏠 Alle ({safeStock.length})
-                  </button>
-                  {STORAGE_PILLS.map(loc => {
-                    const count = safeStock.filter(x => x.location === loc.id).length;
-                    return (
-                      <button
-                        key={loc.id}
-                        type="button"
-                        onClick={() => setStockLocationFilter(loc.id)}
-                        className={'px-3 py-1.5 rounded-xl text-xs font-extrabold shrink-0 ' +
-                          (stockLocationFilter === loc.id ? 'tw-active-nav' : 'tw-nav-inactive')}
-                      >
-                        {loc.label} ({count})
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="space-y-2.5">
-                {sortedStockForTab.length === 0 ? (
-                  <div className={'p-8 rounded-3xl border text-center space-y-2 ' + themeStyles.card}>
-                    <div className="text-2xl">🥫</div>
-                    <div className="text-xs font-extrabold opacity-70">
-                      Keine Produkte für diese Suche oder Filterung gefunden.
-                    </div>
-                  </div>
-                ) : (
-                  sortedStockForTab.map((item, idx) => {
-                    const catObj = FOOD_CATEGORIES.find(c => c.id === item.resolvedCategory) || FOOD_CATEGORIES[1];
-                    const locObj = STORAGE_PILLS.find(l => l.id === item.location) || STORAGE_PILLS[0];
-                    const decPreview = decrementItemPieceCount(item.quantity);
-                    const daysLeft = getDaysUntilMhd(item.expiryDate, todayStr);
-                    const isFinalDayZero = daysLeft <= 0;
-                    const isWarnTwoDays = daysLeft === 1 || daysLeft === 2;
-                    const isWarnWeek = daysLeft > 2 && daysLeft <= 7;
-                    const isNewestTop = stockSortMode === 'newest' && idx === 0 && !stockSearchQuery;
-                    const isGf = Boolean(item.resolvedGlutenFree);
-                    const emojiIcon = getFoodEmoji(item.name, item.customEmoji);
-
-                    const daysLabel = daysLeft <= 0
-                      ? '🚨 HEUTE LETZTER TAG!'
-                      : daysLeft === 1
-                      ? '⚠️ Morgen (1 T.)'
-                      : daysLeft === 2
-                      ? '⚠️ Noch 2 Tage'
-                      : (daysLeft + ' Tage');
-
-                    return (
-                      <div
-                        key={item.id}
-                        onClick={() => openEditStockItemModal(item)}
-                        className={'p-3.5 rounded-3xl border flex flex-col gap-3 cursor-pointer shadow-sm transition-all ' +
-                          themeStyles.card + ' ' +
-                          (isFinalDayZero
-                            ? 'border-rose-500 border-2 bg-rose-950/35'
-                            : isWarnTwoDays
-                            ? 'border-rose-400/80 bg-rose-950/20'
-                            : isWarnWeek
-                            ? 'border-amber-400/80 bg-amber-950/20'
-                            : isNewestTop
-                            ? 'border-sky-400/80 bg-sky-500/10'
-                            : '')}
-                      >
-                        <div className="flex items-start justify-between gap-2.5">
-                          <div className="flex items-start gap-3 min-w-0 flex-1">
-                            <span className="w-12 h-12 rounded-2xl bg-black/35 border border-white/10 flex items-center justify-center text-2xl shrink-0">
-                              {emojiIcon}
-                            </span>
-
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
-                                {isNewestTop && (
-                                  <span className="px-1.5 py-0.2 rounded bg-sky-500 text-white text-[9px] font-black shrink-0">
-                                    ZULETZT ERFASST
-                                  </span>
-                                )}
-                                <button
-                                  type="button"
-                                  onClick={(e) => toggleStockItemGlutenFreeDirectly(e, item)}
-                                  className={'px-1.5 py-0.2 rounded text-[9px] font-black shrink-0 ' +
-                                    (isGf
-                                      ? 'bg-emerald-500/25 border border-emerald-400/50 text-emerald-300'
-                                      : 'bg-white/5 border border-white/10 text-slate-400')}
-                                >
-                                  {isGf ? '🌾✓ GF' : '🌾?'}
-                                </button>
-                                <span className="text-[10px] font-bold opacity-75 truncate">
-                                  {catObj.icon} {catObj.title.split(',')[0]}
-                                </span>
-                              </div>
-
-                              <h3 className="font-black text-sm sm:text-base leading-snug break-words">
-                                {item.name}
-                              </h3>
-                            </div>
-                          </div>
-
-                          <div
-                            className={'px-2.5 py-1.5 rounded-2xl border text-right shrink-0 ' +
-                              (isFinalDayZero
-                                ? 'bg-rose-500/35 border-rose-300 text-rose-100'
-                                : isWarnTwoDays
-                                ? 'bg-rose-500/25 border-rose-400 text-rose-100'
-                                : isWarnWeek
-                                ? 'bg-amber-500/30 border-amber-400 text-amber-100'
-                                : 'bg-black/30 border-white/10')}
-                          >
-                            <div className="text-xs font-black">
-                              {item.expiryDate.slice(8, 10)}.{item.expiryDate.slice(5, 7)}.{item.expiryDate.slice(2, 4)}
-                            </div>
-                            <div className={'text-[10px] font-black ' + (isFinalDayZero || isWarnTwoDays ? 'text-rose-300' : isWarnWeek ? 'text-amber-300' : 'text-emerald-400')}>
-                              {daysLabel}
-                            </div>
-                          </div>
+                    {mhdAlertGroups.finalToday.length > 0 && (
+                      <div className="p-3 rounded-2xl bg-rose-500/25 border border-rose-400/60 space-y-1.5">
+                        <div className="text-xs font-black text-rose-200">
+                          🚨 LETZTE WARNUNG – Läuft HEUTE ab (morgen im Mülleimer):
                         </div>
-
-                        <div className="flex items-center justify-between gap-2 pt-2 border-t border-white/10">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="px-2.5 py-1 rounded-xl bg-black/40 border border-amber-400/30 text-xs font-black text-amber-300">
-                              📦 {item.quantity}
-                            </span>
-                            <span className="px-2.5 py-1 rounded-xl bg-black/30 border border-white/10 text-xs font-extrabold">
-                              {locObj.label}
-                            </span>
-                          </div>
-
-                          <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex flex-wrap gap-2">
+                          {mhdAlertGroups.finalToday.map(it => (
                             <button
+                              key={it.id}
                               type="button"
-                              onClick={() => openEditStockItemModal(item)}
-                              className="tw-nav-inactive px-3 py-2 rounded-xl text-xs font-black text-sky-300 flex items-center gap-1"
+                              onClick={() => openEditStockItemModal(it)}
+                              className="px-3 py-1.5 rounded-xl bg-black/50 border border-rose-300/40 text-sm font-black text-white flex items-center gap-2"
                             >
-                              <Pencil className="w-3.5 h-3.5" />
-                              <span>Edit</span>
+                              <span className="text-lg">{getFoodEmoji(it.name, it.customEmoji)}</span>
+                              <span>{it.name}</span>
+                              <span className="text-rose-300 font-black">({it.quantity})</span>
                             </button>
-
-                            <button
-                              type="button"
-                              onClick={() => handleAddQuickShopItem(item.name)}
-                              title="Auf die Einkaufsliste setzen"
-                              className="tw-nav-inactive p-2 rounded-xl text-amber-300"
-                            >
-                              <ShoppingCart className="w-4 h-4" />
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => handleConsumeFromPocket(item)}
-                              className="tw-glow-btn px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1"
-                            >
-                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-300" />
-                              <span>{decPreview.remaining > 0 ? '-1' : 'Weg'}</span>
-                            </button>
-                          </div>
+                          ))}
                         </div>
                       </div>
-                    );
-                  })
+                    )}
+
+                    {mhdAlertGroups.warnTwoDays.length > 0 && (
+                      <div className="p-3 rounded-2xl bg-amber-500/20 border border-amber-400/50 space-y-1.5">
+                        <div className="text-xs font-black text-amber-200">
+                          ⚠️ Vorwarnung – Läuft in 1–2 Tagen ab:
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {mhdAlertGroups.warnTwoDays.map(it => (
+                            <button
+                              key={it.id}
+                              type="button"
+                              onClick={() => openEditStockItemModal(it)}
+                              className="px-3 py-1.5 rounded-xl bg-black/45 border border-amber-300/40 text-sm font-black text-white flex items-center gap-2"
+                            >
+                              <span className="text-lg">{getFoodEmoji(it.name, it.customEmoji)}</span>
+                              <span>{it.name}</span>
+                              <span className="text-amber-300 font-black">
+                                ({it.daysLeft === 1 ? 'morgen' : 'in 2 T.'})
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 )}
+
+                <div className={'p-3.5 rounded-3xl border space-y-2.5 shadow-md ' + themeStyles.card}>
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <h2 className="font-black text-lg flex items-center gap-1.5">
+                        <span>🥫 Bestand ({sortedStockForTab.length})</span>
+                      </h2>
+                      <p className="text-xs opacity-75 font-bold">
+                        {stockSortMode === 'newest'
+                          ? '🕒 Zuletzt gescannt oben'
+                          : stockSortMode === 'expiry'
+                          ? '📅 Nach Ablaufdatum (MHD)'
+                          : stockSortMode === 'glutenfree'
+                          ? '🌾✓ Glutenfrei zuerst'
+                          : '🔤 Alphabetisch (A–Z)'}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setStockOnlyGlutenFree(prev => !prev)}
+                        className={'px-3 py-2 rounded-xl text-xs font-black flex items-center gap-1 border ' +
+                          (stockOnlyGlutenFree
+                            ? 'bg-emerald-500 text-slate-950 border-emerald-300 shadow-md'
+                            : 'bg-emerald-500/15 text-emerald-300 border-emerald-400/40')}
+                      >
+                        <span>🌾✓ GF ({totalGlutenFreeInStock})</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setShowStockMenu(prev => !prev)}
+                        className={'px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 ' +
+                          (showStockMenu ? 'tw-active-nav' : 'tw-glow-btn')}
+                      >
+                        {showStockMenu ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
+                        <span>Filter</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="relative">
+                    <Search className="w-4 h-4 text-sky-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input
+                      type="text"
+                      value={stockSearchQuery}
+                      onChange={(e) => setStockSearchQuery(e.target.value)}
+                      placeholder="Produkt, Marke oder Kategorie suchen..."
+                      className={'w-full h-12 pl-10 pr-9 rounded-2xl border text-sm font-extrabold ' + themeStyles.input}
+                    />
+                    {stockSearchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setStockSearchQuery('')}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-white/10 flex items-center justify-center text-xs font-black"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+
+                  {showStockMenu && (
+                    <div className={'p-3 rounded-2xl border space-y-3 ' + themeStyles.subtle}>
+                      <div className="space-y-1.5">
+                        <span className="text-[11px] font-black uppercase text-sky-400 block">
+                          ↕️ Sortierung wählen:
+                        </span>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {[
+                            { id: 'newest',     label: '🕒 Neueste oben' },
+                            { id: 'expiry',     label: '📅 Nach MHD' },
+                            { id: 'glutenfree', label: '🌾✓ Glutenfrei oben' },
+                            { id: 'az',         label: '🔤 Name (A–Z)' }
+                          ].map(sOpt => (
+                            <button
+                              key={sOpt.id}
+                              type="button"
+                              onClick={() => setStockSortMode(sOpt.id)}
+                              className={'py-2.5 px-3 rounded-xl text-xs font-extrabold text-left ' +
+                                (stockSortMode === sOpt.id ? 'tw-active-nav' : 'tw-nav-inactive')}
+                            >
+                              {sOpt.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[11px] font-black uppercase text-emerald-400 block mb-1">
+                            🏠 Lagerort:
+                          </label>
+                          <select
+                            value={stockLocationFilter}
+                            onChange={(e) => setStockLocationFilter(e.target.value)}
+                            className={'w-full h-11 px-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+                          >
+                            <option value="all" className="bg-slate-800 text-white">🏠 Alle Orte ({safeStock.length})</option>
+                            {STORAGE_PILLS.map(loc => (
+                              <option key={loc.id} value={loc.id} className="bg-slate-800 text-white">
+                                {loc.label} ({safeStock.filter(x => x.location === loc.id).length})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="text-[11px] font-black uppercase text-purple-300 block mb-1">
+                            🍱 Kategorie:
+                          </label>
+                          <select
+                            value={stockCategoryFilter}
+                            onChange={(e) => setStockCategoryFilter(e.target.value)}
+                            className={'w-full h-11 px-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+                          >
+                            <option value="all" className="bg-slate-800 text-white">🍱 Alle Kategorien</option>
+                            {FOOD_CATEGORIES.map(cat => (
+                              <option key={cat.id} value={cat.id} className="bg-slate-800 text-white">
+                                {cat.icon} {cat.title.split(',')[0]}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={handleSimplifyAllStockNames}
+                          className="tw-glow-btn w-full py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5"
+                        >
+                          <Wand2 className="w-4 h-4 text-sky-300" />
+                          <span>✨ Alle Namen kürzen</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => triggerMhdExpiryPushWarnings(true)}
+                          className="tw-glow-btn w-full py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5"
+                        >
+                          <BellRing className="w-4 h-4 text-amber-300" />
+                          <span>🔔 MHD-Push jetzt prüfen</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-1.5 overflow-x-auto pt-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setStockLocationFilter('all')}
+                      className={'px-3.5 py-2 rounded-xl text-xs font-extrabold shrink-0 ' +
+                        (stockLocationFilter === 'all' ? 'tw-active-nav' : 'tw-nav-inactive')}
+                    >
+                      🏠 Alle ({safeStock.length})
+                    </button>
+                    {STORAGE_PILLS.map(loc => {
+                      const count = safeStock.filter(x => x.location === loc.id).length;
+                      return (
+                        <button
+                          key={loc.id}
+                          type="button"
+                          onClick={() => setStockLocationFilter(loc.id)}
+                          className={'px-3.5 py-2 rounded-xl text-xs font-extrabold shrink-0 ' +
+                            (stockLocationFilter === loc.id ? 'tw-active-nav' : 'tw-nav-inactive')}
+                        >
+                          {loc.label} ({count})
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* EXTRA GROSSE, PERFEKT LESBARE PRODUKT-KACHELN (PUNKT 1) */}
+                <div className="space-y-3">
+                  {sortedStockForTab.length === 0 ? (
+                    <div className={'p-8 rounded-3xl border text-center space-y-2 ' + themeStyles.card}>
+                      <div className="text-3xl">🥫</div>
+                      <div className="text-sm font-extrabold opacity-70">
+                        Keine Produkte für diese Suche oder Filterung gefunden.
+                      </div>
+                    </div>
+                  ) : (
+                    sortedStockForTab.map((item, idx) => {
+                      const catObj = FOOD_CATEGORIES.find(c => c.id === item.resolvedCategory) || FOOD_CATEGORIES[1];
+                      const locObj = STORAGE_PILLS.find(l => l.id === item.location) || STORAGE_PILLS[0];
+                      const decPreview = decrementItemPieceCount(item.quantity);
+                      const daysLeft = getDaysUntilMhd(item.expiryDate, todayStr);
+                      const isFinalDayZero = daysLeft <= 0;
+                      const isWarnTwoDays = daysLeft === 1 || daysLeft === 2;
+                      const isWarnWeek = daysLeft > 2 && daysLeft <= 7;
+                      const isNewestTop = stockSortMode === 'newest' && idx === 0 && !stockSearchQuery;
+                      const isGf = Boolean(item.resolvedGlutenFree);
+                      const emojiIcon = getFoodEmoji(item.name, item.customEmoji);
+
+                      const daysLabel = daysLeft <= 0
+                        ? '🚨 HEUTE!'
+                        : daysLeft === 1
+                        ? '⚠️ Morgen'
+                        : daysLeft === 2
+                        ? '⚠️ 2 Tage'
+                        : (daysLeft + ' Tage');
+
+                      return (
+                        <div
+                          key={item.id}
+                          onClick={() => openEditStockItemModal(item)}
+                          className={'p-4 rounded-3xl border flex flex-col gap-3.5 cursor-pointer shadow-md transition-all ' +
+                            themeStyles.card + ' ' +
+                            (isFinalDayZero
+                              ? 'border-rose-500 border-2 bg-rose-950/35'
+                              : isWarnTwoDays
+                              ? 'border-rose-400/80 bg-rose-950/20'
+                              : isWarnWeek
+                              ? 'border-amber-400/80 bg-amber-950/20'
+                              : isNewestTop
+                              ? 'border-sky-400/80 bg-sky-500/10'
+                              : '')}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex items-start gap-3.5 min-w-0 flex-1">
+                              {/* DEUTLICH GRÖSSERES PRODUKT-ICON (w-14 h-14 text-3xl) */}
+                              <span className="w-14 h-14 rounded-2xl bg-black/40 border border-white/15 flex items-center justify-center text-3xl shrink-0 shadow-inner">
+                                {emojiIcon}
+                              </span>
+
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                                  {isNewestTop && (
+                                    <span className="px-2 py-0.5 rounded-md bg-sky-500 text-white text-[10px] font-black shrink-0">
+                                      NEU
+                                    </span>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={(e) => toggleStockItemGlutenFreeDirectly(e, item)}
+                                    className={'px-2 py-0.5 rounded-md text-[10px] font-black shrink-0 ' +
+                                      (isGf
+                                        ? 'bg-emerald-500/25 border border-emerald-400/50 text-emerald-300'
+                                        : 'bg-white/5 border border-white/10 text-slate-400')}
+                                  >
+                                    {isGf ? '🌾✓ GF' : '🌾?'}
+                                  </button>
+                                  <span className="text-xs font-extrabold opacity-80 truncate">
+                                    {catObj.icon} {catObj.title.split(',')[0]}
+                                  </span>
+                                </div>
+
+                                {/* DEUTLICH GRÖSSERER PRODUKTNAME (text-base sm:text-lg font-black) */}
+                                <h3 className="font-black text-base sm:text-lg leading-snug break-words">
+                                  {item.name}
+                                </h3>
+                              </div>
+                            </div>
+
+                            <div
+                              className={'px-3 py-2 rounded-2xl border text-right shrink-0 ' +
+                                (isFinalDayZero
+                                  ? 'bg-rose-500/35 border-rose-300 text-rose-100'
+                                  : isWarnTwoDays
+                                  ? 'bg-rose-500/25 border-rose-400 text-rose-100'
+                                  : isWarnWeek
+                                  ? 'bg-amber-500/30 border-amber-400 text-amber-100'
+                                  : 'bg-black/35 border-white/15')}
+                            >
+                              <div className="text-sm font-black">
+                                {item.expiryDate.slice(8, 10)}.{item.expiryDate.slice(5, 7)}.{item.expiryDate.slice(2, 4)}
+                              </div>
+                              <div className={'text-xs font-black mt-0.5 ' + (isFinalDayZero || isWarnTwoDays ? 'text-rose-300' : isWarnWeek ? 'text-amber-300' : 'text-emerald-400')}>
+                                {daysLabel}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between gap-2 pt-2.5 border-t border-white/10">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="px-3 py-1.5 rounded-xl bg-black/45 border border-amber-400/40 text-sm font-black text-amber-300">
+                                📦 {item.quantity}
+                              </span>
+                              <span className="px-3 py-1.5 rounded-xl bg-black/35 border border-white/10 text-xs sm:text-sm font-extrabold">
+                                {locObj.label}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                              <button
+                                type="button"
+                                onClick={() => openEditStockItemModal(item)}
+                                className="tw-nav-inactive px-3 py-2.5 rounded-xl text-xs font-black text-sky-300 flex items-center gap-1"
+                              >
+                                <Pencil className="w-4 h-4" />
+                                <span>Edit</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleAddQuickShopItem(item.name)}
+                                title="Auf die Einkaufsliste setzen"
+                                className="tw-nav-inactive p-2.5 rounded-xl text-amber-300"
+                              >
+                                <ShoppingCart className="w-4 h-4" />
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleConsumeFromPocket(item)}
+                                className="tw-glow-btn px-4 py-2.5 rounded-xl text-xs sm:text-sm font-black flex items-center gap-1"
+                              >
+                                <CheckCircle2 className="w-4 h-4 text-emerald-300" />
+                                <span>{decPreview.remaining > 0 ? '-1' : 'Weg'}</span>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
               </div>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        )}
       </main>
 
+      {/* ============================================================================
+          INTELLIGENTES 1-HAND-SCHNELL-COCKPIT (ERSATZ FÜR DIE ALTE OBERE LEISTE)
+         ============================================================================ */}
+      {quickCockpitOpen && (
+        <div
+          onClick={() => setQuickCockpitOpen(false)}
+          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-end justify-center p-3"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className={'w-full max-w-md rounded-3xl border-2 p-4 shadow-2xl space-y-4 mb-14 ' + themeStyles.modal}
+          >
+            <div className="flex items-center justify-between gap-2 border-b border-white/10 pb-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <span className="px-2.5 py-1 rounded-xl bg-sky-500 text-white text-xs font-black">HR POCKET</span>
+                <div className="min-w-0">
+                  <div className="font-black text-sm truncate">{familyName}</div>
+                  <div className="text-[11px] font-bold text-emerald-400 flex items-center gap-1">
+                    {!isOnline ? (
+                      <><WifiOff className="w-3 h-3 text-amber-400" /> Offline-Puffer</>
+                    ) : (
+                      <><Cloud className="w-3 h-3" /> Cloud: {accountId || 'lokal'}</>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setQuickCockpitOpen(false)}
+                className="tw-nav-inactive w-9 h-9 rounded-full flex items-center justify-center"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* PERSONEN-FILTER FÜR 1-HAND-BEDIENUNG */}
+            <div className="space-y-2">
+              <span className="text-[11px] font-black uppercase text-sky-400 block">
+                👤 Personen-Filter (für Kalender & Aufgaben):
+              </span>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={() => { handleSelectPersonFilter('all'); setQuickCockpitOpen(false); }}
+                  className={'py-2.5 px-3 rounded-2xl text-xs font-black flex items-center justify-center gap-1.5 ' +
+                    (selectedPerson === 'all' ? 'tw-active-nav' : 'tw-nav-inactive')}
+                >
+                  <span>👨‍👩‍👧‍👦 Alle</span>
+                </button>
+                {safeMembers.filter(m => m.id !== 'all').map(m => {
+                  const isSel = selectedPerson === m.id;
+                  return (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => { handleSelectPersonFilter(m.id); setQuickCockpitOpen(false); }}
+                      className={'py-2 px-2.5 rounded-2xl flex items-center gap-2 text-xs font-black ' +
+                        (isSel ? 'tw-active-nav' : 'tw-nav-inactive')}
+                    >
+                      {renderAvatar(m, 'w-6 h-6', 'text-[10px]')}
+                      <span className="truncate">{m.name.split(' ')[0]}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* SCHNELL-AKTIONEN (SYNC, PUSH, WAND, LOGOUT) */}
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => { syncAllNow(true); setQuickCockpitOpen(false); }}
+                className="tw-glow-btn py-3 px-3 rounded-2xl text-xs font-black flex items-center justify-center gap-2"
+              >
+                <RefreshCw className={'w-4 h-4 text-sky-300 ' + (isSyncing ? 'animate-spin' : '')} />
+                <span>Jetzt synchronisieren</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { requestShoppingPushPermission(); setQuickCockpitOpen(false); }}
+                className={'py-3 px-3 rounded-2xl text-xs font-black flex items-center justify-center gap-2 ' +
+                  (notifPermission === 'granted'
+                    ? 'bg-emerald-500/25 text-emerald-300 border border-emerald-400/40'
+                    : 'tw-glow-btn')}
+              >
+                <BellRing className="w-4 h-4" />
+                <span>{notifPermission === 'granted' ? 'Push aktiv ✓' : 'Push aktivieren'}</span>
+              </button>
+
+              <a
+                href="/"
+                className="tw-nav-inactive py-3 px-3 rounded-2xl text-xs font-black flex items-center justify-center gap-2 no-underline text-white"
+              >
+                <span>🖥️ Große Touchwall</span>
+              </a>
+
+              <button
+                type="button"
+                onClick={() => {
+                  localStorage.removeItem('richter_tw_auth_active');
+                  setIsAuthenticated(false);
+                  setQuickCockpitOpen(false);
+                }}
+                className="tw-nav-inactive py-3 px-3 rounded-2xl text-xs font-black text-rose-400 flex items-center justify-center gap-2"
+              >
+                <LogOut className="w-4 h-4" />
+                <span>Abmelden</span>
+              </button>
+            </div>
+
+            {installPromptEvent && (
+              <button
+                type="button"
+                onClick={handleInstallAndroidApp}
+                className="tw-active-nav w-full py-3 rounded-2xl text-xs font-black flex items-center justify-center gap-2"
+              >
+                <Download className="w-4 h-4" />
+                <span>📲 Als Android-App installieren</span>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* VOLLWERTIGES BEARBEITEN-MODAL FÜR DEN BESTAND */}
       {editStockModal.open && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-3 overflow-y-auto">
           <form
@@ -2484,8 +2558,8 @@ export default function TouchwallPocketApp() {
             className={'w-full max-w-md rounded-3xl border-2 p-4 sm:p-5 shadow-2xl space-y-3.5 my-auto ' + themeStyles.modal}
           >
             <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2.5">
-                <span className="w-11 h-11 rounded-2xl bg-black/35 border border-white/15 flex items-center justify-center text-2xl shrink-0">
+              <div className="flex items-center gap-3">
+                <span className="w-12 h-12 rounded-2xl bg-black/35 border border-white/15 flex items-center justify-center text-3xl shrink-0">
                   {editStockModal.customEmoji || getFoodEmoji(editStockModal.name)}
                 </span>
                 <div>
@@ -2530,7 +2604,7 @@ export default function TouchwallPocketApp() {
                 required
                 value={editStockModal.name}
                 onChange={(e) => setEditStockModal({ ...editStockModal, name: e.target.value })}
-                className={'w-full px-3.5 py-2.5 rounded-xl border text-sm font-extrabold ' + themeStyles.input}
+                className={'w-full px-3.5 py-2.5 rounded-xl border text-base font-extrabold ' + themeStyles.input}
               />
             </div>
 
@@ -2539,7 +2613,7 @@ export default function TouchwallPocketApp() {
                 <label className="block text-[10px] font-black uppercase text-amber-400 mb-1">
                   Menge / Stück
                 </label>
-                <div className="flex items-center bg-black/25 p-1 rounded-xl border border-white/10 h-10">
+                <div className="flex items-center bg-black/25 p-1 rounded-xl border border-white/10 h-11">
                   <button
                     type="button"
                     onClick={() => setEditStockModal({ ...editStockModal, quantity: stepMobileQty(editStockModal.quantity, -1) })}
@@ -2570,7 +2644,7 @@ export default function TouchwallPocketApp() {
                 <select
                   value={editStockModal.glutenFree}
                   onChange={(e) => setEditStockModal({ ...editStockModal, glutenFree: e.target.value })}
-                  className={'w-full h-10 px-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+                  className={'w-full h-11 px-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
                 >
                   <option value="auto" className="bg-slate-800 text-sky-300">
                     ✨ Auto ({isProductGlutenFree(editStockModal.name, editStockModal.category, 'auto') ? 'Glutenfrei ✓' : 'Normal'})
@@ -2589,7 +2663,7 @@ export default function TouchwallPocketApp() {
                 <select
                   value={editStockModal.category}
                   onChange={(e) => setEditStockModal({ ...editStockModal, category: e.target.value })}
-                  className={'w-full h-10 px-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+                  className={'w-full h-11 px-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
                 >
                   {FOOD_CATEGORIES.map(cat => (
                     <option key={cat.id} value={cat.id} className="bg-slate-800 text-white">
@@ -2606,7 +2680,7 @@ export default function TouchwallPocketApp() {
                 <select
                   value={editStockModal.location}
                   onChange={(e) => setEditStockModal({ ...editStockModal, location: e.target.value })}
-                  className={'w-full h-10 px-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+                  className={'w-full h-11 px-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
                 >
                   {STORAGE_PILLS.map(loc => (
                     <option key={loc.id} value={loc.id} className="bg-slate-800 text-white">
@@ -2707,7 +2781,8 @@ export default function TouchwallPocketApp() {
         </div>
       )}
 
-      <nav className={'shrink-0 z-40 border-t px-2 py-2 flex items-center justify-around gap-1 shadow-2xl ' + themeStyles.header}>
+      {/* UNTERE NAVIGATION INKL. INTELLIGENTEM COCKPIT-/PERSONEN-BUTTON STATT HEADER */}
+      <nav className={'shrink-0 z-40 border-t px-1.5 py-1.5 flex items-center justify-around gap-1 shadow-2xl ' + themeStyles.header}>
         {[
           { id: 'agenda',   label: 'Kalender', icon: Calendar,     badge: filteredEvents.filter(e => e.date === todayStr).length },
           { id: 'tasks',    label: 'Aufgaben', icon: CheckSquare,  badge: openTasks.length },
@@ -2729,12 +2804,12 @@ export default function TouchwallPocketApp() {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={'relative flex-1 py-2 rounded-2xl flex flex-col items-center gap-1 text-[10px] font-extrabold ' + (active ? 'tw-active-nav' : 'tw-nav-inactive opacity-80')}
+              className={'relative flex-1 py-2 rounded-2xl flex flex-col items-center gap-0.5 text-[10px] font-extrabold ' + (active ? 'tw-active-nav' : 'tw-nav-inactive opacity-85')}
             >
               <Icon className="w-4 h-4 sm:w-5 sm:h-5" />
               <span>{tab.label}</span>
               {tab.badge > 0 && (
-                <span className={'absolute top-1 right-1.5 px-1.5 py-0.2 rounded-full text-[9px] font-black ' +
+                <span className={'absolute top-1 right-1 px-1.5 py-0.2 rounded-full text-[9px] font-black ' +
                   (tab.urgent ? 'bg-rose-500 text-white animate-pulse' : 'bg-amber-500 text-slate-950')}
                 >
                   {tab.badge}
@@ -2743,14 +2818,32 @@ export default function TouchwallPocketApp() {
             </button>
           );
         })}
+
+        {/* 6. BUTTON: 1-HAND-COCKPIT (PERSONENWAHL, SYNC & EINSTELLUNGEN) */}
+        <button
+          type="button"
+          onClick={() => setQuickCockpitOpen(prev => !prev)}
+          className={'relative px-2.5 py-1.5 rounded-2xl flex flex-col items-center justify-center gap-0.5 text-[10px] font-extrabold shrink-0 ' +
+            (quickCockpitOpen ? 'tw-active-nav' : 'tw-glow-btn')}
+        >
+          {activePersonObj && selectedPerson !== 'all' ? (
+            renderAvatar(activePersonObj, 'w-5 h-5', 'text-[9px]')
+          ) : (
+            <SlidersHorizontal className={'w-4 h-4 ' + (isSyncing ? 'animate-spin text-sky-300' : '')} />
+          )}
+          <span>{activePersonObj && selectedPerson !== 'all' ? activePersonObj.name.split(' ')[0].slice(0, 5) : 'Menü'}</span>
+          {!isOnline && (
+            <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-amber-400" />
+          )}
+        </button>
       </nav>
 
       {toast && (
         <div className="fixed bottom-20 left-4 right-4 z-50 px-4 py-3 rounded-2xl bg-slate-900/95 border border-sky-400 text-white shadow-2xl flex items-center gap-3">
-          <span className="text-xl">{toast.icon}</span>
+          <span className="text-2xl">{toast.icon}</span>
           <div>
             <div className="text-[10px] font-black uppercase text-amber-400">{toast.title}</div>
-            <div className="text-xs font-bold">{toast.msg}</div>
+            <div className="text-xs sm:text-sm font-bold">{toast.msg}</div>
           </div>
         </div>
       )}
