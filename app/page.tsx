@@ -65,24 +65,31 @@ function getShopNormKey(textStr) {
   return String(textStr || '').toLowerCase().trim();
 }
 
+function getTaskTitleKey(task) {
+  if (!task) return '';
+  return String(task.title || '').toLowerCase().trim();
+}
+
 function getTaskNormKey(task) {
   if (!task) return '';
-  return String(task.member || 'all').toLowerCase() + '::' + String(task.title || '').toLowerCase().trim();
+  return String(task.member || 'all').toLowerCase() + '::' + getTaskTitleKey(task);
 }
 
 // ============================================================================
-// 1. ANTI-PING-PONG MERGE FÜR DIE EINKAUFSLISTE & NOTIZEN (CLOUD + TODOIST)
+// 1. STABILER MERGE FÜR DIE EINKAUFSLISTE (CLOUD vs. TODOIST UNTERSCHEIDUNG)
 // ============================================================================
-function reconcileShoppingNotes(localNotes, incomingNotes, syncMeta) {
+function reconcileShoppingNotes(localNotes, incomingNotes, syncMeta, source = 'cloud') {
   const baseNotes = Array.isArray(incomingNotes) && incomingNotes.length > 0
     ? incomingNotes
     : (Array.isArray(localNotes) && localNotes.length > 0 ? localNotes : DEFAULT_NOTES);
 
   const localFirstItems = Array.isArray(localNotes?.[0]?.items) ? localNotes[0].items : [];
   const incomingFirstItems = Array.isArray(baseNotes?.[0]?.items) ? baseNotes[0].items : [];
-  const delMap = syncMeta?.deletedTaskIds || {};
+
+  if (!syncMeta.deletedTaskIds) syncMeta.deletedTaskIds = {};
+  const delMap = syncMeta.deletedTaskIds;
   const now = Date.now();
-  const TOMBSTONE_TTL = 1000 * 60 * 60 * 18; // 18 Stunden Schutz gegen Wiederauftauchen
+  const TOMBSTONE_TTL = 1000 * 60 * 60 * 18;
 
   const isDeletedItem = (it) => {
     if (!it || !String(it.text || '').trim()) return true;
@@ -95,13 +102,16 @@ function reconcileShoppingNotes(localNotes, incomingNotes, syncMeta) {
 
   const mergedMap = new Map();
 
-  // 1. Eingehende Einkaufs-Items (aus Cloud oder Todoist) prüfen und abgleichen
+  // 1. Eingehende Einkaufs-Artikel übernehmen
   incomingFirstItems.forEach(rawIt => {
     const it = typeof rawIt === 'string' ? { text: rawIt, done: false } : { ...rawIt };
     if (isDeletedItem(it)) return;
     const norm = getShopNormKey(it.text);
     const doneTs = delMap['shop_done_' + norm];
-    const localMatch = localFirstItems.find(loc => getShopNormKey(loc?.text) === norm);
+    const localMatch = localFirstItems.find(loc =>
+      (it.todoistId && loc?.todoistId && String(it.todoistId) === String(loc.todoistId)) ||
+      getShopNormKey(loc?.text) === norm
+    );
 
     const isDone = Boolean(it.done || doneTs || localMatch?.done);
     const resolvedDoneAt = Number(it.doneAt || localMatch?.doneAt || doneTs || (isDone ? now : 0));
@@ -112,36 +122,82 @@ function reconcileShoppingNotes(localNotes, incomingNotes, syncMeta) {
       text: String(it.text).trim(),
       done: isDone,
       doneAt: isDone ? resolvedDoneAt : 0,
-      todoistId: it.todoistId || localMatch?.todoistId || null
+      todoistId: it.todoistId || localMatch?.todoistId || null,
+      addedAtTs: localMatch?.addedAtTs || it.addedAtTs || now
     });
   });
 
-  // 2. Lokal erledigte Einkaufs-Items behalten (da Todoist-API nur offene Tasks liefert)
+  // 2. Lokale Einkaufs-Artikel abgleichen (kein Verschlucken offener oder in Todoist abgehakter Punkte)
   localFirstItems.forEach(rawLoc => {
     const loc = typeof rawLoc === 'string' ? { text: rawLoc, done: false } : { ...rawLoc };
     if (isDeletedItem(loc)) return;
     const norm = getShopNormKey(loc.text);
-    if (!mergedMap.has(norm) && (loc.done || delMap['shop_done_' + norm])) {
+
+    const matchedInIncoming = incomingFirstItems.some(inc => {
+      const incObj = typeof inc === 'string' ? { text: inc } : inc;
+      return (
+        (loc.todoistId && incObj?.todoistId && String(loc.todoistId) === String(incObj.todoistId)) ||
+        getShopNormKey(incObj?.text) === norm
+      );
+    });
+
+    if (mergedMap.has(norm) || matchedInIncoming) return;
+
+    const doneTs = delMap['shop_done_' + norm];
+
+    if (loc.done || doneTs) {
       mergedMap.set(norm, {
         ...loc,
         text: String(loc.text).trim(),
         done: true,
-        doneAt: Number(loc.doneAt || delMap['shop_done_' + norm] || now)
+        doneAt: Number(loc.doneAt || doneTs || now)
+      });
+      return;
+    }
+
+    if (source === 'cloud') {
+      mergedMap.set(norm, {
+        ...loc,
+        text: String(loc.text).trim(),
+        done: false,
+        doneAt: 0
+      });
+      return;
+    }
+
+    const isVeryRecent = loc.addedAtTs && (now - Number(loc.addedAtTs) < 25000);
+    if (!loc.todoistId || isVeryRecent) {
+      mergedMap.set(norm, {
+        ...loc,
+        text: String(loc.text).trim(),
+        done: false,
+        doneAt: 0
+      });
+    } else {
+      delMap['shop_done_' + norm] = now;
+      mergedMap.set(norm, {
+        ...loc,
+        text: String(loc.text).trim(),
+        done: true,
+        doneAt: now
       });
     }
   });
 
+  saveLocalSyncMeta(syncMeta);
   const finalFirstItems = Array.from(mergedMap.values());
   return baseNotes.map((n, idx) => idx === 0 ? { ...n, items: finalFirstItems } : n);
 }
 
 // ============================================================================
-// 2. ANTI-PING-PONG MERGE FÜR FAMILIEN-AUFGABEN (CLOUD + TODOIST + LOKAL)
+// 2. STABILER MERGE FÜR FAMILIEN-AUFGABEN (CLOUD vs. TODOIST UNTERSCHEIDUNG)
 // ============================================================================
-function reconcileFamilyTasks(localTasks, incomingTasks, syncMeta) {
+function reconcileFamilyTasks(localTasks, incomingTasks, syncMeta, source = 'cloud') {
   const localList = Array.isArray(localTasks) ? localTasks : [];
   const incomingList = Array.isArray(incomingTasks) ? incomingTasks : [];
-  const delMap = syncMeta?.deletedTaskIds || {};
+
+  if (!syncMeta.deletedTaskIds) syncMeta.deletedTaskIds = {};
+  const delMap = syncMeta.deletedTaskIds;
   const now = Date.now();
   const TOMBSTONE_TTL = 1000 * 60 * 60 * 18;
 
@@ -150,65 +206,114 @@ function reconcileFamilyTasks(localTasks, incomingTasks, syncMeta) {
     if (t.id && delMap[String(t.id)]) return true;
     if (t.todoistId && delMap[String(t.todoistId)]) return true;
     const norm = getTaskNormKey(t);
-    const delTs = delMap['task_del_' + norm];
+    const titleKey = getTaskTitleKey(t);
+    const delTs = delMap['task_del_' + norm] || delMap['task_del_title_' + titleKey];
     if (delTs && (now - Number(delTs) < TOMBSTONE_TTL)) return true;
     return false;
   };
 
-  const mergedMap = new Map();
+  const mergedList = [];
+  const usedLocalIndices = new Set();
 
   // 1. Eingehende Aufgaben aus Cloud oder Todoist abgleichen
   incomingList.forEach(rawT => {
     if (isDeletedTask(rawT)) return;
-    const norm = getTaskNormKey(rawT);
     const idKey = String(rawT.id || '');
     const tdKey = rawT.todoistId ? String(rawT.todoistId) : '';
+    const titleKey = getTaskTitleKey(rawT);
+
+    const localIdx = localList.findIndex((loc, idx) => {
+      if (usedLocalIndices.has(idx)) return false;
+      if (tdKey && loc.todoistId && String(loc.todoistId) === tdKey) return true;
+      if (idKey && loc.id && String(loc.id) === idKey) return true;
+      return getTaskTitleKey(loc) === titleKey;
+    });
+
+    const localMatch = localIdx >= 0 ? localList[localIdx] : null;
+    if (localIdx >= 0) usedLocalIndices.add(localIdx);
+
+    const resolvedMember =
+      (rawT.member && rawT.member !== 'all')
+        ? rawT.member
+        : (localMatch?.member || rawT.member || 'hans');
+
+    const norm = String(resolvedMember).toLowerCase() + '::' + titleKey;
     const doneTs =
       delMap['task_done_' + norm] ||
+      delMap['task_done_title_' + titleKey] ||
       (idKey && delMap['task_done_id_' + idKey]) ||
       (tdKey && delMap['task_done_td_' + tdKey]);
-
-    const localMatch = localList.find(loc =>
-      (idKey && String(loc.id) === idKey) ||
-      (tdKey && String(loc.todoistId) === tdKey) ||
-      getTaskNormKey(loc) === norm
-    );
 
     const isDone = Boolean(rawT.done || doneTs || localMatch?.done);
     const resolvedDoneAt = Number(rawT.doneAt || localMatch?.doneAt || doneTs || (isDone ? now : 0));
 
-    mergedMap.set(norm, {
+    mergedList.push({
       ...localMatch,
       ...rawT,
+      id: localMatch?.id || rawT.id || Date.now(),
+      member: resolvedMember,
       done: isDone,
       doneAt: isDone ? resolvedDoneAt : 0,
       todoistId: rawT.todoistId || localMatch?.todoistId || null
     });
   });
 
-  // 2. Lokal erledigte Aufgaben behalten (da Todoist-API nur offene Aufgaben liefert)
-  localList.forEach(loc => {
+  // 2. Nicht gematchte lokale Aufgaben prüfen
+  localList.forEach((loc, idx) => {
+    if (usedLocalIndices.has(idx)) return;
     if (isDeletedTask(loc)) return;
-    const norm = getTaskNormKey(loc);
-    if (!mergedMap.has(norm)) {
-      const idKey = String(loc.id || '');
-      const tdKey = loc.todoistId ? String(loc.todoistId) : '';
-      const doneTs =
-        delMap['task_done_' + norm] ||
-        (idKey && delMap['task_done_id_' + idKey]) ||
-        (tdKey && delMap['task_done_td_' + tdKey]);
 
-      if (loc.done || doneTs) {
-        mergedMap.set(norm, {
-          ...loc,
-          done: true,
-          doneAt: Number(loc.doneAt || doneTs || now)
-        });
-      }
+    const idKey = String(loc.id || '');
+    const tdKey = loc.todoistId ? String(loc.todoistId) : '';
+    const norm = getTaskNormKey(loc);
+    const titleKey = getTaskTitleKey(loc);
+
+    const doneTs =
+      delMap['task_done_' + norm] ||
+      delMap['task_done_title_' + titleKey] ||
+      (idKey && delMap['task_done_id_' + idKey]) ||
+      (tdKey && delMap['task_done_td_' + tdKey]);
+
+    if (loc.done || doneTs) {
+      mergedList.push({
+        ...loc,
+        done: true,
+        doneAt: Number(loc.doneAt || doneTs || now)
+      });
+      return;
+    }
+
+    if (source === 'cloud') {
+      mergedList.push({
+        ...loc,
+        done: false,
+        doneAt: 0
+      });
+      return;
+    }
+
+    const createdMs = typeof loc.id === 'number' && loc.id > 1700000000000 ? loc.id : 0;
+    const isVeryRecent = createdMs && (now - createdMs < 25000);
+    if (!tdKey || isVeryRecent) {
+      mergedList.push({
+        ...loc,
+        done: false,
+        doneAt: 0
+      });
+    } else {
+      delMap['task_done_' + norm] = now;
+      delMap['task_done_title_' + titleKey] = now;
+      delMap['task_done_td_' + tdKey] = now;
+      mergedList.push({
+        ...loc,
+        done: true,
+        doneAt: now
+      });
     }
   });
 
-  return Array.from(mergedMap.values());
+  saveLocalSyncMeta(syncMeta);
+  return mergedList;
 }
 
 export default function TouchwallApp() {
@@ -219,12 +324,10 @@ export default function TouchwallApp() {
   const [authKey, setAuthKey] = useState('');
   const [familyName, setFamilyName] = useState('Familien-Touchwall');
 
-  // Speisekammer, Mülleimer & RPG Skill-Board State
   const [pantryItems, setPantryItemsRaw] = useState([]);
   const [pantryTrash, setPantryTrashRaw] = useState([]);
   const [skillBoardData, setSkillBoardDataRaw] = useState(null);
 
-  // Formularfelder für Login & Registrierung
   const [formUsername, setFormUsername] = useState('');
   const [formPassword, setFormPassword] = useState('');
   const [loginFamilyName, setLoginFamilyName] = useState('');
@@ -250,7 +353,6 @@ export default function TouchwallApp() {
     collaborators: []
   });
 
-  // 4-Kanal Sync-Status & Modal
   const [syncModalOpen, setSyncModalOpen] = useState(false);
   const [syncStatusText, setSyncStatusText] = useState('⚡ 4-Kanal Sync aktiv');
   const [lastAutoSyncTime, setLastAutoSyncTime] = useState('');
@@ -272,10 +374,10 @@ export default function TouchwallApp() {
   const [pushPermission, setPushPermission] = useState('default');
   const [activeAlarmBanner, setActiveAlarmBanner] = useState(null);
 
-  // Sync-Schutz-Refs (verhindern Ping-Pong & Überschreiben!)
   const triggeredAlarmsRef = useRef({});
   const isInitialLoadDone = useRef(false);
   const isNetworkSavingRef = useRef(false);
+  const isSyncRunningRef = useRef(false);
   const lastLocalEditTimeRef = useRef(0);
   const lastThemeChangeRef = useRef(0);
   const autoSaveTimer = useRef(null);
@@ -312,7 +414,6 @@ export default function TouchwallApp() {
     setTimeout(() => setToast(null), 3800);
   };
 
-  // Geschützte Setter für Kanal 3 (Speisekammer & Mülleimer) & Kanal 4 (Skill Board)
   const setPantryItems = (updater) => {
     lastLocalEditTimeRef.current = Date.now();
     setPantryItemsRaw(prev => applyPantryStateChangeWithMeta(prev, updater, syncMetaRef, false));
@@ -371,6 +472,7 @@ export default function TouchwallApp() {
                 text: it?.text || '',
                 done: Boolean(it?.done),
                 doneAt: Number(it?.doneAt || 0),
+                addedAtTs: Number(it?.addedAtTs || 0),
                 todoistId: it?.todoistId,
                 fromMobile: it?.fromMobile
               }))
@@ -393,7 +495,7 @@ export default function TouchwallApp() {
       valentina: {
         periods: Array.isArray(s?.valentina?.periods) ? s.valentina.periods : DEFAULT_SCHOOL.valentina.periods,
         slots: s?.valentina?.slots && typeof s.valentina.slots === 'object' ? s.valentina.slots : DEFAULT_SCHOOL.valentina.slots,
-        announcements: Array.isArray(s?.valentina?.announcements) ? s.dean?.announcements && s?.valentina?.announcements ? s.valentina.announcements : [] : []
+        announcements: Array.isArray(s?.valentina?.announcements) ? s.valentina.announcements : []
       }
     };
   }, [schoolData]);
@@ -579,7 +681,7 @@ export default function TouchwallApp() {
   }, [isAuthenticated, safeEvents, safeTasks, safeMembers, todayStr]);
 
   // =========================================================
-  // KANAL 2: UNABHÄNGIGER TODOIST-SYNC (MIT ANTI-PING-PONG RECONCILE!)
+  // KANAL 2: TODOIST-SYNC (MIT SPERRE GEGEN ÜBERSCHNEIDUNG & QUELLEN-SCHUTZ)
   // =========================================================
   const createAndSelectTodoistProject = async (projectName) => {
     const token = safeTodoistConfig.apiToken.trim();
@@ -640,10 +742,13 @@ export default function TouchwallApp() {
 
   const syncWithTodoistNow = async (showFeedback = false, cfgOverride = null) => {
     if (!isAuthenticated) return;
-    if (!showFeedback && (isNetworkSavingRef.current || Date.now() - lastLocalEditTimeRef.current < 7500)) return;
+    if (isSyncRunningRef.current) return;
+    if (!showFeedback && (isNetworkSavingRef.current || Date.now() - lastLocalEditTimeRef.current < 8000)) return;
 
     const cfg = cfgOverride || safeTodoistConfig;
     if (!cfg?.apiToken?.trim()) return;
+
+    isSyncRunningRef.current = true;
     setChannelStatus(prev => ({ ...prev, todoistBusy: true }));
     if (showFeedback) setIsSyncing(true);
 
@@ -662,21 +767,21 @@ export default function TouchwallApp() {
       }
 
       const pulled = await pullFromTodoistTwoWay(activeCfg.apiToken, activeCfg, safeTasks, safeNotes, safeMembers);
-      if (pulled && (showFeedback || (!isNetworkSavingRef.current && Date.now() - lastLocalEditTimeRef.current >= 6000))) {
+      if (pulled && (showFeedback || (!isNetworkSavingRef.current && Date.now() - lastLocalEditTimeRef.current >= 6500))) {
         if (Array.isArray(pulled.tasks)) {
-          const guardedTasks = reconcileFamilyTasks(safeTasks, pulled.tasks, syncMetaRef.current);
+          const guardedTasks = reconcileFamilyTasks(safeTasks, pulled.tasks, syncMetaRef.current, 'todoist');
           if (hasJsonChanged(safeTasks, guardedTasks)) {
             setFamilyTasks(guardedTasks);
           }
         }
         if (Array.isArray(pulled.familyNotes)) {
-          const guardedNotes = reconcileShoppingNotes(safeNotes, pulled.familyNotes, syncMetaRef.current);
+          const guardedNotes = reconcileShoppingNotes(safeNotes, pulled.familyNotes, syncMetaRef.current, 'todoist');
           if (hasJsonChanged(safeNotes, guardedNotes)) {
             setFamilyNotes(guardedNotes);
           }
         } else if (Array.isArray(pulled.shoppingItems)) {
           const candidateNotes = safeNotes.map((n, idx) => idx === 0 ? { ...n, items: pulled.shoppingItems } : n);
-          const guardedNotes = reconcileShoppingNotes(safeNotes, candidateNotes, syncMetaRef.current);
+          const guardedNotes = reconcileShoppingNotes(safeNotes, candidateNotes, syncMetaRef.current, 'todoist');
           if (hasJsonChanged(safeNotes, guardedNotes)) {
             setFamilyNotes(guardedNotes);
           }
@@ -692,6 +797,7 @@ export default function TouchwallApp() {
       setChannelStatus(prev => ({ ...prev, todoistBusy: false }));
       if (showFeedback) showToast('Todoist-Sync Hinweis', err.message, '⚠️');
     } finally {
+      isSyncRunningRef.current = false;
       setChannelStatus(prev => ({ ...prev, todoistBusy: false }));
       if (showFeedback) setIsSyncing(false);
     }
@@ -704,7 +810,7 @@ export default function TouchwallApp() {
     if (!isAuthenticated) return;
     const initTimeout = setTimeout(() => {
       syncTodoistRef.current?.(false);
-    }, 2500);
+    }, 3200);
 
     const todoistInterval = setInterval(() => {
       if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
@@ -719,7 +825,7 @@ export default function TouchwallApp() {
   }, [isAuthenticated]);
 
   // =========================================================
-  // KANÄLE 1, 3 & 4: GOOGLE CLOUD SMART-MERGE (MIT ANTI-PING-PONG!)
+  // KANÄLE 1, 3 & 4: GOOGLE CLOUD SMART-MERGE (MIT QUELLEN-SCHUTZ 'cloud')
   // =========================================================
   const callGoogleAppsScript = async (targetUrl, method = 'POST', postBody = null) => {
     return callCloudApi(targetUrl || appsScriptUrl || PUBLIC_CLOUD_BACKEND_URL, method, postBody, accountId, authKey);
@@ -754,7 +860,7 @@ export default function TouchwallApp() {
         }
 
         if (Array.isArray(s.familyNotes) && s.familyNotes.length > 0) {
-          const guardedNotes = reconcileShoppingNotes(safeNotes, s.familyNotes, syncMetaRef.current);
+          const guardedNotes = reconcileShoppingNotes(safeNotes, s.familyNotes, syncMetaRef.current, 'cloud');
           if (hasJsonChanged(safeNotes, guardedNotes)) {
             setFamilyNotes(guardedNotes);
           }
@@ -765,7 +871,7 @@ export default function TouchwallApp() {
         }
 
         if (Array.isArray(s.familyTasks)) {
-          const guardedTasks = reconcileFamilyTasks(safeTasks, s.familyTasks, syncMetaRef.current);
+          const guardedTasks = reconcileFamilyTasks(safeTasks, s.familyTasks, syncMetaRef.current, 'cloud');
           if (hasJsonChanged(safeTasks, guardedTasks)) {
             setFamilyTasks(guardedTasks);
           }
@@ -779,7 +885,6 @@ export default function TouchwallApp() {
         if (s.todoistConfig?.apiToken) setTodoistConfig(prev => ({ ...prev, ...s.todoistConfig }));
       }
 
-      // KANAL 3: Speisekammer & Handy-Scans per Smart-Merge zusammenführen!
       if (channelsFilter === 'all' || channelsFilter === 'pantry') {
         if (Array.isArray(s.pantryItems) || Array.isArray(s.pantryTrash)) {
           const { mergedStock, mergedTrash } = mergePantryChannelSafe(
@@ -794,7 +899,6 @@ export default function TouchwallApp() {
         }
       }
 
-      // KANAL 4: Skill Board per Max-XP-Merge zusammenführen!
       if (channelsFilter === 'all' || channelsFilter === 'skillboard') {
         if (s.skillBoardData && typeof s.skillBoardData === 'object') {
           setSkillBoardDataRaw(prev => mergeSkillBoardSafe(prev, s.skillBoardData));
@@ -802,7 +906,6 @@ export default function TouchwallApp() {
       }
     }
 
-    // KANAL 1: Kalender-Termine mit Hüpf-Schutz (Pending-Guard) zusammenführen!
     if ((channelsFilter === 'all' || channelsFilter === 'calendar') && Array.isArray(bundle?.calendarData?.events)) {
       const guardedEvents = mergeCalendarEventsSafe(
         bundle.calendarData.events,
@@ -822,6 +925,7 @@ export default function TouchwallApp() {
     const activeAcc = customAccId !== undefined ? customAccId : accountId;
     const activeKey = customAuthKey !== undefined ? customAuthKey : authKey;
     if (!activeAcc || activeAcc === 'local') return false;
+    if (isSyncRunningRef.current) return false;
 
     if (!showFeedback && (isNetworkSavingRef.current || Date.now() - lastLocalEditTimeRef.current < 8000)) {
       return false;
@@ -829,6 +933,8 @@ export default function TouchwallApp() {
 
     const targetUrl = (urlOverride !== undefined ? urlOverride : (appsScriptUrl || PUBLIC_CLOUD_BACKEND_URL)).trim();
     if (!targetUrl) return false;
+
+    isSyncRunningRef.current = true;
     if (showFeedback) setIsSyncing(true);
 
     try {
@@ -838,7 +944,7 @@ export default function TouchwallApp() {
         return false;
       }
 
-      if (!showFeedback && (isNetworkSavingRef.current || Date.now() - lastLocalEditTimeRef.current < 6000)) {
+      if (!showFeedback && (isNetworkSavingRef.current || Date.now() - lastLocalEditTimeRef.current < 6500)) {
         return false;
       }
 
@@ -858,6 +964,7 @@ export default function TouchwallApp() {
       isInitialLoadDone.current = true;
       return false;
     } finally {
+      isSyncRunningRef.current = false;
       if (showFeedback) setIsSyncing(false);
     }
   };
@@ -965,7 +1072,6 @@ export default function TouchwallApp() {
     setIsCheckingAuth(false);
   }, []);
 
-  // Ruhiger 10-Sekunden Hintergrund-Abruf
   useEffect(() => {
     if (!isAuthenticated || !accountId || accountId === 'local') return;
     const calInterval = setInterval(() => {
@@ -976,7 +1082,7 @@ export default function TouchwallApp() {
     return () => clearInterval(calInterval);
   }, [isAuthenticated, accountId]);
 
-  // Atomarer Cloud-Save mit Vorab-Merge für Vorrat, Aufgaben & Einkaufsliste!
+  // Atomarer Cloud-Save mit Vorab-Merge
   useEffect(() => {
     if (!isAuthenticated) return;
     const localPayload = {
@@ -1032,11 +1138,11 @@ export default function TouchwallApp() {
             saveLocalSyncMeta(syncMetaRef.current);
 
             if (Array.isArray(fresh.state.familyNotes)) {
-              mergedNotes = reconcileShoppingNotes(safeNotes, fresh.state.familyNotes, syncMetaRef.current);
+              mergedNotes = reconcileShoppingNotes(safeNotes, fresh.state.familyNotes, syncMetaRef.current, 'cloud');
               if (hasJsonChanged(safeNotes, mergedNotes)) setFamilyNotes(mergedNotes);
             }
             if (Array.isArray(fresh.state.familyTasks)) {
-              mergedTasks = reconcileFamilyTasks(safeTasks, fresh.state.familyTasks, syncMetaRef.current);
+              mergedTasks = reconcileFamilyTasks(safeTasks, fresh.state.familyTasks, syncMetaRef.current, 'cloud');
               if (hasJsonChanged(safeTasks, mergedTasks)) setFamilyTasks(mergedTasks);
             }
 
@@ -1270,12 +1376,13 @@ export default function TouchwallApp() {
   };
 
   // =========================================================
-  // GESCHÜTZTE EINKAUFSLISTEN- & NOTIZ-HANDLER (KEIN FLACKERN!)
+  // GESCHÜTZTE EINKAUFSLISTEN- & NOTIZ-HANDLER
   // =========================================================
   const addItemToNoteTile = async (noteId, textStr) => {
     const clean = String(textStr || '').trim();
     if (!clean) return;
-    lastLocalEditTimeRef.current = Date.now();
+    const now = Date.now();
+    lastLocalEditTimeRef.current = now;
     const targetNote = safeNotes.find(n => n.id === noteId);
     const isFirst = safeNotes[0]?.id === noteId;
     const norm = getShopNormKey(clean);
@@ -1310,7 +1417,7 @@ export default function TouchwallApp() {
     setFamilyNotes(prev => (Array.isArray(prev) ? prev : DEFAULT_NOTES).map(n => n.id === noteId ? {
       ...n,
       items: [
-        { text: clean, done: false, doneAt: 0, todoistId },
+        { text: clean, done: false, doneAt: 0, addedAtTs: now, todoistId },
         ...(Array.isArray(n.items) ? n.items : []).filter(it => !isFirst || getShopNormKey(it?.text) !== norm)
       ]
     } : n));
@@ -1426,7 +1533,7 @@ export default function TouchwallApp() {
   };
 
   // =========================================================
-  // GESCHÜTZTE AUFGABEN-HANDLER (KEIN WIEDERAUFTAUCHEN / FLACKERN!)
+  // GESCHÜTZTE AUFGABEN-HANDLER (INKL. TITEL-SPERRE)
   // =========================================================
   const pushTaskToPhoneNow = async (task) => {
     if (!task) return;
@@ -1489,12 +1596,16 @@ export default function TouchwallApp() {
   ) => {
     const clean = String(titleStr || '').trim();
     if (!clean) return;
-    lastLocalEditTimeRef.current = Date.now();
+    const now = Date.now();
+    lastLocalEditTimeRef.current = now;
     const norm = getTaskNormKey({ member: memberId, title: clean });
+    const titleKey = getTaskTitleKey({ title: clean });
 
     if (syncMetaRef.current?.deletedTaskIds) {
       delete syncMetaRef.current.deletedTaskIds['task_del_' + norm];
+      delete syncMetaRef.current.deletedTaskIds['task_del_title_' + titleKey];
       delete syncMetaRef.current.deletedTaskIds['task_done_' + norm];
+      delete syncMetaRef.current.deletedTaskIds['task_done_title_' + titleKey];
       saveLocalSyncMeta(syncMetaRef.current);
     }
 
@@ -1527,7 +1638,7 @@ export default function TouchwallApp() {
     }
 
     const newTask = {
-      id: Date.now() + Math.floor(Math.random() * 1000),
+      id: now + Math.floor(Math.random() * 1000),
       todoistId,
       projectId: targetProjId,
       member: memberId,
@@ -1541,7 +1652,7 @@ export default function TouchwallApp() {
       done: false,
       doneAt: 0
     };
-    setFamilyTasks(prev => [newTask, ...(Array.isArray(prev) ? prev : []).filter(t => getTaskNormKey(t) !== norm)]);
+    setFamilyTasks(prev => [newTask, ...(Array.isArray(prev) ? prev : []).filter(t => getTaskTitleKey(t) !== titleKey)]);
     showToast('Aufgabe angelegt', clean + ' → ' + (memberObj?.name || memberId), '📲');
 
     if (pushToCal) {
@@ -1569,17 +1680,21 @@ export default function TouchwallApp() {
 
     if (target) {
       const norm = getTaskNormKey(target);
+      const titleKey = getTaskTitleKey(target);
       const idKey = String(target.id || '');
       const tdKey = target.todoistId ? String(target.todoistId) : '';
       if (!syncMetaRef.current.deletedTaskIds) syncMetaRef.current.deletedTaskIds = {};
 
       if (makeDone) {
         syncMetaRef.current.deletedTaskIds['task_done_' + norm] = now;
+        syncMetaRef.current.deletedTaskIds['task_done_title_' + titleKey] = now;
         if (idKey) syncMetaRef.current.deletedTaskIds['task_done_id_' + idKey] = now;
         if (tdKey) syncMetaRef.current.deletedTaskIds['task_done_td_' + tdKey] = now;
       } else {
         delete syncMetaRef.current.deletedTaskIds['task_done_' + norm];
+        delete syncMetaRef.current.deletedTaskIds['task_done_title_' + titleKey];
         delete syncMetaRef.current.deletedTaskIds['task_del_' + norm];
+        delete syncMetaRef.current.deletedTaskIds['task_del_title_' + titleKey];
         if (idKey) {
           delete syncMetaRef.current.deletedTaskIds['task_done_id_' + idKey];
           delete syncMetaRef.current.deletedTaskIds[idKey];
@@ -1612,8 +1727,11 @@ export default function TouchwallApp() {
 
     if (target) {
       const norm = getTaskNormKey(target);
+      const titleKey = getTaskTitleKey(target);
       syncMetaRef.current.deletedTaskIds['task_del_' + norm] = now;
+      syncMetaRef.current.deletedTaskIds['task_del_title_' + titleKey] = now;
       delete syncMetaRef.current.deletedTaskIds['task_done_' + norm];
+      delete syncMetaRef.current.deletedTaskIds['task_done_title_' + titleKey];
       if (target.todoistId) {
         syncMetaRef.current.deletedTaskIds[String(target.todoistId)] = now;
         delete syncMetaRef.current.deletedTaskIds['task_done_td_' + String(target.todoistId)];
@@ -1635,10 +1753,13 @@ export default function TouchwallApp() {
     if (!syncMetaRef.current.deletedTaskIds) syncMetaRef.current.deletedTaskIds = {};
     for (const t of toRemove) {
       const norm = getTaskNormKey(t);
+      const titleKey = getTaskTitleKey(t);
       const idKey = String(t.id || '');
       const tdKey = t.todoistId ? String(t.todoistId) : '';
       syncMetaRef.current.deletedTaskIds['task_del_' + norm] = now;
+      syncMetaRef.current.deletedTaskIds['task_del_title_' + titleKey] = now;
       delete syncMetaRef.current.deletedTaskIds['task_done_' + norm];
+      delete syncMetaRef.current.deletedTaskIds['task_done_title_' + titleKey];
       if (idKey) {
         syncMetaRef.current.deletedTaskIds[idKey] = now;
         delete syncMetaRef.current.deletedTaskIds['task_done_id_' + idKey];
@@ -2332,9 +2453,9 @@ export default function TouchwallApp() {
         onSyncTodoistOnly={() => syncWithTodoistNow(true)}
         onSyncPantryOnly={() => pullFromCloud(undefined, true, undefined, undefined, 'pantry')}
         onSyncSkillBoardOnly={() => pullFromCloud(undefined, true, undefined, undefined, 'skillboard')}
-        onSyncAllChannels={() => {
-          pullFromCloud(undefined, true, undefined, undefined, 'all');
-          syncWithTodoistNow(true);
+        onSyncAllChannels={async () => {
+          await pullFromCloud(undefined, true, undefined, undefined, 'all');
+          await syncWithTodoistNow(true);
         }}
         themeStyles={themeStyles}
       />
