@@ -11,10 +11,12 @@ export const FOOD_CATEGORIES = [
 ];
 
 export const STORAGE_PILLS = [
-  { id: 'kitchen', label: '🍎 Küche' },
-  { id: 'fridge',  label: '🧊 Kühl.' },
-  { id: 'freezer', label: '❄️ TK' },
-  { id: 'pantry',  label: '🗄️ Vorrat' }
+  { id: 'fridge',   label: '🧊 Kühlschrank' },
+  { id: 'freezer',  label: '❄️ TK / Gefrier.' },
+  { id: 'cupboard', label: '🚪 Vorratsschrank' },
+  { id: 'pantry',   label: '🗄️ Keller / Vorrat' },
+  { id: 'kitchen',  label: '🍎 Küche' },
+  { id: 'petfood',  label: '🐾 Tierfutter' }
 ];
 
 export function detectFoodCategory(nameStr, customCategory = '') {
