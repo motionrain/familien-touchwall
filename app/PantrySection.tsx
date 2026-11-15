@@ -8,7 +8,7 @@ import {
   Package, Trash2, Plus, CheckCircle2,
   ShoppingCart, RotateCcw, ChefHat, Pencil, Check, X,
   Table as TableIcon, LayoutGrid, ArrowUpDown, Wand2,
-  AlertTriangle, BellRing, Search
+  AlertTriangle, BellRing, Search, SlidersHorizontal, ChevronDown
 } from 'lucide-react';
 import * as Cfg from './touchwallConfig';
 import PantryRecipes from './PantryRecipes';
@@ -52,9 +52,9 @@ const FOOD_EMOJI_PICKER = [
 ];
 
 const KNOWN_BRAND_PREFIXES = [
-  'K-Classic', 'K-Bio', 'K-Favourites', 'ja!', 'GUT&GÜNSTIG', 'Gut & Günstig',
+  'Kaufland', 'K-Classic', 'K-Bio', 'K-Favourites', 'K-Purland', 'ja!', 'GUT&GÜNSTIG', 'Gut & Günstig',
   'EDEKA', 'REWE Beste Wahl', 'REWE Bio', 'REWE', 'Milbona', 'Milsani', 'Bellarom',
-  'Kania', 'Combino', 'Alnatura', 'dmBio', 'Schär', 'Dr. Schär', 'Gefro', 'Meggle',
+  'Kania', 'Combino', 'Alnatura', 'dmBio', 'Schär', 'Dr. Schär', 'Seitz', 'Gefro', 'Meggle',
   'Philadelphia', 'Thomy', 'Heinz', 'Hengstenberg', 'Pfanni', 'Barilla', 'Dr. Oetker',
   'Iglo', 'Frosta', 'Landfein', 'Schwarzwaldmilch', 'Weihenstephan', 'Bärenmarke',
   'Kerrygold', 'Oro di Parma', 'Alnavit', 'Bauckhof', 'Müller', 'Ehrmann', 'Zott',
@@ -72,7 +72,7 @@ export function shortenBrandString(rawBrand) {
 
   b = b
     .replace(/\b(GmbH\s*&\s*Co\.?\s*KG|GmbH\s*&\s*Co\.?\s*OHG|GmbH|AG|KG|OHG|SE|mbH|e\.?\s*G\.?|Inc\.?|Ltd\.?|S\.?p\.?A\.?|S\.?A\.?)\b/gi, '')
-    .replace(/\b(Pilze\s*&\s*Waldfrüchte|Uwe\s+Niklas|Warenhandel|Nahrungsmittel|Lebensmittel|Molkerei|Privatmolkerei|Käserei|Fleischwerke|Feinkost|Vertriebs|Handels|Werke|Deutschland|International)\b/gi, '')
+    .replace(/\b(Pilze\s*&\s*Waldfrüchte|Uwe\s+Niklas|Fleischwaren|Heiligenstadt|Warenhandel|Nahrungsmittel|Lebensmittel|Molkerei|Privatmolkerei|Käserei|Fleischwerke|Feinkost|Vertriebs|Handels|Werke|Deutschland|International)\b/gi, '')
     .replace(/\s+/g, ' ')
     .trim();
 
@@ -153,9 +153,6 @@ export function simplifyProductName(rawInputName, explicitBrand = '') {
   return productPart;
 }
 
-// ============================================================================
-// INTELLIGENTE KATEGORIE- & LAGERORT-ERKENNUNG (INKL. VORRATSSCHRANK & TIERFUTTER)
-// ============================================================================
 export function detectFoodCategory(nameStr, customCategory = '') {
   if (customCategory && customCategory !== 'auto' && FOOD_CATEGORIES.some(c => c.id === customCategory)) {
     return customCategory;
@@ -166,8 +163,8 @@ export function detectFoodCategory(nameStr, customCategory = '') {
   if (/butter|kräuterbutter|meggle|margarine|öl|sonnenblumenöl|olivenöl|rapsöl|kokosöl|fett|schmalz|essig|hengstenberg|senf|thomy|ketchup|mayo|mayonnaise|dressing|burger sauce|heinz|soße|sauce|pesto/.test(n)) return 'oils_fats';
   if (/wasser|mineralwasser|kaffee|espresso|tee|saft|apfelsaft|orangensaft|schorle|cola|limo|getränk|sirup|kakao|\bbier\b|\bwein\b/.test(n)) return 'drinks';
   if (/milch|vollmilch|schwarzwaldmilch|landfein|joghurt|quark|käse|frischkäse|philadelphia|scheibenkäse|gouda|mozzarella|parmesan|emmentaler|camembert|feta|schlagsahne|sahne|schmand|creme fraiche|mascarpone|ayran|kefir/.test(n)) return 'dairy';
-  if (/fleisch|hackfleisch|rinderhack|rind|schwein|hähnchen|huhn|pute|geflügel|schnitzel|steak|gulasch|wurst|bratwurst|rostbratwurst|leberwurst|würstchen|wiener|lyoner|salami|schinken|speck|aufschnitt|fisch|lachs|thunfisch|fischstäbchen|forelle|garnele|\bei\b|eier/.test(n)) return 'meat_fish_eggs';
-  if (/brot|landbrot|mehrkorn|brötchen|toast|baguette|croissant|nudel|spaghetti|pasta|penne|rigatoni|tortellini|ravioli|spätzle|reis|spitzenreis|langkorn|basmati|jasmin|milchreis|getreide|haferflocken|müsli|cornflakes|choco balls|mehl|grieß|stärke|wraps|wrap|tortilla|taco|schär|kartoffel|kartoffelpüree|pfanni|gnocchi|schupfnudel|pommes|knödel/.test(n)) return 'grains';
+  if (/fleisch|schweinefilet|rinderfilet|filet|lende|hackfleisch|rinderhack|rind|schwein|hähnchen|huhn|pute|geflügel|schnitzel|steak|gulasch|wurst|bratwurst|rostbratwurst|leberwurst|würstchen|wiener|lyoner|salami|schinken|speck|aufschnitt|fisch|lachs|thunfisch|fischstäbchen|forelle|garnele|\bei\b|eier/.test(n)) return 'meat_fish_eggs';
+  if (/brot|landbrot|mehrkorn|knusperbrot|brötchen|toast|baguette|croissant|nudel|spaghetti|pasta|penne|rigatoni|tortellini|ravioli|spätzle|reis|rize|spitzenreis|langkorn|basmati|jasmin|milchreis|getreide|haferflocken|müsli|cornflakes|choco balls|mehl|grieß|stärke|wraps|wrap|tortilla|taco|schär|seitz|kartoffel|kartoffelpüree|pfanni|gnocchi|schupfnudel|pommes|knödel/.test(n)) return 'grains';
   if (/schokolade|choco|schoko|nutella|keks|cookie|gummibär|chips|flips|eis|bonbon|praline|zuckerware/.test(n)) return 'sweets_snacks';
   return 'sweets_snacks';
 }
@@ -180,7 +177,7 @@ export function detectSmartLocation(nameStr, categoryId = '') {
   if (/\btk\b|tiefkühl|tiefgekühlt|tiefgefroren|gefrier|eiscreme|speiseeis|fischstäbchen|pommes/.test(n)) {
     return 'freezer';
   }
-  if (/nudel|spaghetti|pasta|penne|reis|basmati|langkorn|mehl|zucker|salz|haferflocken|müsli|cornflakes|choco balls|wraps|wrap|schär|backpulver|vanillezucker|kaffee|tee|kakao|schokolade|keks|cookie|chips|nüsse|gefro|chili sin carne|kartoffelpüree|pfanni|tomatenmark|pesto|öl|olivenöl|sonnenblumenöl|essig|senf|ketchup|mayo|burger sauce/.test(n)) {
+  if (/nudel|spaghetti|pasta|penne|rigatoni|reis|rize|basmati|langkorn|mehl|zucker|salz|haferflocken|müsli|cornflakes|choco balls|wraps|wrap|schär|seitz|knusperbrot|backpulver|vanillezucker|kaffee|tee|kakao|schokolade|keks|cookie|chips|nüsse|gefro|chili sin carne|kartoffelpüree|pfanni|tomatenmark|pesto|öl|olivenöl|sonnenblumenöl|essig|senf|ketchup|mayo|burger sauce/.test(n)) {
     return 'cupboard';
   }
   if (/konserve|dose|im glas|apfelmus|rotkohl|spargel|stangenspargel|passierte|kartoffel|zwiebel|knoblauch|wasser|mineralwasser|saft|apfelsaft|orangensaft|schorle|cola|limo|\bbier\b|\bwein\b|vorrat|haltbare/.test(n)) {
@@ -208,7 +205,7 @@ export function isProductGlutenFree(itemOrName, customCategory = '', manualFlag 
   const n = nameStr.toLowerCase();
   if (!n.trim()) return false;
 
-  if (/glutenfrei|gluten-free|ohne gluten|\bgf\b|schär|schaer|bauckhof|alnavit|hammermühle|seitz|schnitzer|reismehl|maismehl|buchweizen|quinoa|hirse|amarant|polenta|maisstärke|speisestärke|kartoffelmehl|gefro/.test(n)) {
+  if (/glutenfrei|gluten-free|ohne gluten|frei von|\bgf\b|schär|schaer|bauckhof|alnavit|hammermühle|seitz|schnitzer|reismehl|maismehl|buchweizen|quinoa|hirse|amarant|polenta|maisstärke|speisestärke|kartoffelmehl|gefro/.test(n)) {
     return true;
   }
 
@@ -220,7 +217,7 @@ export function isProductGlutenFree(itemOrName, customCategory = '', manualFlag 
     return true;
   }
 
-  if (/reis|spitzenreis|langkorn|basmati|jasmin|milchreis|risotto|kartoffel|kartoffelpüree|pfanni|pommes|kroketten|mais|popcorn/.test(n)) {
+  if (/reis|rize|spitzenreis|langkorn|basmati|jasmin|milchreis|risotto|kartoffel|kartoffelpüree|pfanni|pommes|kroketten|mais|popcorn/.test(n)) {
     return true;
   }
 
@@ -250,7 +247,7 @@ export function getFoodEmoji(nameStr, customEmoji = '') {
   if (/kartoffel|kartoffelpüree|pfanni|pommes|gnocchi|schupfnudel/.test(n)) return '🥔';
   if (/zwiebel|knoblauch/.test(n)) return '🧅';
   if (/brokkoli|blumenkohl|spargel/.test(n)) return '🥦';
-  if (/mais/.test(n)) return '🌽';
+  if (/mais|knusperbrot/.test(n)) return '🌽';
   if (/pilz|pfifferling|steinpilz|champignon/.test(n)) return '🍄';
   if (/avocado/.test(n)) return '🥑';
   if (/käse|frischkäse|philadelphia|scheibenkäse|gouda|mozzarella|parmesan|emmentaler|camembert|feta/.test(n)) return '🧀';
@@ -258,10 +255,10 @@ export function getFoodEmoji(nameStr, customEmoji = '') {
   if (/schlagsahne|sahne|joghurt|quark|pudding|schmand|creme/.test(n)) return '🥣';
   if (/\bei\b|eier/.test(n)) return '🥚';
   if (/hähnchen|huhn|pute|geflügel|nuggets/.test(n)) return '🍗';
-  if (/hackfleisch|rinderhack|rind|steak|fleisch|schnitzel|gulasch/.test(n)) return '🥩';
+  if (/hackfleisch|rinderhack|rind|schwein|filet|steak|fleisch|schnitzel|gulasch/.test(n)) return '🥩';
   if (/fisch|lachs|thunfisch|fischstäbchen|forelle/.test(n)) return '🐟';
-  if (/nudel|spaghetti|pasta|penne|tortellini|ravioli|spätzle/.test(n)) return '🍝';
-  if (/reis|spitzenreis|langkorn|onkelz|basmati|jasmin|milchreis/.test(n)) return '🍚';
+  if (/nudel|spaghetti|pasta|penne|rigatoni|tortellini|ravioli|spätzle/.test(n)) return '🍝';
+  if (/reis|rize|spitzenreis|langkorn|onkelz|basmati|jasmin|milchreis/.test(n)) return '🍚';
   if (/brot|landbrot|mehrkorn|brötchen|toast|baguette|croissant/.test(n)) return '🥖';
   if (/pizza|flammkuchen/.test(n)) return '🍕';
   if (/wrap|taco|tortilla|schär/.test(n)) return '🌮';
@@ -335,20 +332,24 @@ export default function PantrySection({
   showToast
 }) {
   const [activeSubTab, setActiveSubTab] = useState('stock');
-  const [viewMode, setViewMode] = useState('table'); // 'table' | 'cards'
-  const [sortMode, setSortMode] = useState('newest'); // 'newest' | 'expiry' | 'glutenfree'
+  const [viewMode, setViewMode] = useState('cards'); // 'cards' | 'table'
+  const [sortMode, setSortMode] = useState('newest'); // 'newest' | 'expiry' | 'glutenfree' | 'az'
   const [onlyGlutenFree, setOnlyGlutenFree] = useState(false);
   const [locationFilter, setLocationFilter] = useState('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [showAddForm, setShowAddForm] = useState(false);
+
+  // Intelligente Popover-Menüs statt mehrerer Leisten
+  const [showControlMenu, setShowControlMenu] = useState(false);
+  const [showMhdAlertPopover, setShowMhdAlertPopover] = useState(false);
+  const [showAddFormModal, setShowAddFormModal] = useState(false);
 
   // Formular: Neues Produkt
   const [itemName, setItemName] = useState('');
   const [itemQty, setItemQty] = useState('1x');
   const [itemLocation, setItemLocation] = useState('fridge');
   const [itemCategory, setItemCategory] = useState('auto');
-  const [itemGlutenFree, setItemGlutenFree] = useState('auto'); // 'auto' | 'yes' | 'no'
+  const [itemGlutenFree, setItemGlutenFree] = useState('auto');
   const [itemExpiry, setItemExpiry] = useState('');
 
   // Komfort-Bearbeitungs-Modal
@@ -372,7 +373,6 @@ export default function PantrySection({
     return safeStock.filter(it => isProductGlutenFree(it)).length;
   }, [safeStock]);
 
-  // Gruppierung für die 2-stufige MHD-Warnung (Stufe 2: 0 Tage = Heute letzte Warnung | Stufe 1: 1-2 Tage Vorwarnung)
   const mhdWarningGroups = useMemo(() => {
     const finalToday = [];
     const warnTwoDays = [];
@@ -382,12 +382,14 @@ export default function PantrySection({
       if (d === 0) finalToday.push(item);
       else if (d === 1 || d === 2) warnTwoDays.push({ ...item, daysLeft: d });
     });
-    return { finalToday, warnTwoDays };
+    return {
+      finalToday,
+      warnTwoDays,
+      totalAlerts: finalToday.length + warnTwoDays.length
+    };
   }, [safeStock, todayStr]);
 
-  // ============================================================================
-  // 1. AUTOMATISCHER MÜLLEIMER FÜR BEREITS ABGELAUFENE PRODUKTE (< todayStr)
-  // ============================================================================
+  // 1. Automatischer Mülleimer für abgelaufene Produkte (< todayStr)
   useEffect(() => {
     const expiredNow = safeStock.filter(item => item.expiryDate && item.expiryDate < todayStr);
     if (expiredNow.length > 0) {
@@ -406,9 +408,7 @@ export default function PantrySection({
     }
   }, [safeStock, todayStr, setPantryItems, setPantryTrash, showToast]);
 
-  // ============================================================================
-  // 2. ZWEISTUFIGER MHD-PUSH-ALARM + TODOIST-NOTFALLAUFGABE AM ABLAUFTAG (0 TAGE)
-  // ============================================================================
+  // 2. Zweistufiger MHD-Push-Alarm + Todoist-Notfallaufgabe am Ablauftag
   const triggerMhdWarningsAndTodoistPush = async (forceManual = false) => {
     if (!safeStock || safeStock.length === 0) return;
 
@@ -450,7 +450,6 @@ export default function PantrySection({
       localStorage.setItem('richter_tw_wall_mhd_push_v1', JSON.stringify(log));
     } catch (e) {}
 
-    // STUFE 2: Tag des Ablaufs (daysLeft === 0) -> Letzte Warnung + Automatische Todoist-Erinnerung aufs Handy!
     if (finalTodayToNotify.length > 0) {
       const names = finalTodayToNotify.map(x => getFoodEmoji(x.name, x.customEmoji) + ' ' + x.name).join(', ');
       try { playTouchwallAlarmSound?.(); } catch (e) {}
@@ -469,7 +468,6 @@ export default function PantrySection({
         } catch (e) {}
       }
 
-      // Automatische Todoist-Erinnerungsaufgabe erstellen, damit das Handy garantiert klingelt
       try {
         const rawSaved = typeof localStorage !== 'undefined' ? localStorage.getItem('richter_touchwall_v6') : null;
         const parsedSaved = rawSaved ? JSON.parse(rawSaved) : null;
@@ -504,7 +502,6 @@ export default function PantrySection({
       } catch (e) {}
     }
 
-    // STUFE 1: Vorwarnung (1–2 Tage vor Ablauf)
     if (warnTwoDaysToNotify.length > 0) {
       const names = warnTwoDaysToNotify
         .map(x => getFoodEmoji(x.name, x.customEmoji) + ' ' + x.name + ' (' + (x.daysLeft === 1 ? 'morgen' : 'in 2 Tagen') + ')')
@@ -578,11 +575,10 @@ export default function PantrySection({
     setItemCategory('auto');
     setItemGlutenFree('auto');
     setItemExpiry('');
-    setShowAddForm(false);
+    setShowAddFormModal(false);
     showToast('In Speisekammer gespeichert', cleanName + ' (MHD: ' + itemExpiry + ')', getFoodEmoji(cleanName));
   };
 
-  // 1-Klick-Namensbereinigung für den gesamten vorhandenen Bestand
   const handleSimplifyAllStockNames = () => {
     if (safeStock.length === 0) return;
     const now = Date.now();
@@ -598,6 +594,7 @@ export default function PantrySection({
       return it;
     }));
 
+    setShowControlMenu(false);
     showToast(
       'Namen optimiert ✨',
       changedCount > 0 ? (changedCount + ' Produktnamen auf „Produkt / Marke“ gekürzt.') : 'Alle Produktnamen sind bereits optimal kurz.',
@@ -753,6 +750,9 @@ export default function PantrySection({
           if (a.resolvedGlutenFree !== b.resolvedGlutenFree) return a.resolvedGlutenFree ? -1 : 1;
           return b.resolvedAddedTs - a.resolvedAddedTs;
         }
+        if (sortMode === 'az') {
+          return String(a.name || '').localeCompare(String(b.name || ''), 'de');
+        }
         if (sortMode === 'newest') return b.resolvedAddedTs - a.resolvedAddedTs;
         return String(a.expiryDate || '9999').localeCompare(String(b.expiryDate || '9999'));
       });
@@ -785,12 +785,6 @@ export default function PantrySection({
     return [leftCol, rightCol];
   }, [groupedByCategory]);
 
-  const expiringSoonItems = useMemo(() => {
-    return safeStock
-      .filter(it => getDaysUntil(it.expiryDate, todayStr) <= 7)
-      .sort((a, b) => String(a.expiryDate).localeCompare(String(b.expiryDate)));
-  }, [safeStock, todayStr]);
-
   const trashStats = useMemo(() => {
     const consumed = safeTrash.filter(x => x.reason === 'consumed').length;
     const wasted = safeTrash.filter(x => x.reason === 'expired' || x.reason === 'wasted').length;
@@ -799,46 +793,34 @@ export default function PantrySection({
     return { consumed, wasted, total, score };
   }, [safeTrash]);
 
-  const cycleSortMode = () => {
-    setSortMode(prev => prev === 'newest' ? 'expiry' : prev === 'expiry' ? 'glutenfree' : 'newest');
-  };
-
-  const pantryAnimationStyles = [
-    '@keyframes twPulseOrangeMhd { 0%, 100% { border-color: rgba(251, 146, 60, 0.85); box-shadow: inset 0 0 8px rgba(245, 158, 11, 0.2), 0 0 8px rgba(245, 158, 11, 0.3); } 50% { border-color: #fbbf24; box-shadow: inset 0 0 16px rgba(245, 158, 11, 0.4), 0 0 18px rgba(245, 158, 11, 0.75); } }',
-    '@keyframes twPulseRedMhd { 0%, 100% { border-color: rgba(244, 63, 94, 0.9); box-shadow: inset 0 0 10px rgba(244, 63, 94, 0.25), 0 0 10px rgba(244, 63, 94, 0.4); } 50% { border-color: #ff2a55; box-shadow: inset 0 0 20px rgba(244, 63, 94, 0.5), 0 0 22px rgba(244, 63, 94, 0.9); } }',
-    '.tw-pantry-tile { transition: box-shadow 0.16s ease, border-color 0.16s ease, background-color 0.16s ease; }',
-    '.tw-pantry-tile:hover { border-color: var(--tw-btn-border, #38bdf8) !important; box-shadow: 0 0 15px var(--tw-btn-glow, rgba(56, 189, 248, 0.65)), inset 0 0 10px rgba(56, 189, 248, 0.18) !important; }',
-    '.tw-pantry-row { transition: box-shadow 0.15s ease, background-color 0.15s ease, border-color 0.15s ease; }',
-    '.tw-pantry-row:hover { background-color: rgba(56, 189, 248, 0.12) !important; border-color: var(--tw-btn-border, #38bdf8) !important; box-shadow: 0 0 14px var(--tw-btn-glow, rgba(56, 189, 248, 0.55)), inset 0 0 10px rgba(56, 189, 248, 0.2) !important; }',
-    '.tw-pantry-warn-orange { animation: twPulseOrangeMhd 2.2s infinite ease-in-out; border-color: rgba(251, 146, 60, 0.85) !important; }',
-    '.tw-pantry-urgent-red { animation: twPulseRedMhd 1.35s infinite ease-in-out; border-color: rgba(244, 63, 94, 0.9) !important; }'
-  ].join('\n');
-
+  // ============================================================================
+  // PUNKT 2: GROSSE PRODUKTTEXTE & GROSSE ICONS OHNE GLOW-EFFEKT (NUR ORANGE/ROT)
+  // ============================================================================
   const renderCategoryGroupCard = (group) => {
     const hasOverallNewest = latestOverallItem && group.items.some(it => it.id === latestOverallItem.id);
 
     return (
       <div
         key={group.id}
-        className={'rounded-2xl border overflow-hidden shadow-md flex flex-col ' + themeStyles.card + ' ' +
+        className={'rounded-3xl border overflow-hidden shadow-md flex flex-col ' + themeStyles.card + ' ' +
           (hasOverallNewest && sortMode === 'newest' ? 'border-sky-400/70' : themeStyles.divider)}
       >
-        <div className={'px-3 py-2 border-b flex items-center justify-between gap-2 ' + themeStyles.banner + ' ' + themeStyles.divider}>
-          <div className="flex items-center gap-2 min-w-0 flex-wrap">
-            <span className="w-7 h-7 rounded-lg bg-black/30 border border-white/15 flex items-center justify-center text-base shrink-0">
+        <div className={'px-4 py-2.5 border-b flex items-center justify-between gap-2 ' + themeStyles.banner + ' ' + themeStyles.divider}>
+          <div className="flex items-center gap-2.5 min-w-0 flex-wrap">
+            <span className="w-8 h-8 rounded-xl bg-black/35 border border-white/15 flex items-center justify-center text-lg shrink-0">
               {group.icon}
             </span>
-            <h3 className="font-black text-xs sm:text-sm truncate">{group.title}</h3>
-            <span className="px-2 py-0.2 rounded-full bg-sky-500/25 text-sky-300 border border-sky-400/30 text-[10px] font-black shrink-0">
+            <h3 className="font-black text-sm sm:text-base truncate">{group.title}</h3>
+            <span className="px-2.5 py-0.5 rounded-full bg-sky-500/25 text-sky-300 border border-sky-400/30 text-xs font-black shrink-0">
               {group.items.length}
             </span>
             {group.gfCount > 0 && (
-              <span className="px-2 py-0.2 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/35 text-[9px] font-black shrink-0">
+              <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/35 text-[11px] font-black shrink-0">
                 🌾✓ {group.gfCount} GF
               </span>
             )}
             {hasOverallNewest && sortMode === 'newest' && (
-              <span className="px-2 py-0.5 rounded-full bg-sky-500/25 text-sky-200 border border-sky-400/40 text-[9px] font-black shrink-0">
+              <span className="px-2.5 py-0.5 rounded-full bg-sky-500/25 text-sky-200 border border-sky-400/40 text-[10px] font-black shrink-0">
                 📲 Zuletzt gescannt
               </span>
             )}
@@ -846,14 +828,8 @@ export default function PantrySection({
         </div>
 
         {viewMode === 'table' ? (
-          <div className="p-1.5 space-y-1">
-            <div className="grid grid-cols-12 items-center gap-1.5 px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider opacity-60">
-              <div className="col-span-5">Produkt & Glutenfrei-Status</div>
-              <div className="col-span-2 text-center">Menge & Ort</div>
-              <div className="col-span-3 text-center">MHD & Verfallstag</div>
-              <div className="col-span-2 text-right">Aktion</div>
-            </div>
-
+          /* KOMPAKTE LISTENANSICHT MIT GROSSEN ICONS & GROSSER SCHRIFT (OHNE GLOW) */
+          <div className="p-2 space-y-1.5">
             {group.items.map((item, idx) => {
               const daysLeft = getDaysUntil(item.expiryDate, todayStr);
               const locObj = STORAGE_LOCATIONS.find(l => l.id === item.location) || STORAGE_LOCATIONS[4];
@@ -862,92 +838,96 @@ export default function PantrySection({
               const emojiIcon = getFoodEmoji(item.name, item.customEmoji);
               const decPreview = decrementItemPieceCount(item.quantity);
               const isLatestOverall = latestOverallItem && item.id === latestOverallItem.id;
-              const isTopInCategory = sortMode === 'newest' && idx === 0;
               const isGf = Boolean(item.resolvedGlutenFree);
 
-              const rowGlowClass = isUrgentRed
-                ? ' tw-pantry-urgent-red bg-rose-950/30'
+              // Ruhige, klare Einfärbung in Rot oder Orange OHNE Glow-Effekt!
+              const rowColorClass = isUrgentRed
+                ? 'bg-rose-500/25 border-2 border-rose-500 text-rose-50'
                 : isWarningOrange
-                ? ' tw-pantry-warn-orange bg-amber-950/25'
+                ? 'bg-amber-500/20 border-2 border-amber-500 text-amber-50'
                 : isLatestOverall && sortMode === 'newest'
-                ? ' border-sky-400/80 bg-sky-500/10'
-                : themeStyles.subtle;
+                ? 'border-2 border-sky-400/80 bg-sky-500/10'
+                : 'border ' + themeStyles.subtle;
 
-              const daysText = daysLeft <= 0 ? '🚨 HEUTE!' : daysLeft === 1 ? '⚠️ 1 Tag' : daysLeft === 2 ? '⚠️ 2 T.' : (daysLeft + ' T.');
+              const daysText = daysLeft <= 0 ? '🚨 HEUTE!' : daysLeft === 1 ? '1 Tag' : (daysLeft + ' T.');
 
               return (
-                <div key={item.id} className={'tw-pantry-row grid grid-cols-12 items-center gap-1.5 px-2.5 py-1.5 rounded-xl border ' + rowGlowClass}>
-                  <div onClick={() => openEditProductModal(item)} className="col-span-5 flex items-center gap-2 min-w-0 cursor-pointer">
-                    <span className="w-7 h-7 rounded-lg bg-black/35 border border-white/10 flex items-center justify-center text-base shrink-0">
+                <div
+                  key={item.id}
+                  onClick={() => openEditProductModal(item)}
+                  className={'flex items-center justify-between gap-3 px-3 py-2 rounded-2xl cursor-pointer transition-colors hover:bg-white/5 ' + rowColorClass}
+                >
+                  {/* LINKS: GROSSES PRODUKT-ICON + GROSSER PRODUKTNAME */}
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                    <span className="w-11 h-11 rounded-2xl bg-black/40 border border-white/15 flex items-center justify-center text-2xl shrink-0">
                       {emojiIcon}
                     </span>
-                    <div className="min-w-0 flex-1 flex items-center gap-1.5 flex-wrap">
-                      {isLatestOverall && sortMode === 'newest' ? (
-                        <span className="px-1.5 py-0.2 rounded bg-sky-500 text-white text-[8px] font-black shrink-0">
-                          {item.fromMobile ? '📲 ZULETZT ERFASST' : '🆕 NEU'}
-                        </span>
-                      ) : isTopInCategory ? (
-                        <span className="px-1 py-0.2 rounded bg-white/10 text-sky-300 text-[8px] font-black shrink-0">
-                          NEU
-                        </span>
-                      ) : null}
 
-                      <button
-                        type="button"
-                        onClick={(e) => toggleItemGlutenFreeDirectly(e, item)}
-                        title={isGf ? 'Glutenfrei (Antippen zum Umschalten)' : 'Enthält Gluten / Unbekannt (Antippen für Glutenfrei)'}
-                        className={'px-1.5 py-0.2 rounded text-[9px] font-black shrink-0 cursor-pointer ' +
-                          (isGf
-                            ? 'bg-emerald-500/25 border border-emerald-400/50 text-emerald-300'
-                            : 'bg-white/5 border border-white/10 text-slate-400 opacity-55 hover:opacity-100')}
-                      >
-                        {isGf ? '🌾✓ GF' : '🌾?'}
-                      </button>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {isLatestOverall && sortMode === 'newest' && (
+                          <span className="px-1.5 py-0.5 rounded bg-sky-500 text-white text-[9px] font-black shrink-0">
+                            NEU
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={(e) => toggleItemGlutenFreeDirectly(e, item)}
+                          className={'px-1.5 py-0.5 rounded text-[10px] font-black shrink-0 cursor-pointer ' +
+                            (isGf
+                              ? 'bg-emerald-500/25 border border-emerald-400/50 text-emerald-300'
+                              : 'bg-white/5 border border-white/10 text-slate-400 opacity-60 hover:opacity-100')}
+                        >
+                          {isGf ? '🌾✓ GF' : '🌾?'}
+                        </button>
+                        <span className="text-xs font-bold opacity-75 truncate">
+                          {locObj.short}
+                        </span>
+                      </div>
 
-                      <span title={item.name} className="font-extrabold text-xs leading-tight truncate hover:text-sky-300">
+                      <div title={item.name} className="font-black text-sm sm:text-base leading-snug truncate mt-0.5">
                         {item.name}
-                      </span>
+                      </div>
                     </div>
                   </div>
 
-                  <div onClick={() => openEditProductModal(item)} className="col-span-2 flex items-center justify-center gap-1 cursor-pointer min-w-0">
-                    <span className="px-1.5 py-0.5 rounded bg-black/40 border border-amber-400/30 text-[10px] font-black text-amber-300 truncate">
+                  {/* MITTE: MENGE & MHD-DATUM */}
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="px-2.5 py-1 rounded-xl bg-black/45 border border-amber-400/40 text-xs sm:text-sm font-black text-amber-300">
                       {item.quantity}
                     </span>
-                    <span className="text-[10px] font-bold opacity-75 hidden sm:inline truncate">
-                      {locObj.short}
-                    </span>
-                  </div>
 
-                  <div onClick={() => openEditProductModal(item)} className="col-span-3 flex items-center justify-center cursor-pointer">
                     <div
-                      className={'px-2.5 py-1 rounded-lg border flex items-center gap-1.5 text-xs sm:text-[13px] font-black whitespace-nowrap ' +
-                        (isUrgentRed ? 'bg-rose-500/30 border-rose-400 text-rose-100' : isWarningOrange ? 'bg-amber-500/30 border-amber-400 text-amber-100' : 'bg-black/25 border-white/10')}
+                      className={'px-3 py-1 rounded-xl border text-xs sm:text-sm font-black whitespace-nowrap ' +
+                        (isUrgentRed
+                          ? 'bg-rose-600 text-white border-rose-300'
+                          : isWarningOrange
+                          ? 'bg-amber-500 text-slate-950 border-amber-300'
+                          : 'bg-black/35 border-white/15 text-emerald-400')}
                     >
                       <span>{item.expiryDate.slice(8, 10)}.{item.expiryDate.slice(5, 7)}.{item.expiryDate.slice(2, 4)}</span>
-                      <span className="opacity-50">•</span>
-                      <span className={isUrgentRed ? 'text-rose-300' : isWarningOrange ? 'text-amber-300' : 'text-emerald-400'}>
-                        {daysText}
-                      </span>
+                      <span className="mx-1 opacity-60">•</span>
+                      <span>{daysText}</span>
                     </div>
                   </div>
 
-                  <div className="col-span-2 flex items-center justify-end gap-1">
+                  {/* RECHTS: AKTIONEN */}
+                  <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
                     <button
                       type="button"
                       onClick={() => handleConsumeClick(item)}
-                      className="tw-glow-btn px-2 py-1 rounded-lg text-[10px] font-black flex items-center gap-1 cursor-pointer shrink-0"
+                      className="tw-glow-btn px-3 py-2 rounded-xl text-xs font-black flex items-center gap-1 cursor-pointer"
                     >
-                      <CheckCircle2 className="w-3 h-3 shrink-0" />
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-300" />
                       <span>{decPreview.remaining > 0 ? '-1' : 'Weg'}</span>
                     </button>
 
                     <button
                       type="button"
                       onClick={() => openEditProductModal(item)}
-                      className="tw-nav-inactive p-1.5 rounded-lg text-sky-300 cursor-pointer shrink-0"
+                      className="tw-nav-inactive p-2 rounded-xl text-sky-300 cursor-pointer"
                     >
-                      <Pencil className="w-3 h-3" />
+                      <Pencil className="w-3.5 h-3.5" />
                     </button>
 
                     <button
@@ -956,9 +936,9 @@ export default function PantrySection({
                         addShoppingItem(item.name);
                         showToast('Auf Einkaufsliste', item.name + ' wurde zur Einkaufsliste hinzugefügt.', '🛒');
                       }}
-                      className="tw-nav-inactive p-1.5 rounded-lg text-amber-300 cursor-pointer shrink-0"
+                      className="tw-nav-inactive p-2 rounded-xl text-amber-300 cursor-pointer"
                     >
-                      <ShoppingCart className="w-3 h-3" />
+                      <ShoppingCart className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 </div>
@@ -966,8 +946,9 @@ export default function PantrySection({
             })}
           </div>
         ) : (
-          <div className="p-2 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-            {group.items.map((item, idx) => {
+          /* KACHEL-ANSICHT MIT DEUTLICH GRÖSSEREN ICONS & GRÖSSEREM PRODUKTTEXT (OHNE GLOW) */
+          <div className="p-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+            {group.items.map((item) => {
               const daysLeft = getDaysUntil(item.expiryDate, todayStr);
               const locObj = STORAGE_LOCATIONS.find(l => l.id === item.location) || STORAGE_LOCATIONS[4];
               const isUrgentRed = daysLeft <= 2;
@@ -977,59 +958,80 @@ export default function PantrySection({
               const isLatestOverall = latestOverallItem && item.id === latestOverallItem.id;
               const isGf = Boolean(item.resolvedGlutenFree);
 
-              const glowClass = isUrgentRed
-                ? ' tw-pantry-urgent-red bg-rose-950/25'
+              // Klare Einfärbung Orange / Rot OHNE Glow-Effekt
+              const cardColorClass = isUrgentRed
+                ? 'bg-rose-500/25 border-2 border-rose-500 text-rose-50'
                 : isWarningOrange
-                ? ' tw-pantry-warn-orange bg-amber-950/20'
+                ? 'bg-amber-500/20 border-2 border-amber-500 text-amber-50'
                 : isLatestOverall && sortMode === 'newest'
-                ? ' border-sky-400/80 bg-sky-500/10'
-                : themeStyles.subtle;
+                ? 'border-2 border-sky-400/80 bg-sky-500/10'
+                : 'border ' + themeStyles.subtle;
 
               return (
-                <div key={item.id} className={'tw-pantry-tile p-2.5 rounded-2xl border flex flex-col justify-between gap-2 ' + glowClass}>
-                  <div className="flex items-start gap-2">
-                    <button
-                      type="button"
-                      onClick={() => openEditProductModal(item)}
-                      className="w-8 h-8 rounded-xl bg-black/35 border border-white/10 flex items-center justify-center text-base shrink-0 cursor-pointer"
-                    >
+                <div
+                  key={item.id}
+                  onClick={() => openEditProductModal(item)}
+                  className={'p-3.5 rounded-2xl flex flex-col justify-between gap-3 cursor-pointer transition-colors hover:bg-white/5 ' + cardColorClass}
+                >
+                  <div className="flex items-start gap-3">
+                    {/* GROSSES PRODUKT-ICON (w-13 h-13 text-3xl) */}
+                    <span className="w-13 h-13 rounded-2xl bg-black/40 border border-white/15 flex items-center justify-center text-3xl shrink-0 shadow-inner">
                       {emojiIcon}
-                    </button>
+                    </span>
+
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center justify-between gap-1">
-                        <span className="text-[9px] font-bold opacity-75 truncate">
-                          {isLatestOverall && sortMode === 'newest' ? '📲 ZULETZT ERFASST' : idx === 0 && sortMode === 'newest' ? '🆕 NEU • ' + locObj.short : locObj.short}
+                      <div className="flex items-center justify-between gap-1.5 flex-wrap mb-1">
+                        <span className="text-[11px] font-extrabold opacity-80 truncate">
+                          {isLatestOverall && sortMode === 'newest' ? '📲 ZULETZT ERFASST' : locObj.short}
                         </span>
-                        <div className="flex items-center gap-1 shrink-0">
+                        <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
                           <button
                             type="button"
                             onClick={(e) => toggleItemGlutenFreeDirectly(e, item)}
-                            className={'px-1.5 py-0.2 rounded text-[9px] font-black cursor-pointer ' +
+                            className={'px-2 py-0.5 rounded-md text-[10px] font-black cursor-pointer ' +
                               (isGf ? 'bg-emerald-500/25 border border-emerald-400/50 text-emerald-300' : 'bg-white/5 text-slate-400')}
                           >
                             {isGf ? '🌾✓ GF' : '🌾?'}
                           </button>
-                          <span className="px-1.5 py-0.2 rounded bg-black/40 text-[10px] font-black text-amber-300">
+                          <span className="px-2 py-0.5 rounded-md bg-black/50 border border-amber-400/35 text-xs font-black text-amber-300">
                             {item.quantity}
                           </span>
                         </div>
                       </div>
-                      <h4 onClick={() => openEditProductModal(item)} title={item.name} className="font-extrabold text-xs leading-tight truncate mt-0.5 cursor-pointer hover:text-sky-300">
+
+                      {/* GROSSER PRODUKTNAME (text-base font-black) */}
+                      <h4 title={item.name} className="font-black text-base leading-snug line-clamp-2 break-words">
                         {item.name}
                       </h4>
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between gap-1 pt-1 border-t border-white/10">
-                    <span onClick={() => openEditProductModal(item)} className={'text-xs font-black cursor-pointer ' + (isUrgentRed ? 'text-rose-300' : isWarningOrange ? 'text-amber-300' : 'text-emerald-400')}>
+                  <div className="flex items-center justify-between gap-2 pt-2 border-t border-white/10">
+                    <span
+                      className={'px-2.5 py-1 rounded-xl text-xs sm:text-sm font-black ' +
+                        (isUrgentRed
+                          ? 'bg-rose-600 text-white'
+                          : isWarningOrange
+                          ? 'bg-amber-500 text-slate-950'
+                          : 'text-emerald-400')}
+                    >
                       {item.expiryDate.slice(8, 10)}.{item.expiryDate.slice(5, 7)}.{item.expiryDate.slice(2, 4)} • {daysLeft <= 0 ? '🚨 HEUTE!' : (daysLeft + 'T')}
                     </span>
-                    <div className="flex items-center gap-1">
-                      <button type="button" onClick={() => handleConsumeClick(item)} className="tw-glow-btn px-2 py-1 rounded-lg text-[10px] font-black cursor-pointer">
+
+                    <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        onClick={() => handleConsumeClick(item)}
+                        className="tw-glow-btn px-3 py-1.5 rounded-xl text-xs font-black cursor-pointer"
+                      >
                         {decPreview.remaining > 0 ? '🍽️ -1' : '🍽️ Weg'}
                       </button>
-                      <button type="button" onClick={() => openEditProductModal(item)} className="tw-nav-inactive p-1 rounded-lg text-sky-300 cursor-pointer">
-                        <Pencil className="w-3 h-3" />
+                      <button
+                        type="button"
+                        onClick={() => openEditProductModal(item)}
+                        className="tw-nav-inactive p-2 rounded-xl text-sky-300 cursor-pointer"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   </div>
@@ -1043,367 +1045,372 @@ export default function PantrySection({
   };
 
   return (
-    <div className="p-3 sm:p-4 flex flex-col gap-2.5 overflow-x-hidden">
-      <style>{pantryAnimationStyles}</style>
-
-      {/* KOPFLEISTE MIT LAGERORTEN (INKL. VORRATSSCHRANK & TIERFUTTER), GLUTENFREI-FILTER & SORTIERUNG */}
-      <div className={'px-3.5 py-2.5 rounded-2xl border shadow-xs flex flex-wrap items-center justify-between gap-2 ' + themeStyles.card}>
-        <div className="flex items-center gap-2 flex-wrap">
-          <h2 className="text-base sm:text-lg font-black">🥫 Speisekammer</h2>
-          <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-[10px] font-extrabold">
-            🌱 Quote: {trashStats.score}% ({trashStats.consumed} verzehrt / {trashStats.wasted} abgelaufen)
-          </span>
+    <div className="p-3 sm:p-4 flex flex-col gap-3 overflow-x-hidden">
+      {/* ============================================================================
+          PUNKT 1: EINE EINZIGE INTELLIGENTE HAUPTLEISTE MIT DIREKT-SUCHE & MENÜS
+         ============================================================================ */}
+      <div className={'relative z-30 px-3.5 py-2.5 rounded-2xl border shadow-md flex flex-wrap items-center justify-between gap-2 ' + themeStyles.card}>
+        {/* LINKS: SUB-TABS (BESTAND / REZEPTE / MÜLLEIMER) + KOMPAKTES MHD-WARN-POPOVER */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('stock')}
+            className={'px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer ' + (activeSubTab === 'stock' ? 'tw-active-nav' : 'tw-nav-inactive')}
+          >
+            <Package className="w-4 h-4" />
+            <span>🥫 Bestand ({safeStock.length})</span>
+          </button>
 
           <button
             type="button"
-            onClick={() => setOnlyGlutenFree(prev => !prev)}
-            className={'px-2.5 py-1 rounded-xl text-[11px] font-black flex items-center gap-1 cursor-pointer transition-all ' +
-              (onlyGlutenFree
-                ? 'bg-emerald-500 text-slate-950 ring-2 ring-emerald-300 shadow-md'
-                : 'bg-emerald-500/15 text-emerald-300 border border-emerald-400/40 hover:bg-emerald-500/25')}
+            onClick={() => setActiveSubTab('recipes')}
+            className={'px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer ' + (activeSubTab === 'recipes' ? 'tw-active-nav' : 'tw-nav-inactive')}
           >
-            <span>🌾✓ Nur Glutenfrei ({totalGlutenFreeCount})</span>
+            <ChefHat className="w-4 h-4" />
+            <span>🍽️ Rezepte</span>
           </button>
 
-          {latestOverallItem && (
-            <button
-              type="button"
-              onClick={() => openEditProductModal(latestOverallItem)}
-              className="px-2.5 py-0.5 rounded-full bg-sky-500/20 text-sky-300 border border-sky-400/40 text-[10px] font-black flex items-center gap-1 cursor-pointer"
-            >
-              <span>📲 Zuletzt: {getFoodEmoji(latestOverallItem.name, latestOverallItem.customEmoji)} {latestOverallItem.name}</span>
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('trash')}
+            className={'px-3 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer ' + (activeSubTab === 'trash' ? 'tw-active-nav' : 'tw-nav-inactive')}
+          >
+            <Trash2 className="w-4 h-4" />
+            <span>🗑️ ({safeTrash.length})</span>
+          </button>
 
-          <div className="flex items-center gap-1 flex-wrap ml-1">
-            {STORAGE_LOCATIONS.map(loc => {
-              const locCount = loc.id === 'all' ? safeStock.length : safeStock.filter(x => x.location === loc.id).length;
-              return (
-                <button
-                  key={loc.id}
-                  onClick={() => setLocationFilter(loc.id)}
-                  className={'px-2 py-1 rounded-lg text-[10px] font-extrabold cursor-pointer flex items-center gap-1 ' + (locationFilter === loc.id ? 'tw-active-nav' : 'tw-nav-inactive')}
-                >
-                  <span>{loc.short}</span>
-                  {loc.id !== 'all' && locCount > 0 && (
-                    <span className="opacity-75">({locCount})</span>
+          {/* KOMPAKTES MHD-WARN-BADGE IN DER LEISTE STATT EIGENER RIESIGER ZEILE */}
+          {mhdWarningGroups.totalAlerts > 0 && (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowMhdAlertPopover(prev => !prev);
+                  setShowControlMenu(false);
+                }}
+                className={
+                  'px-3 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer border ' +
+                  (mhdWarningGroups.finalToday.length > 0
+                    ? 'bg-rose-600 text-white border-rose-300'
+                    : 'bg-amber-500 text-slate-950 border-amber-300')
+                }
+              >
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>
+                  {mhdWarningGroups.finalToday.length > 0
+                    ? ('🚨 ' + mhdWarningGroups.finalToday.length + ' läuft HEUTE ab!')
+                    : ('⚠️ ' + mhdWarningGroups.warnTwoDays.length + ' MHD-Warnung')}
+                </span>
+                <ChevronDown className="w-3.5 h-3.5" />
+              </button>
+
+              {showMhdAlertPopover && (
+                <div className={'absolute left-0 top-full mt-2 w-80 sm:w-96 rounded-3xl border-2 border-rose-500 p-4 shadow-2xl space-y-3 z-50 ' + themeStyles.modal}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-black uppercase text-rose-400">
+                      🔔 Kritische MHD-Produkte
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowMhdAlertPopover(false)}
+                      className="text-xs font-black opacity-70 hover:opacity-100"
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  {mhdWarningGroups.finalToday.length > 0 && (
+                    <div className="p-2.5 rounded-2xl bg-rose-500/25 border border-rose-500 space-y-1.5">
+                      <div className="text-[11px] font-black text-rose-200">
+                        🚨 Läuft HEUTE ab (morgen im Mülleimer):
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {mhdWarningGroups.finalToday.map(it => (
+                          <button
+                            key={it.id}
+                            type="button"
+                            onClick={() => {
+                              setShowMhdAlertPopover(false);
+                              openEditProductModal(it);
+                            }}
+                            className="px-2.5 py-1 rounded-xl bg-black/50 border border-rose-400/50 text-xs font-black text-white"
+                          >
+                            {getFoodEmoji(it.name, it.customEmoji)} {it.name} ({it.quantity})
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   )}
-                </button>
-              );
-            })}
-          </div>
+
+                  {mhdWarningGroups.warnTwoDays.length > 0 && (
+                    <div className="p-2.5 rounded-2xl bg-amber-500/20 border border-amber-500 space-y-1.5">
+                      <div className="text-[11px] font-black text-amber-200">
+                        ⚠️ Noch 1–2 Tage haltbar:
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {mhdWarningGroups.warnTwoDays.map(it => (
+                          <button
+                            key={it.id}
+                            type="button"
+                            onClick={() => {
+                              setShowMhdAlertPopover(false);
+                              openEditProductModal(it);
+                            }}
+                            className="px-2.5 py-1 rounded-xl bg-black/45 border border-amber-400/50 text-xs font-black text-white"
+                          >
+                            {getFoodEmoji(it.name, it.customEmoji)} {it.name} ({it.daysLeft === 1 ? 'morgen' : 'in 2 T.'})
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      triggerMhdWarningsAndTodoistPush(true);
+                      setShowMhdAlertPopover(false);
+                    }}
+                    className="tw-glow-btn w-full py-2.5 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <BellRing className="w-4 h-4 text-amber-300" />
+                    <span>📲 Push & Todoist-Warnung jetzt senden</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
-        <div className="flex flex-wrap items-center gap-1.5">
+        {/* MITTE: DIREKT-SUCHFELD + LAGERORT-DROPDOWN + KATEGORIE-DROPDOWN */}
+        {activeSubTab === 'stock' && (
+          <div className="flex items-center gap-2 flex-1 min-w-[260px] max-w-2xl">
+            <div className="relative flex-1 min-w-[160px]">
+              <Search className="w-4 h-4 text-sky-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Vorrat durchsuchen..."
+                className={'w-full h-9 pl-9 pr-7 rounded-xl border text-xs sm:text-sm font-extrabold ' + themeStyles.input}
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-xs font-black opacity-75 hover:opacity-100 cursor-pointer"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+
+            <select
+              value={locationFilter}
+              onChange={(e) => setLocationFilter(e.target.value)}
+              className={'h-9 px-2.5 rounded-xl border text-xs font-extrabold cursor-pointer ' + themeStyles.input}
+            >
+              <option value="all" className="bg-slate-800 text-white">🏠 Alle Orte ({safeStock.length})</option>
+              {STORAGE_LOCATIONS.filter(l => l.id !== 'all').map(loc => (
+                <option key={loc.id} value={loc.id} className="bg-slate-800 text-white">
+                  {loc.label} ({safeStock.filter(x => x.location === loc.id).length})
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+              className={'h-9 px-2.5 rounded-xl border text-xs font-extrabold cursor-pointer hidden md:block ' + themeStyles.input}
+            >
+              <option value="all" className="bg-slate-800 text-white">🍱 Alle 7 Kategorien</option>
+              {FOOD_CATEGORIES.map(cat => (
+                <option key={cat.id} value={cat.id} className="bg-slate-800 text-white">
+                  {cat.icon} {cat.title.split(',')[0]} ({safeStock.filter(it => detectFoodCategory(it.name, it.category) === cat.id).length})
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {/* RECHTS: INTELLIGENTES FILTER-/ANSICHTS-MENÜ + "+ EINBUCHEN"-BUTTON */}
+        <div className="flex items-center gap-1.5 relative">
           {activeSubTab === 'stock' && (
             <>
               <button
                 type="button"
-                onClick={handleSimplifyAllStockNames}
-                title="Alle vorhandenen Produktnamen auf 'Produkt / Marke' kürzen"
-                className="tw-glow-btn px-2.5 py-1.5 rounded-xl text-xs font-black flex items-center gap-1 cursor-pointer"
+                onClick={() => setOnlyGlutenFree(prev => !prev)}
+                className={'px-3 py-2 rounded-xl text-xs font-black flex items-center gap-1 cursor-pointer transition-all ' +
+                  (onlyGlutenFree
+                    ? 'bg-emerald-500 text-slate-950 shadow-md'
+                    : 'bg-emerald-500/15 text-emerald-300 border border-emerald-400/40')}
               >
-                <Wand2 className="w-3.5 h-3.5 text-sky-300" />
-                <span>✨ Namen kürzen</span>
+                <span>🌾✓ GF ({totalGlutenFreeCount})</span>
               </button>
 
               <button
                 type="button"
-                onClick={cycleSortMode}
-                className="tw-glow-btn px-3 py-1.5 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer"
+                onClick={() => {
+                  setShowControlMenu(prev => !prev);
+                  setShowMhdAlertPopover(false);
+                }}
+                className={'px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer ' +
+                  (showControlMenu ? 'tw-active-nav' : 'tw-glow-btn')}
               >
-                <ArrowUpDown className="w-3.5 h-3.5 text-sky-300" />
-                <span>
-                  {sortMode === 'newest' ? '🕒 Neueste oben' : sortMode === 'expiry' ? '📅 Nach MHD' : '🌾✓ Glutenfrei oben'}
-                </span>
+                <SlidersHorizontal className="w-4 h-4 text-sky-300" />
+                <span>Ansicht & Menü</span>
               </button>
             </>
           )}
 
           <button
             type="button"
-            onClick={() => { setActiveSubTab('stock'); setShowAddForm(prev => !prev); }}
-            className={'px-3 py-1.5 rounded-xl text-xs font-black flex items-center gap-1 cursor-pointer ' + (showAddForm ? 'tw-active-nav' : 'tw-glow-btn')}
+            onClick={() => setShowAddFormModal(true)}
+            className="tw-active-nav px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1 cursor-pointer shadow-md"
           >
-            <Plus className="w-3.5 h-3.5 stroke-[3]" />
+            <Plus className="w-4 h-4 stroke-[3]" />
             <span>Einbuchen</span>
           </button>
 
-          <button
-            onClick={() => setActiveSubTab('stock')}
-            className={'px-3 py-1.5 rounded-xl text-xs font-extrabold flex items-center gap-1 cursor-pointer ' + (activeSubTab === 'stock' ? 'tw-active-nav' : 'tw-nav-inactive')}
-          >
-            <Package className="w-3.5 h-3.5" />
-            <span>Bestand ({safeStock.length})</span>
-            {expiringSoonItems.length > 0 && (
-              <span className={'px-1.5 py-0.2 rounded-full text-[9px] font-black ' + (mhdWarningGroups.finalToday.length > 0 ? 'bg-rose-500 text-white animate-pulse' : 'bg-amber-500 text-slate-950')}>
-                {expiringSoonItems.length}
-              </span>
-            )}
-          </button>
+          {/* AUFKLAPPBARES INTELLIGENTES FILTER-, ANSICHTS- & WERKZEUG-MENÜ */}
+          {showControlMenu && (
+            <div className={'absolute right-0 top-full mt-2 w-80 sm:w-96 rounded-3xl border-2 p-4 shadow-2xl space-y-3.5 z-50 ' + themeStyles.modal}>
+              <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                <span className="text-xs font-black uppercase text-sky-400">
+                  ⚙️ Speisekammer-Steuerung
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowControlMenu(false)}
+                  className="text-xs font-black opacity-75 hover:opacity-100"
+                >
+                  ✕
+                </button>
+              </div>
 
-          <button
-            onClick={() => setActiveSubTab('recipes')}
-            className={'px-3 py-1.5 rounded-xl text-xs font-extrabold flex items-center gap-1 cursor-pointer ' + (activeSubTab === 'recipes' ? 'tw-active-nav' : 'tw-nav-inactive')}
-          >
-            <ChefHat className="w-3.5 h-3.5" />
-            <span>🍽️ Rezepte & Menü</span>
-          </button>
+              {/* 1. ANSICHTSMODUS: GROSSE KACHELN ODER KOMPAKTE LISTE */}
+              <div className="space-y-1.5">
+                <span className="text-[10px] font-black uppercase opacity-75 block">
+                  🖼️ Darstellung wählen:
+                </span>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('cards')}
+                    className={'py-2 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer ' +
+                      (viewMode === 'cards' ? 'tw-active-nav' : 'tw-nav-inactive')}
+                  >
+                    <LayoutGrid className="w-4 h-4" />
+                    <span>Große Kacheln</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('table')}
+                    className={'py-2 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer ' +
+                      (viewMode === 'table' ? 'tw-active-nav' : 'tw-nav-inactive')}
+                  >
+                    <TableIcon className="w-4 h-4" />
+                    <span>Kompakte Liste</span>
+                  </button>
+                </div>
+              </div>
 
-          <button
-            onClick={() => setActiveSubTab('trash')}
-            className={'px-3 py-1.5 rounded-xl text-xs font-extrabold flex items-center gap-1 cursor-pointer ' + (activeSubTab === 'trash' ? 'tw-active-nav' : 'tw-nav-inactive')}
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-            <span>🗑️ ({safeTrash.length})</span>
-          </button>
+              {/* 2. SORTIERUNG */}
+              <div className="space-y-1.5">
+                <span className="text-[10px] font-black uppercase opacity-75 block">
+                  ↕️ Sortierung:
+                </span>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {[
+                    { id: 'newest',     label: '🕒 Neueste oben' },
+                    { id: 'expiry',     label: '📅 Nach MHD' },
+                    { id: 'glutenfree', label: '🌾✓ Glutenfrei oben' },
+                    { id: 'az',         label: '🔤 Name (A–Z)' }
+                  ].map(opt => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => setSortMode(opt.id)}
+                      className={'py-2 px-2.5 rounded-xl text-xs font-extrabold text-left cursor-pointer ' +
+                        (sortMode === opt.id ? 'tw-active-nav' : 'tw-nav-inactive')}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
 
-          {activeSubTab === 'stock' && (
-            <div className="flex items-center gap-1 p-0.5 rounded-xl bg-black/25 border border-white/10">
-              <button
-                type="button"
-                onClick={() => setViewMode('table')}
-                className={'px-2 py-1 rounded-lg text-[10px] font-black flex items-center gap-1 cursor-pointer ' + (viewMode === 'table' ? 'tw-active-nav' : 'opacity-70')}
-              >
-                <TableIcon className="w-3 h-3" />
-                <span>Tabelle</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewMode('cards')}
-                className={'px-2 py-1 rounded-lg text-[10px] font-black flex items-center gap-1 cursor-pointer ' + (viewMode === 'cards' ? 'tw-active-nav' : 'opacity-70')}
-              >
-                <LayoutGrid className="w-3 h-3" />
-                <span>Kacheln</span>
-              </button>
+              {/* 3. KATEGORIE-WAHL FÜR KLEINERE BILDSCHIRME */}
+              <div>
+                <label className="text-[10px] font-black uppercase opacity-75 block mb-1">
+                  🍱 Lebensmittel-Kategorie:
+                </label>
+                <select
+                  value={categoryFilter}
+                  onChange={(e) => setCategoryFilter(e.target.value)}
+                  className={'w-full h-10 px-3 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+                >
+                  <option value="all" className="bg-slate-800 text-white">🍱 Alle 7 Kategorien ({safeStock.length})</option>
+                  {FOOD_CATEGORIES.map(cat => (
+                    <option key={cat.id} value={cat.id} className="bg-slate-800 text-white">
+                      {cat.icon} {cat.title} ({safeStock.filter(it => detectFoodCategory(it.name, it.category) === cat.id).length})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* 4. WERKZEUGE (NAMEN KÜRZEN & PUSH-WARNUNG) */}
+              <div className="grid grid-cols-1 gap-2 pt-1 border-t border-white/10">
+                <button
+                  type="button"
+                  onClick={handleSimplifyAllStockNames}
+                  className="tw-glow-btn w-full py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Wand2 className="w-4 h-4 text-sky-300" />
+                  <span>✨ Alle Produktnamen automatisch kürzen</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    triggerMhdWarningsAndTodoistPush(true);
+                    setShowControlMenu(false);
+                  }}
+                  className="tw-glow-btn w-full py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <BellRing className="w-4 h-4 text-amber-300" />
+                  <span>📲 MHD-Push & Todoist-Warnung prüfen</span>
+                </button>
+              </div>
+
+              {/* 5. QUOTE & ZULETZT ERFASST INFO */}
+              <div className={'p-2.5 rounded-2xl border text-[11px] font-bold space-y-1 ' + themeStyles.subtle}>
+                <div className="text-emerald-300">
+                  🌱 Nachhaltigkeits-Quote: {trashStats.score}% ({trashStats.consumed} verzehrt / {trashStats.wasted} abgelaufen)
+                </div>
+                {latestOverallItem && (
+                  <div
+                    onClick={() => {
+                      setShowControlMenu(false);
+                      openEditProductModal(latestOverallItem);
+                    }}
+                    className="text-sky-300 truncate cursor-pointer hover:underline"
+                  >
+                    📲 Zuletzt erfasst: {getFoodEmoji(latestOverallItem.name, latestOverallItem.customEmoji)} {latestOverallItem.name}
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>
       </div>
 
-      {/* ZWEISTUFIGES MHD-WARN-BANNER (HEUTE LETZTE WARNUNG & 1-2 TAGE VORWARNUNG) */}
-      {activeSubTab === 'stock' && (mhdWarningGroups.finalToday.length > 0 || mhdWarningGroups.warnTwoDays.length > 0) && (
-        <div className="px-4 py-3 rounded-2xl border-2 border-rose-500/80 bg-rose-950/35 flex flex-wrap items-center justify-between gap-3 shadow-lg">
-          <div className="space-y-1.5 flex-1 min-w-[260px]">
-            {mhdWarningGroups.finalToday.length > 0 && (
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="px-2 py-0.5 rounded-lg bg-rose-600 text-white text-[11px] font-black flex items-center gap-1">
-                  <AlertTriangle className="w-3.5 h-3.5" />
-                  <span>🚨 LETZTE WARNUNG (Läuft HEUTE ab – morgen im Mülleimer!):</span>
-                </span>
-                {mhdWarningGroups.finalToday.map(it => (
-                  <button
-                    key={it.id}
-                    type="button"
-                    onClick={() => openEditProductModal(it)}
-                    className="px-2.5 py-0.5 rounded-lg bg-black/50 border border-rose-400/60 text-xs font-extrabold text-rose-100 hover:border-white cursor-pointer"
-                  >
-                    {getFoodEmoji(it.name, it.customEmoji)} {it.name} ({it.quantity})
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {mhdWarningGroups.warnTwoDays.length > 0 && (
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="px-2 py-0.5 rounded-lg bg-amber-500/30 border border-amber-400/50 text-amber-200 text-[11px] font-black">
-                  ⚠️ MHD-Vorwarnung (Noch 1–2 Tage haltbar):
-                </span>
-                {mhdWarningGroups.warnTwoDays.map(it => (
-                  <button
-                    key={it.id}
-                    type="button"
-                    onClick={() => openEditProductModal(it)}
-                    className="px-2.5 py-0.5 rounded-lg bg-black/40 border border-amber-400/40 text-xs font-extrabold text-amber-100 hover:border-white cursor-pointer"
-                  >
-                    {getFoodEmoji(it.name, it.customEmoji)} {it.name} ({it.daysLeft === 1 ? 'morgen' : 'in 2 T.'})
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <button
-            type="button"
-            onClick={() => triggerMhdWarningsAndTodoistPush(true)}
-            className="tw-glow-btn px-3 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer shrink-0"
-          >
-            <BellRing className="w-3.5 h-3.5 text-amber-300" />
-            <span>📲 Push & Todoist-Warnung senden</span>
-          </button>
-        </div>
-      )}
-
       {/* SUB-TAB 1: BESTAND */}
       {activeSubTab === 'stock' && (
-        <div className="space-y-2.5">
-          {showAddForm && (
-            <form onSubmit={handleAddProduct} className={'p-3 rounded-2xl border space-y-2 ' + themeStyles.card}>
-              <div className="grid grid-cols-1 md:grid-cols-12 gap-2">
-                <div className="md:col-span-3 flex items-center gap-1.5">
-                  <span className="w-8 h-8 rounded-xl bg-black/25 border border-white/10 flex items-center justify-center text-base shrink-0">
-                    {getFoodEmoji(itemName)}
-                  </span>
-                  <input
-                    type="text"
-                    required
-                    value={itemName}
-                    onChange={(e) => handleNameInputWithSmartDefaults(e.target.value)}
-                    placeholder="Produktname (wird automatisch gekürzt)..."
-                    className={'w-full px-3 py-1.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
-                  />
-                </div>
-
-                <input
-                  type="text"
-                  value={itemQty}
-                  onChange={(e) => setItemQty(e.target.value)}
-                  placeholder="Menge (z.B. 2x)"
-                  className={'md:col-span-1 px-2.5 py-1.5 rounded-xl border text-xs font-bold ' + themeStyles.input}
-                />
-
-                <select
-                  value={itemCategory}
-                  onChange={(e) => setItemCategory(e.target.value)}
-                  className={'md:col-span-2 px-2.5 py-1.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
-                >
-                  <option value="auto" className="bg-slate-800 text-amber-300">
-                    ✨ Auto ({FOOD_CATEGORIES.find(c => c.id === detectFoodCategory(itemName))?.title.split(',')[0]})
-                  </option>
-                  {FOOD_CATEGORIES.map(cat => (
-                    <option key={cat.id} value={cat.id} className="bg-slate-800 text-white">{cat.icon} {cat.title}</option>
-                  ))}
-                </select>
-
-                <select
-                  value={itemGlutenFree}
-                  onChange={(e) => setItemGlutenFree(e.target.value)}
-                  className={'md:col-span-2 px-2.5 py-1.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
-                >
-                  <option value="auto" className="bg-slate-800 text-emerald-300">
-                    🌾 Auto ({isProductGlutenFree(itemName, itemCategory) ? 'Glutenfrei ✓' : 'Normal'})
-                  </option>
-                  <option value="yes" className="bg-slate-800 text-emerald-300">🌾✓ Ja, glutenfrei</option>
-                  <option value="no" className="bg-slate-800 text-rose-300">🚫 Enthält Gluten</option>
-                </select>
-
-                <select
-                  value={itemLocation}
-                  onChange={(e) => setItemLocation(e.target.value)}
-                  className={'md:col-span-2 px-2 py-1.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
-                >
-                  {STORAGE_LOCATIONS.filter(l => l.id !== 'all').map(loc => (
-                    <option key={loc.id} value={loc.id} className="bg-slate-800 text-white">{loc.label}</option>
-                  ))}
-                </select>
-
-                <div className="md:col-span-2 flex items-center gap-1.5">
-                  <input
-                    type="date"
-                    required
-                    min={todayStr}
-                    value={itemExpiry}
-                    onChange={(e) => setItemExpiry(e.target.value)}
-                    className={'w-full px-2.5 py-1.5 rounded-xl border-2 text-xs font-black ' + (itemExpiry ? 'border-emerald-500/60 ' : 'border-amber-500/70 ') + themeStyles.input}
-                  />
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex flex-wrap items-center gap-1">
-                  <span className="text-[10px] font-black uppercase text-amber-400 mr-1">⏳ Schnell-MHD:</span>
-                  {[
-                    { label: '+3 T.', days: 3 },
-                    { label: '+5 T.', days: 5 },
-                    { label: '+1 Wo.', days: 7 },
-                    { label: '+2 Wo.', days: 14 },
-                    { label: '+1 Mon.', days: 30 },
-                    { label: '+6 Mon. (TK)', days: 180 },
-                    { label: '+1 Jahr', days: 365 }
-                  ].map(b => (
-                    <button key={b.days} type="button" onClick={() => setQuickExpiryDays(b.days)} className="tw-glow-btn px-2 py-0.5 rounded-lg text-[10px] font-extrabold cursor-pointer">
-                      {b.label}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => setItemName(simplifyProductName(itemName))}
-                    className="tw-glow-btn px-2.5 py-1 rounded-xl text-xs font-extrabold flex items-center gap-1 cursor-pointer"
-                  >
-                    <Wand2 className="w-3 h-3 text-sky-300" />
-                    <span>✨ Name kürzen</span>
-                  </button>
-                  <button type="button" onClick={() => setShowAddForm(false)} className="tw-nav-inactive px-3 py-1 rounded-xl text-xs font-bold cursor-pointer">
-                    Schließen
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={!itemName.trim() || !itemExpiry}
-                    className={'px-4 py-1 rounded-xl font-black text-xs flex items-center gap-1 ' + (!itemName.trim() || !itemExpiry ? 'opacity-40 cursor-not-allowed bg-slate-700 text-slate-300' : 'tw-glow-btn cursor-pointer')}
-                  >
-                    <Plus className="w-3.5 h-3.5 stroke-[3]" />
-                    <span>Speichern</span>
-                  </button>
-                </div>
-              </div>
-            </form>
-          )}
-
-          {/* KATEGORIEN-LEISTE + DIREKT-SUCHFELD */}
-          <div className={'px-3 py-2 rounded-2xl border flex flex-wrap items-center justify-between gap-2 ' + themeStyles.card}>
-            <div className="flex flex-wrap items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => setCategoryFilter('all')}
-                className={'px-2.5 py-1 rounded-xl text-[11px] font-extrabold cursor-pointer ' + (categoryFilter === 'all' ? 'tw-active-nav' : 'tw-nav-inactive')}
-              >
-                🍱 Alle 7 Kategorien ({safeStock.length})
-              </button>
-              {FOOD_CATEGORIES.map(cat => {
-                const count = safeStock.filter(it => detectFoodCategory(it.name, it.category) === cat.id).length;
-                return (
-                  <button
-                    key={cat.id}
-                    type="button"
-                    onClick={() => setCategoryFilter(categoryFilter === cat.id ? 'all' : cat.id)}
-                    title={cat.desc}
-                    className={'px-2.5 py-1 rounded-xl text-[11px] font-extrabold flex items-center gap-1 cursor-pointer ' + (categoryFilter === cat.id ? 'tw-active-nav' : 'tw-nav-inactive')}
-                  >
-                    <span>{cat.icon}</span>
-                    <span>{cat.title.split(',')[0]}</span>
-                    <span className="px-1.5 py-0.2 rounded-full bg-black/35 text-[9px] font-black text-amber-300">{count}</span>
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="relative min-w-[200px] flex-1 max-w-xs">
-              <Search className="w-3.5 h-3.5 text-sky-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Vorrat durchsuchen..."
-                className={'w-full pl-8 pr-7 py-1 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
-              />
-              {searchQuery && (
-                <button
-                  type="button"
-                  onClick={() => setSearchQuery('')}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-xs font-black opacity-70 hover:opacity-100 cursor-pointer"
-                >
-                  ✕
-                </button>
-              )}
-            </div>
-          </div>
-
+        <div className="space-y-3">
           {groupedByCategory.length === 0 ? (
             <div className={'p-8 rounded-3xl border text-center space-y-1 ' + themeStyles.card}>
-              <div className="text-2xl">🥫</div>
+              <div className="text-3xl">🥫</div>
               <div className="font-extrabold text-sm">Keine Lebensmittel in dieser Auswahl</div>
             </div>
           ) : categoryFilter !== 'all' ? (
@@ -1423,7 +1430,7 @@ export default function PantrySection({
         </div>
       )}
 
-      {/* SUB-TAB 2: AUSGELAGERTER REZEPT- & TAGES-MENÜ-PLANER (app/PantryRecipes.tsx) */}
+      {/* SUB-TAB 2: REZEPT- & MENÜ-PLANER */}
       {activeSubTab === 'recipes' && (
         <PantryRecipes
           safeStock={safeStock}
@@ -1470,9 +1477,9 @@ export default function PantrySection({
               safeTrash.map(tItem => {
                 const isWasted = tItem.reason === 'expired' || tItem.reason === 'wasted';
                 return (
-                  <div key={tItem.id} className={'tw-pantry-tile p-3 rounded-2xl border flex flex-col justify-between gap-2 ' + themeStyles.card + (isWasted ? ' border-rose-500/50' : ' border-emerald-500/40')}>
-                    <div className="flex items-start gap-2">
-                      <span className="text-xl">{getFoodEmoji(tItem.name, tItem.customEmoji)}</span>
+                  <div key={tItem.id} className={'p-3 rounded-2xl border flex flex-col justify-between gap-2 ' + themeStyles.card + (isWasted ? ' border-rose-500/60' : ' border-emerald-500/40')}>
+                    <div className="flex items-start gap-2.5">
+                      <span className="text-2xl">{getFoodEmoji(tItem.name, tItem.customEmoji)}</span>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between gap-1">
                           <span className={'inline-block px-1.5 py-0.5 rounded-md text-[9px] font-black truncate ' + (isWasted ? 'bg-rose-500/25 text-rose-300' : 'bg-emerald-500/25 text-emerald-300')}>
@@ -1486,8 +1493,8 @@ export default function PantrySection({
                             ✕
                           </button>
                         </div>
-                        <h4 className="font-extrabold text-xs mt-1 truncate">{tItem.name}</h4>
-                        <div className="text-[10px] opacity-65">{tItem.quantity} • MHD: {tItem.expiryDate}</div>
+                        <h4 className="font-black text-sm mt-1 truncate">{tItem.name}</h4>
+                        <div className="text-xs opacity-70">{tItem.quantity} • MHD: {tItem.expiryDate}</div>
                       </div>
                     </div>
 
@@ -1498,16 +1505,16 @@ export default function PantrySection({
                           addShoppingItem(tItem.name);
                           showToast('Auf Einkaufsliste', tItem.name + ' wird nachgekauft.', '🛒');
                         }}
-                        className="tw-glow-btn flex-1 py-1.5 rounded-xl text-[11px] font-extrabold flex items-center justify-center gap-1 cursor-pointer"
+                        className="tw-glow-btn flex-1 py-1.5 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1 cursor-pointer"
                       >
-                        <ShoppingCart className="w-3 h-3" /> Nachkaufen
+                        <ShoppingCart className="w-3.5 h-3.5" /> Nachkaufen
                       </button>
                       <button
                         type="button"
                         onClick={() => restoreFromTrash(tItem)}
                         className="tw-nav-inactive px-2.5 py-1.5 rounded-xl text-xs font-bold cursor-pointer"
                       >
-                        <RotateCcw className="w-3 h-3" />
+                        <RotateCcw className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   </div>
@@ -1518,7 +1525,167 @@ export default function PantrySection({
         </div>
       )}
 
-      {/* BEARBEITEN-MODAL INKL. NAMENS-KÜRZER, GLUTENFREI-SCHALTER & ALLEN 6 LAGERORTEN */}
+      {/* MODAL: NEUES PRODUKT EINBUCHEN */}
+      {showAddFormModal && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <form onSubmit={handleAddProduct} className={'w-full max-w-lg rounded-3xl border-2 p-6 shadow-2xl space-y-4 my-auto ' + themeStyles.modal}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <span className="w-12 h-12 rounded-2xl bg-black/35 border border-white/15 flex items-center justify-center text-3xl">
+                  {getFoodEmoji(itemName)}
+                </span>
+                <div>
+                  <h3 className="text-lg font-extrabold">➕ Produkt in Speisekammer einbuchen</h3>
+                  <p className={'text-xs font-semibold ' + themeStyles.textMuted}>
+                    Namen werden automatisch gekürzt & kategorisiert
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAddFormModal(false)}
+                className="tw-nav-inactive w-9 h-9 rounded-full flex items-center justify-center cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="sm:col-span-2">
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[11px] font-black uppercase text-sky-400">Produktname</label>
+                  <button
+                    type="button"
+                    onClick={() => setItemName(simplifyProductName(itemName))}
+                    className="px-2 py-0.5 rounded-lg bg-sky-500/20 border border-sky-400/40 text-sky-300 text-[10px] font-black flex items-center gap-1 cursor-pointer"
+                  >
+                    <Wand2 className="w-3 h-3" />
+                    <span>✨ Kürzen</span>
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  required
+                  value={itemName}
+                  onChange={(e) => handleNameInputWithSmartDefaults(e.target.value)}
+                  placeholder="z.B. Wraps / Schär..."
+                  className={'w-full px-3.5 py-2.5 rounded-xl border text-sm font-extrabold ' + themeStyles.input}
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-black uppercase text-amber-400 mb-1">Menge</label>
+                <input
+                  type="text"
+                  value={itemQty}
+                  onChange={(e) => setItemQty(e.target.value)}
+                  placeholder="z.B. 2x / 500g"
+                  className={'w-full px-3.5 py-2.5 rounded-xl border text-sm font-bold ' + themeStyles.input}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-[11px] font-black uppercase text-emerald-400 mb-1">Lagerort</label>
+                <select
+                  value={itemLocation}
+                  onChange={(e) => setItemLocation(e.target.value)}
+                  className={'w-full px-3 py-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+                >
+                  {STORAGE_LOCATIONS.filter(l => l.id !== 'all').map(loc => (
+                    <option key={loc.id} value={loc.id} className="bg-slate-800 text-white">{loc.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-black uppercase text-purple-300 mb-1">Kategorie</label>
+                <select
+                  value={itemCategory}
+                  onChange={(e) => setItemCategory(e.target.value)}
+                  className={'w-full px-3 py-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+                >
+                  <option value="auto" className="bg-slate-800 text-amber-300">
+                    ✨ Auto ({FOOD_CATEGORIES.find(c => c.id === detectFoodCategory(itemName))?.title.split(',')[0]})
+                  </option>
+                  {FOOD_CATEGORIES.map(cat => (
+                    <option key={cat.id} value={cat.id} className="bg-slate-800 text-white">{cat.icon} {cat.title}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-black uppercase text-emerald-400 mb-1">🌾 Glutenfrei</label>
+                <select
+                  value={itemGlutenFree}
+                  onChange={(e) => setItemGlutenFree(e.target.value)}
+                  className={'w-full px-3 py-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+                >
+                  <option value="auto" className="bg-slate-800 text-emerald-300">
+                    🌾 Auto ({isProductGlutenFree(itemName, itemCategory) ? 'GF ✓' : 'Normal'})
+                  </option>
+                  <option value="yes" className="bg-slate-800 text-emerald-300">🌾✓ Ja, glutenfrei</option>
+                  <option value="no" className="bg-slate-800 text-rose-300">🚫 Enthält Gluten</option>
+                </select>
+              </div>
+            </div>
+
+            <div className={'p-3 rounded-2xl border space-y-2 ' + themeStyles.subtle}>
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <label className="text-xs font-black uppercase text-amber-400">📅 Ablaufdatum (MHD)</label>
+                <div className="flex flex-wrap gap-1">
+                  {[
+                    { label: '+3 T.', days: 3 },
+                    { label: '+1 Wo.', days: 7 },
+                    { label: '+2 Wo.', days: 14 },
+                    { label: '+1 Mon.', days: 30 },
+                    { label: '+6 Mon. (TK)', days: 180 },
+                    { label: '+1 Jahr', days: 365 }
+                  ].map(b => (
+                    <button
+                      key={b.days}
+                      type="button"
+                      onClick={() => setQuickExpiryDays(b.days)}
+                      className="tw-glow-btn px-2 py-1 rounded-lg text-[10px] font-extrabold cursor-pointer"
+                    >
+                      {b.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <input
+                type="date"
+                required
+                min={todayStr}
+                value={itemExpiry}
+                onChange={(e) => setItemExpiry(e.target.value)}
+                className={'w-full px-3.5 py-2 rounded-xl border text-xs font-black ' + themeStyles.input}
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-white/10">
+              <button
+                type="button"
+                onClick={() => setShowAddFormModal(false)}
+                className="tw-nav-inactive px-4 py-2.5 rounded-2xl text-xs font-bold cursor-pointer"
+              >
+                Abbrechen
+              </button>
+              <button
+                type="submit"
+                disabled={!itemName.trim() || !itemExpiry}
+                className="tw-active-nav px-5 py-2.5 rounded-2xl text-xs font-black flex items-center gap-1.5 cursor-pointer"
+              >
+                <Check className="w-4 h-4" />
+                <span>In Bestand speichern</span>
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* BEARBEITEN-MODAL */}
       {editModal.open && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
           <form onSubmit={handleAcceptEditModal} className={'w-full max-w-lg rounded-3xl border-2 p-6 shadow-2xl space-y-4 my-auto ' + themeStyles.modal}>
