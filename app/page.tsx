@@ -14,6 +14,7 @@ import {
 import * as Cfg from './touchwallConfig';
 import CalendarSection from './CalendarSection';
 import TasksTodoistSection from './TasksTodoistSection';
+import SchoolSection from './SchoolSection';
 import OtherSections from './OtherSections';
 import PantrySection from './PantrySection';
 import QuestSection from './quest';
@@ -102,7 +103,6 @@ function reconcileShoppingNotes(localNotes, incomingNotes, syncMeta, source = 'c
 
   const mergedMap = new Map();
 
-  // 1. Eingehende Einkaufs-Artikel übernehmen
   incomingFirstItems.forEach(rawIt => {
     const it = typeof rawIt === 'string' ? { text: rawIt, done: false } : { ...rawIt };
     if (isDeletedItem(it)) return;
@@ -127,7 +127,6 @@ function reconcileShoppingNotes(localNotes, incomingNotes, syncMeta, source = 'c
     });
   });
 
-  // 2. Lokale Einkaufs-Artikel abgleichen (kein Verschlucken offener oder in Todoist abgehakter Punkte)
   localFirstItems.forEach(rawLoc => {
     const loc = typeof rawLoc === 'string' ? { text: rawLoc, done: false } : { ...rawLoc };
     if (isDeletedItem(loc)) return;
@@ -215,7 +214,6 @@ function reconcileFamilyTasks(localTasks, incomingTasks, syncMeta, source = 'clo
   const mergedList = [];
   const usedLocalIndices = new Set();
 
-  // 1. Eingehende Aufgaben aus Cloud oder Todoist abgleichen
   incomingList.forEach(rawT => {
     if (isDeletedTask(rawT)) return;
     const idKey = String(rawT.id || '');
@@ -258,7 +256,6 @@ function reconcileFamilyTasks(localTasks, incomingTasks, syncMeta, source = 'clo
     });
   });
 
-  // 2. Nicht gematchte lokale Aufgaben prüfen
   localList.forEach((loc, idx) => {
     if (usedLocalIndices.has(idx)) return;
     if (isDeletedTask(loc)) return;
@@ -484,20 +481,26 @@ export default function TouchwallApp() {
   const safePantryItems = useMemo(() => Array.isArray(pantryItems) ? pantryItems : [], [pantryItems]);
   const safePantryTrash = useMemo(() => Array.isArray(pantryTrash) ? pantryTrash : [], [pantryTrash]);
 
+  // Dynamisches safeSchoolData: Bewahrt ALLE angelegten Stundenpläne & Personen-Zuweisungen!
   const safeSchoolData = useMemo(() => {
-    const s = schoolData && typeof schoolData === 'object' ? schoolData : DEFAULT_SCHOOL;
-    return {
-      dean: {
-        periods: Array.isArray(s?.dean?.periods) ? s.dean.periods : DEFAULT_SCHOOL.dean.periods,
-        slots: s?.dean?.slots && typeof s.dean.slots === 'object' ? s.dean.slots : DEFAULT_SCHOOL.dean.slots,
-        announcements: Array.isArray(s?.dean?.announcements) ? s.dean.announcements : []
-      },
-      valentina: {
-        periods: Array.isArray(s?.valentina?.periods) ? s.valentina.periods : DEFAULT_SCHOOL.valentina.periods,
-        slots: s?.valentina?.slots && typeof s.valentina.slots === 'object' ? s.valentina.slots : DEFAULT_SCHOOL.valentina.slots,
-        announcements: Array.isArray(s?.valentina?.announcements) ? s.valentina.announcements : []
-      }
-    };
+    const s = schoolData && typeof schoolData === 'object' && Object.keys(schoolData).length > 0
+      ? schoolData
+      : DEFAULT_SCHOOL;
+
+    const result = {};
+    Object.keys(s).forEach(key => {
+      const entry = s[key] || {};
+      const fallbackDef = DEFAULT_SCHOOL[key] || DEFAULT_SCHOOL.dean;
+      result[key] = {
+        ...entry,
+        title: entry.title || '',
+        assignedMembers: Array.isArray(entry.assignedMembers) ? entry.assignedMembers : [key],
+        periods: Array.isArray(entry.periods) ? entry.periods : fallbackDef.periods,
+        slots: entry.slots && typeof entry.slots === 'object' ? entry.slots : (fallbackDef.slots || {}),
+        announcements: Array.isArray(entry.announcements) ? entry.announcements : []
+      };
+    });
+    return result;
   }, [schoolData]);
 
   const safeTodoistConfig = useMemo(() => ({
@@ -680,9 +683,6 @@ export default function TouchwallApp() {
     return () => clearInterval(timer);
   }, [isAuthenticated, safeEvents, safeTasks, safeMembers, todayStr]);
 
-  // =========================================================
-  // KANAL 2: TODOIST-SYNC (MIT SPERRE GEGEN ÜBERSCHNEIDUNG & QUELLEN-SCHUTZ)
-  // =========================================================
   const createAndSelectTodoistProject = async (projectName) => {
     const token = safeTodoistConfig.apiToken.trim();
     if (!token || !projectName?.trim()) return null;
@@ -824,9 +824,6 @@ export default function TouchwallApp() {
     };
   }, [isAuthenticated]);
 
-  // =========================================================
-  // KANÄLE 1, 3 & 4: GOOGLE CLOUD SMART-MERGE (MIT QUELLEN-SCHUTZ 'cloud')
-  // =========================================================
   const callGoogleAppsScript = async (targetUrl, method = 'POST', postBody = null) => {
     return callCloudApi(targetUrl || appsScriptUrl || PUBLIC_CLOUD_BACKEND_URL, method, postBody, accountId, authKey);
   };
@@ -866,7 +863,7 @@ export default function TouchwallApp() {
           }
         }
 
-        if (s.schoolData?.dean && hasJsonChanged(safeSchoolData, s.schoolData)) {
+        if (s.schoolData && typeof s.schoolData === 'object' && Object.keys(s.schoolData).length > 0 && hasJsonChanged(safeSchoolData, s.schoolData)) {
           setSchoolData(s.schoolData);
         }
 
@@ -1044,7 +1041,7 @@ export default function TouchwallApp() {
           if (Array.isArray(parsedState.members) && parsedState.members.length >= 2) setMembers(parsedState.members);
           if (Array.isArray(parsedState.mealPlan) && parsedState.mealPlan.length > 0) setMealPlan(parsedState.mealPlan);
           if (Array.isArray(parsedState.familyNotes) && parsedState.familyNotes.length > 0) setFamilyNotes(parsedState.familyNotes);
-          if (parsedState.schoolData?.dean) setSchoolData(parsedState.schoolData);
+          if (parsedState.schoolData && typeof parsedState.schoolData === 'object') setSchoolData(parsedState.schoolData);
           if (Array.isArray(parsedState.familyTasks)) setFamilyTasks(parsedState.familyTasks);
           if (Array.isArray(parsedState.pantryItems)) setPantryItemsRaw(parsedState.pantryItems);
           if (Array.isArray(parsedState.pantryTrash)) setPantryTrashRaw(parsedState.pantryTrash);
@@ -1082,7 +1079,6 @@ export default function TouchwallApp() {
     return () => clearInterval(calInterval);
   }, [isAuthenticated, accountId]);
 
-  // Atomarer Cloud-Save mit Vorab-Merge
   useEffect(() => {
     if (!isAuthenticated) return;
     const localPayload = {
@@ -1375,9 +1371,6 @@ export default function TouchwallApp() {
     setTimeout(() => syncTodoistRef.current?.(true), 300);
   };
 
-  // =========================================================
-  // GESCHÜTZTE EINKAUFSLISTEN- & NOTIZ-HANDLER
-  // =========================================================
   const addItemToNoteTile = async (noteId, textStr) => {
     const clean = String(textStr || '').trim();
     if (!clean) return;
@@ -1532,9 +1525,6 @@ export default function TouchwallApp() {
     } : n));
   };
 
-  // =========================================================
-  // GESCHÜTZTE AUFGABEN-HANDLER (INKL. TITEL-SPERRE)
-  // =========================================================
   const pushTaskToPhoneNow = async (task) => {
     if (!task) return;
     const memberObj = safeMembers.find(m => m.id === task.member);
@@ -2136,6 +2126,7 @@ export default function TouchwallApp() {
     activeSchoolChild,
     setActiveSchoolChild,
     setSchoolModal,
+    addNewTaskWithSettings,
     mealPlan: safeMeals,
     setMealPlan,
     pantryItems: safePantryItems,
@@ -2400,6 +2391,23 @@ export default function TouchwallApp() {
               <CalendarSection {...calendarProps} />
             )}
 
+            {activeSection === 'schule' && (
+              <SchoolSection
+                members={safeMembers}
+                schoolData={safeSchoolData}
+                setSchoolData={setSchoolData}
+                activeSchoolChild={activeSchoolChild}
+                setActiveSchoolChild={setActiveSchoolChild}
+                setSchoolModal={setSchoolModal}
+                addNewTaskWithSettings={addNewTaskWithSettings}
+                todayStr={todayStr}
+                themeStyles={themeStyles}
+                getMemberStyles={getMemberStyles}
+                renderAvatar={renderAvatar}
+                showToast={showToast}
+              />
+            )}
+
             {activeSection === 'aufgaben' && (
               <TasksTodoistSection {...todoistProps} />
             )}
@@ -2419,7 +2427,7 @@ export default function TouchwallApp() {
               />
             )}
 
-            {['schule', 'essen', 'listen', 'design', 'google'].includes(activeSection) && (
+            {['essen', 'listen', 'design', 'google'].includes(activeSection) && (
               <OtherSections {...otherSectionsProps} />
             )}
 
