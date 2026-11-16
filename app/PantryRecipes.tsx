@@ -6,7 +6,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import {
   Utensils, ShoppingCart, Globe, Clock,
-  Wand2, ExternalLink, ChefHat, Plus, Filter, Sparkles, Check
+  Wand2, ExternalLink, ChefHat, Filter, Check
 } from 'lucide-react';
 import { getFoodEmoji, isProductGlutenFree, getDaysUntil } from './PantrySection';
 
@@ -21,6 +21,468 @@ function cleanProductCoreName(rawName) {
 }
 
 // ============================================================================
+// UMFASSENDES ENGLISCH -> DEUTSCH WÖRTERBUCH FÜR WEB-REZEPTE & ZUTATEN
+// ============================================================================
+const EN_TO_DE_INGREDIENTS_EXACT = {
+  // Reis, Nudeln, Getreide & Backzutaten
+  'rice': 'Reis',
+  'basmati rice': 'Basmatireis',
+  'jasmine rice': 'Jasminreis',
+  'white rice': 'Langkornreis',
+  'brown rice': 'Naturreis',
+  'arborio rice': 'Risottoreis',
+  'pasta': 'Nudeln / Pasta',
+  'spaghetti': 'Spaghetti',
+  'penne rigate': 'Penne Nudeln',
+  'rigatoni': 'Rigatoni Nudeln',
+  'macaroni': 'Makkaroni',
+  'tagliatelle': 'Bandnudeln',
+  'lasagne': 'Lasagneplatten',
+  'noodles': 'Nudeln',
+  'egg noodles': 'Eiernudeln',
+  'rice noodles': 'Reisnudeln',
+  'flour': 'Mehl',
+  'plain flour': 'Weizenmehl / Mehl',
+  'self-raising flour': 'Mehl & Backpulver',
+  'cornstarch': 'Speisestärke / Maisstärke',
+  'corn flour': 'Maisstärke / Maismehl',
+  'potato starch': 'Kartoffelstärke',
+  'baking powder': 'Backpulver',
+  'bicarbonate of soda': 'Natron',
+  'baking soda': 'Natron',
+  'yeast': 'Hefe',
+  'bread': 'Brot / Baguette',
+  'baguette': 'Baguette',
+  'ciabatta': 'Ciabatta-Brot',
+  'tortillas': 'Tortilla-Wraps',
+  'flour tortilla': 'Wraps',
+  'breadcrumbs': 'Paniermehl',
+  'oats': 'Haferflocken',
+  'rolled oats': 'Haferflocken',
+
+  // Kartoffeln, Gemüse & Salat
+  'potatoes': 'Kartoffeln',
+  'potato': 'Kartoffeln',
+  'new potatoes': 'Junge Kartoffeln',
+  'sweet potatoes': 'Süßkartoffeln',
+  'sweet potato': 'Süßkartoffel',
+  'onion': 'Zwiebel',
+  'onions': 'Zwiebeln',
+  'red onion': 'Rote Zwiebel',
+  'red onions': 'Rote Zwiebeln',
+  'spring onions': 'Frühlingszwiebeln',
+  'scallions': 'Frühlingszwiebeln',
+  'shallots': 'Schalotten',
+  'garlic': 'Knoblauch',
+  'garlic clove': 'Knoblauchzehe',
+  'garlic cloves': 'Knoblauch',
+  'minced garlic': 'Knoblauch',
+  'carrots': 'Karotten / Möhren',
+  'carrot': 'Karotten / Möhren',
+  'cucumber': 'Gurke',
+  'pickled cucumber': 'Gewürzgurken / Gurke',
+  'gherkin': 'Gewürzgurken',
+  'tomato': 'Tomaten',
+  'tomatoes': 'Tomaten',
+  'cherry tomatoes': 'Cherrytomaten',
+  'plum tomatoes': 'Strauchtomaten',
+  'chopped tomatoes': 'Gehackte Tomaten',
+  'canned tomatoes': 'Dosentomaten',
+  'tinned tomatos': 'Passierte Tomaten',
+  'tomato puree': 'Tomatenmark',
+  'tomato paste': 'Tomatenmark',
+  'passata': 'Passierte Tomaten',
+  'red pepper': 'Rote Paprika',
+  'green pepper': 'Grüne Paprika',
+  'yellow pepper': 'Gelbe Paprika',
+  'bell pepper': 'Paprika',
+  'peppers': 'Paprika',
+  'habanero pepper': 'Chili / Scharfe Paprika',
+  'chili pepper': 'Chilischote',
+  'red chilli': 'Rote Chili',
+  'green chilli': 'Grüne Chili',
+  'jalapeno': 'Jalapeño / Chili',
+  'mushrooms': 'Champignons / Pilze',
+  'mushroom': 'Pilze',
+  'chestnut mushroom': 'Braune Champignons',
+  'shiitake mushrooms': 'Pilze',
+  'broccoli': 'Brokkoli',
+  'cauliflower': 'Blumenkohl',
+  'spinach': 'Spinat',
+  'baby spinach': 'Blattspinat',
+  'lettuce': 'Salat / Eisbergsalat',
+  'iceberg lettuce': 'Eisbergsalat',
+  'little gem lettuce': 'Salatherzen',
+  'rocket': 'Rucola',
+  'cabbage': 'Weißkohl / Kraut',
+  'red cabbage': 'Rotkohl',
+  'sauerkraut': 'Sauerkraut',
+  'courgette': 'Zucchini',
+  'zucchini': 'Zucchini',
+  'aubergine': 'Aubergine',
+  'eggplant': 'Aubergine',
+  'asparagus': 'Spargel',
+  'celery': 'Sellerie',
+  'leek': 'Lauch / Porree',
+  'peas': 'Erbsen',
+  'frozen peas': 'Erbsen (TK)',
+  'green beans': 'Grüne Bohnen',
+  'kidney beans': 'Kidneybohnen',
+  'black beans': 'Schwarze Bohnen',
+  'cannellini beans': 'Weiße Bohnen',
+  'baked beans': 'Weiße Bohnen in Tomatensoße',
+  'chickpeas': 'Kichererbsen',
+  'lentils': 'Linsen',
+  'sweetcorn': 'Mais',
+  'corn': 'Mais',
+  'avocado': 'Avocado',
+  'ginger': 'Ingwer',
+
+  // Obst & Nüsse
+  'apple': 'Äpfel',
+  'apples': 'Äpfel',
+  'bramley apples': 'Äpfel',
+  'banana': 'Bananen',
+  'lemon': 'Zitrone',
+  'lemon juice': 'Zitronensaft',
+  'lemon zest': 'Zitronenschale',
+  'lime': 'Limette',
+  'lime juice': 'Limettensaft',
+  'orange': 'Orange',
+  'strawberries': 'Erdbeeren',
+  'raspberries': 'Himbeeren',
+  'blueberries': 'Heidelbeeren',
+  'peanuts': 'Erdnüsse',
+  'almonds': 'Mandeln',
+  'walnuts': 'Walnüsse',
+  'cashews': 'Cashewkerne',
+  'pine nuts': 'Pinienkerne',
+
+  // Fleisch, Wurst, Fisch & Eier
+  'pork': 'Schweinefleisch / Filet',
+  'pork loin': 'Schweinelende / Schweinefilet',
+  'pork tenderloin': 'Schweinefilet',
+  'pork chops': 'Schweinekotelett / Schnitzel',
+  'minced pork': 'Schweinehackfleisch',
+  'beef': 'Rindfleisch',
+  'minced beef': 'Rinderhackfleisch',
+  'ground beef': 'Rinderhackfleisch',
+  'beef fillet': 'Rinderfilet',
+  'beef brisket': 'Rinderbraten',
+  'steak': 'Rumpsteak / Steak',
+  'chicken': 'Hähnchen',
+  'chicken breast': 'Hähnchenbrustfilet',
+  'chicken breasts': 'Hähnchenbrustfilet',
+  'chicken thighs': 'Hähnchenschenkel',
+  'chicken stock': 'Hühnerbrühe',
+  'turkey': 'Putenfleisch',
+  'bacon': 'Bacon / Speck',
+  'ham': 'Kochschinken / Schinken',
+  'prosciutto': 'Schinken',
+  'chorizo': 'Chorizo / Salami',
+  'kielbasa': 'Bratwurst / Polnische Wurst',
+  'sausages': 'Bratwurst / Würstchen',
+  'sausage': 'Bratwurst',
+  'salmon': 'Lachsfilet',
+  'cod': 'Kabeljaufilet',
+  'tuna': 'Thunfisch',
+  'prawns': 'Garnelen',
+  'king prawns': 'Garnelen',
+  'egg': 'Eier',
+  'eggs': 'Eier',
+  'egg yolks': 'Eigelb',
+  'egg white': 'Eiweiß',
+
+  // Milchprodukte & Käse
+  'milk': 'Vollmilch',
+  'whole milk': 'Vollmilch',
+  'semi-skimmed milk': 'Milch',
+  'coconut milk': 'Kokosmilch',
+  'cream': 'Schlagsahne',
+  'double cream': 'Schlagsahne',
+  'heavy cream': 'Schlagsahne',
+  'single cream': 'Kochsahne',
+  'sour cream': 'Saure Sahne / Schmand',
+  'creme fraiche': 'Crème fraîche',
+  'yogurt': 'Naturjoghurt',
+  'greek yogurt': 'Griechischer Joghurt',
+  'butter': 'Butter',
+  'unsalted butter': 'Butter',
+  'salted butter': 'Butter',
+  'cheese': 'Käse / Reibekäse',
+  'cheddar cheese': 'Cheddar / Scheibenkäse',
+  'mozzarella': 'Mozzarella',
+  'mozzarella balls': 'Mozzarella',
+  'parmesan': 'Parmesan',
+  'parmesan cheese': 'Parmesan',
+  'cream cheese': 'Frischkäse',
+  'feta': 'Feta / Hirtenkäse',
+  'goat cheese': 'Ziegenkäse',
+  'mascarpone': 'Mascarpone',
+  'ricotta': 'Ricotta / Quark',
+
+  // Öle, Soßen, Gewürze & Vorrat
+  'olive oil': 'Olivenöl',
+  'vegetable oil': 'Speiseöl / Sonnenblumenöl',
+  'sunflower oil': 'Sonnenblumenöl',
+  'rapeseed oil': 'Rapsöl',
+  'sesame oil': 'Sesamöl',
+  'vinegar': 'Essig',
+  'white wine vinegar': 'Weißweinessig',
+  'red wine vinegar': 'Rotweinessig',
+  'balsamic vinegar': 'Balsamico-Essig',
+  'apple cider vinegar': 'Apfelessig',
+  'soy sauce': 'Sojasauce',
+  'mayonnaise': 'Mayonnaise',
+  'mustard': 'Senf',
+  'dijon mustard': 'Dijon-Senf',
+  'tomato ketchup': 'Ketchup',
+  'ketchup': 'Ketchup',
+  'bbq sauce': 'BBQ-Sauce',
+  'hot sauce': 'Chilisauce',
+  'worcestershire sauce': 'Würzsauce',
+  'pesto': 'Pesto',
+  'vegetable stock': 'Gemüsebrühe',
+  'beef stock': 'Rinderbrühe',
+  'stock': 'Brühe',
+  'sugar': 'Zucker',
+  'granulated sugar': 'Zucker',
+  'caster sugar': 'Feiner Zucker',
+  'brown sugar': 'Brauner Zucker',
+  'icing sugar': 'Puderzucker',
+  'honey': 'Honig',
+  'maple syrup': 'Ahornsirup',
+  'peanut butter': 'Erdnussbutter',
+  'jam': 'Konfitüre / Marmelade',
+  'chocolate': 'Schokolade',
+  'dark chocolate': 'Zartbitterschokolade',
+  'cocoa': 'Kakaopulver',
+  'cinnamon': 'Zimt',
+  'cinnamon stick': 'Zimt / Zimtstange',
+  'cardamom': 'Kardamom',
+  'cumin': 'Kreuzkümmel',
+  'paprika': 'Paprikapulver',
+  'smoked paprika': 'Paprikapulver',
+  'turmeric': 'Kurkuma',
+  'oregano': 'Oregano',
+  'basil': 'Basilikum',
+  'parsley': 'Petersilie',
+  'coriander': 'Koriander',
+  'thyme': 'Thymian',
+  'rosemary': 'Rosmarin',
+  'chives': 'Schnittlauch',
+  'dill': 'Dill',
+  'mint': 'Minze',
+  'nutmeg': 'Muskatnuss',
+  'vanilla extract': 'Vanille',
+  'black pepper': 'Schwarzer Pfeffer',
+  'pepper': 'Pfeffer',
+  'salt': 'Salz',
+  'sea salt': 'Meersalz',
+  'water': 'Wasser'
+};
+
+export function translateWebIngredientToGerman(rawEn) {
+  const clean = String(rawEn || '').trim();
+  if (!clean) return '';
+  const lower = clean.toLowerCase();
+
+  if (EN_TO_DE_INGREDIENTS_EXACT[lower]) {
+    return EN_TO_DE_INGREDIENTS_EXACT[lower];
+  }
+
+  // Wort-für-Wort-Übersetzung für zusammengesetzte englische Zutaten
+  let out = clean;
+  const wordPairs = [
+    ['Chicken Breast', 'Hähnchenbrust'],
+    ['Chicken', 'Hähnchen'],
+    ['Pork', 'Schweinefleisch'],
+    ['Beef', 'Rindfleisch'],
+    ['Minced', 'Hackfleisch'],
+    ['Sausage', 'Bratwurst'],
+    ['Bacon', 'Bacon / Speck'],
+    ['Salmon', 'Lachs'],
+    ['Potatoes', 'Kartoffeln'],
+    ['Potato', 'Kartoffeln'],
+    ['Red Onions', 'Rote Zwiebeln'],
+    ['Red Onion', 'Rote Zwiebel'],
+    ['Onions', 'Zwiebeln'],
+    ['Onion', 'Zwiebel'],
+    ['Garlic Cloves', 'Knoblauch'],
+    ['Garlic Clove', 'Knoblauchzehe'],
+    ['Garlic', 'Knoblauch'],
+    ['Carrots', 'Karotten'],
+    ['Carrot', 'Karotte'],
+    ['Cucumber', 'Gurke'],
+    ['Tomatoes', 'Tomaten'],
+    ['Tomato', 'Tomaten'],
+    ['Mushrooms', 'Pilze'],
+    ['Mushroom', 'Pilze'],
+    ['Pepper', 'Paprika / Pfeffer'],
+    ['Spinach', 'Spinat'],
+    ['Broccoli', 'Brokkoli'],
+    ['Cheese', 'Käse'],
+    ['Milk', 'Vollmilch'],
+    ['Cream', 'Sahne'],
+    ['Butter', 'Butter'],
+    ['Eggs', 'Eier'],
+    ['Egg', 'Eier'],
+    ['Flour', 'Mehl'],
+    ['Rice', 'Reis'],
+    ['Pasta', 'Nudeln'],
+    ['Bread', 'Brot'],
+    ['Sugar', 'Zucker'],
+    ['Vinegar', 'Essig'],
+    ['Oil', 'Speiseöl'],
+    ['Lime', 'Limette'],
+    ['Lemon', 'Zitrone'],
+    ['Apple', 'Apfel'],
+    ['Avocado', 'Avocado'],
+    ['Chopped', 'Gehackte'],
+    ['Fresh', 'Frische'],
+    ['Dried', 'Getrocknete'],
+    ['Ground', 'Gemahlener'],
+    ['Sliced', 'Geschnittene']
+  ];
+
+  wordPairs.forEach(([en, de]) => {
+    const reg = new RegExp('\\b' + en + '\\b', 'gi');
+    out = out.replace(reg, de);
+  });
+
+  return out;
+}
+
+const FULL_DISH_TITLE_TRANSLATIONS = {
+  'arroz con leche recipe': 'Spanischer Zimt-Milchreis (Arroz con Leche)',
+  'arroz con leche': 'Spanischer Zimt-Milchreis (Arroz con Leche)',
+  'bigos (hunters stew)': 'Deftiger Jäger-Schmortopf mit Wurst & Fleisch (Bigos)',
+  'aebleskiver': 'Dänische Pfannkuchen-Kugeln aus der Pfanne (Æbleskiver)',
+  'æbleskiver': 'Dänische Pfannkuchen-Kugeln aus der Pfanne (Æbleskiver)',
+  'ají de aguacate recipe (colombian spicy avocado sauce)': 'Würzige Avocado-Creme mit Ei & Limette (Ají de Aguacate)',
+  'aji de aguacate recipe (colombian spicy avocado sauce)': 'Würzige Avocado-Creme mit Ei & Limette'
+};
+
+export function translateWebMealTitle(enTitle) {
+  let raw = String(enTitle || '').trim();
+  const lower = raw.toLowerCase();
+  if (FULL_DISH_TITLE_TRANSLATIONS[lower]) {
+    return FULL_DISH_TITLE_TRANSLATIONS[lower];
+  }
+
+  let out = raw.replace(/\bRecipe\b/gi, '').trim();
+  const phraseReplacements = [
+    ['Beef Banh Mi Bowls with Sriracha Mayo, Carrot & Pickled Cucumber', 'Rindfleisch-Reis-Bowl mit Würz-Mayo, Karotten & Gurke'],
+    ['Banh Mi Bowls with Sriracha Mayo, Carrot & Pickled Cucumber', 'Asiatische Reis-Bowl mit Würz-Mayo, Karotten & Gurke'],
+    ['BBQ Pork Sloppy Joes', 'Geschmortes BBQ-Schweinefleisch im Brötchen (Sloppy Joes)'],
+    ['Pork Sloppy Joes', 'Würzige Schweinefleisch-Burgerpfanne (Sloppy Joes)'],
+    ['Sloppy Joes', 'Schnelle Burger-Pfanne'],
+    ['Hunters Stew', 'Jäger-Eintopf'],
+    ['Colombian Spicy Avocado Sauce', 'Würziger Avocado-Dip'],
+    ['Chicken', 'Hähnchen'],
+    ['Beef', 'Rindfleisch'],
+    ['Pork', 'Schweinefilet'],
+    ['Pasta', 'Nudel-Pfanne'],
+    ['Spaghetti', 'Spaghetti'],
+    ['Salmon', 'Lachs'],
+    ['Potato', 'Kartoffel'],
+    ['Potatoes', 'Kartoffeln'],
+    ['Cheese', 'Käse'],
+    ['Creamy', 'Cremige'],
+    ['Baked', 'Ofen-'],
+    ['Roasted', 'Geröstete'],
+    ['Grilled', 'Gegrilltes'],
+    ['Fried', 'Gebratener'],
+    ['Salad', 'Salat'],
+    ['Rice', 'Reis-Pfanne'],
+    ['Bowls', 'Reis-Bowl'],
+    ['Bowl', 'Bowl'],
+    ['With', 'mit'],
+    ['And', '&'],
+    ['Carrot', 'Karotten'],
+    ['Carrots', 'Karotten'],
+    ['Pickled Cucumber', 'Gewürzgurke'],
+    ['Cucumber', 'Gurke'],
+    ['Mushroom', 'Pilz'],
+    ['Mushrooms', 'Pilzen'],
+    ['Garlic', 'Knoblauch'],
+    ['Tomato', 'Tomaten'],
+    ['Soup', 'Suppe'],
+    ['Stew', 'Schmortopf'],
+    ['Pie', 'Auflauf'],
+    ['Casserole', 'Auflauf']
+  ];
+
+  phraseReplacements.forEach(([en, de]) => {
+    const reg = new RegExp('\\b' + en.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'gi');
+    out = out.replace(reg, de);
+  });
+
+  return out.replace(/\s+/g, ' ').trim();
+}
+
+// ============================================================================
+// PRÄZISER VORRATS-ABGLEICH (VERHINDERT FALSCHE TREFFER WIE "MILKA" FÜR "MILCH")
+// ============================================================================
+function matchIngredientInGermanStock(ingLabelDe, safeStock) {
+  if (!ingLabelDe || !Array.isArray(safeStock) || safeStock.length === 0) return null;
+  const ingLower = String(ingLabelDe).toLowerCase().trim();
+
+  // 1. Exakter Namens-Treffer
+  const exact = safeStock.find(st => String(st.name || '').toLowerCase().trim() === ingLower);
+  if (exact) return exact;
+
+  // 2. Zerlege die gesuchte Zutat in echte deutsche Lebensmittel-Begriffe (ohne Füllwörter & Farben wie "rot")
+  const searchWords = ingLower
+    .split(/[\s/(),&-]+/)
+    .filter(w =>
+      w.length >= 3 &&
+      !/^(mit|oder|und|aus|zum|zur|für|von|klecks|prise|optional|wahl|frische|frischer|frisches|rote|roter|grüne|gelbe|weiße|kleine|große|ganze|etwas)$/.test(w)
+    );
+
+  if (searchWords.length === 0) return null;
+
+  for (const st of safeStock) {
+    const stFullLower = String(st.name || '').toLowerCase();
+    const stCoreLower = cleanProductCoreName(st.name);
+
+    // Schutzregel A: Süßigkeiten (Milka, Kuhflecken, Schokolade, Keks, Eis) dürfen NIEMALS als Milch, Sahne oder Butter zählen!
+    const isSweetItem = /milka|kuhflecken|schokolade|schoko|choco|keks|cookie|bonbon|gummibär|haribo|nutella|praline/.test(stFullLower);
+    const isSearchingDairyOrBasic = /milch|vollmilch|butter|sahne|schlagsahne|käse|quark|joghurt|wasser/.test(ingLower);
+    if (isSweetItem && isSearchingDairyOrBasic) {
+      continue;
+    }
+
+    // Schutzregel B: "Buttergemüse" ist Gemüse und kein Ersatz für reine "Butter" zum Backen/Braten
+    if (/butter/.test(ingLower) && !/gemüse/.test(ingLower) && /buttergemüse/.test(stFullLower)) {
+      continue;
+    }
+
+    // Zerlege den Bestandsnamen in einzelne Wörter (ohne "rot", "bio", etc.)
+    const stTokens = stCoreLower
+      .split(/[\s/(),&-]+/)
+      .filter(w => w.length >= 3 && !/^(rot|rote|grün|gelb|weiß|fein|extra|classic)$/.test(w));
+
+    const hasTokenMatch = searchWords.some(sw =>
+      stTokens.some(tok => {
+        if (tok === sw) return true;
+        // Erlaube sinnvolle Wortstamm-Treffer (mindestens 4 Buchstaben, z.B. "reis" in "langkornreis", "nudel" in "nudeln", "tomate" in "tomaten")
+        if (sw.length >= 4 && tok.length >= 4) {
+          return tok.startsWith(sw) || sw.startsWith(tok) || (sw.length >= 5 && tok.endsWith(sw));
+        }
+        return false;
+      })
+    );
+
+    if (hasTokenMatch) {
+      return st;
+    }
+  }
+
+  return null;
+}
+
+// ============================================================================
 // ERWEITERTE SCHNELL-REZEPT-DATENBANK (10 BIS 25 MINUTEN • FAMILIEN & GLUTENFREI)
 // ============================================================================
 const FAMILY_RECIPES_DB = [
@@ -32,8 +494,8 @@ const FAMILY_RECIPES_DB = [
     glutenFree: true,
     category: 'Express-Pasta (15 Min.)',
     shortDesc: 'Rigatoni oder Lieblingsnudeln in einer schnellen 5-Minuten-Soße aus Sahne, Frischkäse und Käse.',
-    keywords: ['rigatoni', 'nudel', 'spaghetti', 'pasta', 'penne', 'frischkäse', 'philadelphia', 'schlagsahne', 'sahne', 'käse', 'parmesan', 'vollmilch', 'milch'],
-    ingredients: ['Rigatoni / Glutenfreie Nudeln', 'Schlagsahne oder Vollmilch', 'Frischkäse / Reibekäse', 'Tomatenmark oder Kräuter']
+    keywords: ['rigatoni', 'nudel', 'spaghetti', 'pasta', 'penne', 'frischkäse', 'philadelphia', 'schlagsahne', 'sahne', 'käse', 'parmesan', 'vollmilch'],
+    ingredients: ['Rigatoni / Nudeln', 'Schlagsahne oder Vollmilch', 'Frischkäse / Reibekäse', 'Tomatenmark oder Kräuter']
   },
   {
     id: 'fam_wraps',
@@ -43,8 +505,8 @@ const FAMILY_RECIPES_DB = [
     glutenFree: true,
     category: 'Express & Glutenfrei',
     shortDesc: 'Gefüllte Wraps warm in der Pfanne angeröstet mit Frischkäse, Käse, Salat oder Gurke.',
-    keywords: ['wraps', 'wrap', 'schär', 'tortilla', 'frischkäse', 'philadelphia', 'scheibenkäse', 'käse', 'gurke', 'salat', 'eisbergsalat', 'mâche', 'burger sauce'],
-    ingredients: ['Wraps (z.B. Schär)', 'Frischkäse oder Scheibenkäse', 'Salat / Gurke / Tomate', 'Sauce oder Kräuterbutter']
+    keywords: ['wraps', 'wrap', 'tortilla', 'frischkäse', 'philadelphia', 'scheibenkäse', 'käse', 'gurke', 'salat', 'eisbergsalat', 'mâche'],
+    ingredients: ['Wraps', 'Frischkäse oder Scheibenkäse', 'Salat / Gurke / Tomaten', 'Burger Sauce oder Kräuterbutter']
   },
   {
     id: 'fam_reis_pfanne',
@@ -53,20 +515,20 @@ const FAMILY_RECIPES_DB = [
     kidFavorite: true,
     glutenFree: true,
     category: 'One-Pot & Glutenfrei',
-    shortDesc: 'Langkorn-Reis aus einer Pfanne mit Pilzen, Gemüse und einem cremigen Schuss Sahne oder Frischkäse.',
-    keywords: ['reis', 'rize', 'langkorn', 'basmati', 'spitzenreis', 'pilz', 'pfifferling', 'champignon', 'paprika', 'mais', 'erbsen', 'schlagsahne', 'frischkäse'],
-    ingredients: ['Langkorn-Reis / Basmatireis', 'Pilze (z.B. Pfifferlinge) oder Gemüse', 'Schlagsahne / Frischkäse', 'Zwiebel & Brühe/Gewürze']
+    shortDesc: 'Langkorn-Reis aus einer Pfanne mit Pilzen, Paprika/Gemüse und einem Schuss Sahne oder Frischkäse.',
+    keywords: ['reis', 'rize', 'langkorn', 'basmati', 'spitzenreis', 'pilz', 'pfifferling', 'champignon', 'paprika', 'buttergemüse', 'mais', 'erbsen'],
+    ingredients: ['Langkornreis / Reis', 'Pilze oder Buttergemüse / Paprika', 'Schlagsahne / Frischkäse', 'Zwiebel & Gewürze']
   },
   {
     id: 'fam_filet_rahm',
-    title: '🥩 Zartes Filet / Geschnetzeltes in Pfifferling-Rahm mit Püree',
+    title: '🥩 Zartes Schweinefilet / Geschnetzeltes in Rahmsoße',
     prepMinutes: 20,
     kidFavorite: true,
     glutenFree: true,
     category: 'Familien-Highlight',
-    shortDesc: 'Kurzgebratenes Schweine- oder Hähnchenfilet mit Pilzen in Rahmsoße zu schnellem Kartoffelpüree.',
-    keywords: ['schweinefilet', 'filet', 'hähnchen', 'pute', 'schnitzel', 'fleisch', 'pfifferling', 'pilz', 'champignon', 'kartoffelpüree', 'pfanni', 'reis', 'schlagsahne', 'sahne'],
-    ingredients: ['Schweinefilet / Hähnchenfilet', 'Pfifferlinge / Pilze', 'Kartoffelpüree oder Reis', 'Schlagsahne / Cremefine']
+    shortDesc: 'Kurzgebratenes Schweinefilet oder Hähnchen aus der Pfanne mit Rahmsoße zu Reis oder Kartoffelpüree.',
+    keywords: ['schweinefilet', 'schweinestrang', 'filet', 'hähnchen', 'pute', 'schnitzel', 'pfifferling', 'pilz', 'kartoffelpüree', 'reis'],
+    ingredients: ['Schweinefilet / Schweinestrang', 'Kartoffelpüree oder Reis', 'Pilze oder Buttergemüse', 'Schlagsahne']
   },
   {
     id: 'fam_baguette_ofen',
@@ -75,9 +537,9 @@ const FAMILY_RECIPES_DB = [
     kidFavorite: true,
     glutenFree: true,
     category: 'Blitz-Abendessen (12 Min.)',
-    shortDesc: 'Halbiertes Baguette oder Landbrot bestrichen mit Tomatenmark/Frischkäse und mit Käse goldbraun überbacken.',
-    keywords: ['baguette', 'landbrot', 'brot', 'brötchen', 'knusperbrot', 'tomatenmark', 'passierte', 'käse', 'mozzarella', 'gouda', 'frischkäse', 'salami', 'schinken', 'kräuterbutter'],
-    ingredients: ['Baguette / Landbrot', 'Tomatenmark oder Kräuterbutter', 'Käse / Mozzarella zum Überbacken', 'Schinken / Salami / Paprika (optional)']
+    shortDesc: 'Halbiertes Baguette oder Landbrot bestrichen mit Tomatenmark/Frischkäse und mit Käse/Bacon überbacken.',
+    keywords: ['baguette', 'landbrot', 'brot', 'brötchen', 'knusperbrot', 'tomatenmark', 'käse', 'mozzarella', 'gouda', 'frischkäse', 'bacon', 'schinken'],
+    ingredients: ['Baguette / Landbrot', 'Tomatenmark oder Kräuterbutter', 'Käse / Mozzarella', 'Bacon oder Schinken / Paprika']
   },
   {
     id: 'fam_pfannkuchen_gf',
@@ -87,8 +549,8 @@ const FAMILY_RECIPES_DB = [
     glutenFree: true,
     category: 'Süß & Schnell',
     shortDesc: 'Fluffige Pfannkuchen aus der Eisenpfanne mit Mehl, Milch und Eiern – perfekt mit Apfelmus oder Obst.',
-    keywords: ['mehl', 'schär', 'vollmilch', 'milch', 'ei', 'eier', 'apfelmus', 'apfel', 'butter', 'zucker', 'beeren'],
-    ingredients: ['Mehl (z.B. Schär glutenfrei)', 'Vollmilch', 'Frische Eier', 'Apfelmus / Obst / Zimt & Zucker']
+    keywords: ['mehl', 'vollmilch', 'eier', 'apfelmus', 'apfel', 'butter', 'beeren'],
+    ingredients: ['Mehl', 'Vollmilch', 'Frische Eier', 'Apfelmus / Äpfel']
   },
   {
     id: 'fam_chili_reis',
@@ -98,19 +560,19 @@ const FAMILY_RECIPES_DB = [
     glutenFree: true,
     category: 'One-Pot & Glutenfrei',
     shortDesc: 'Wärmendes Chili verfeinert mit Tomatenmark, Mais und Reis oder Kartoffelpüree als Beilage.',
-    keywords: ['chili', 'gefro', 'tomatenmark', 'oro di parma', 'reis', 'rize', 'kartoffelpüree', 'schlagsahne', 'frischkäse', 'mais', 'bohne'],
-    ingredients: ['Chili sin carne / Bohnen & Mais', 'Tomatenmark', 'Reis oder Kartoffelpüree', 'Klecks Schmand / Frischkäse']
+    keywords: ['chili', 'tomatenmark', 'reis', 'rize', 'kartoffelpüree', 'schlagsahne', 'frischkäse', 'mais', 'bohnen'],
+    ingredients: ['Chili sin carne / Bohnen & Mais', 'Tomatenmark', 'Reis oder Kartoffelpüree', 'Frischkäse / Schmand']
   },
   {
     id: 'fam_bratwurst_rotkohl',
-    title: '🌭 Bratwurst mit schnellem Kartoffelpüree & Rotkohl',
+    title: '🌭 Bratwurst / Bacon-Pfanne mit Kartoffelpüree & Gemüse',
     prepMinutes: 18,
     kidFavorite: true,
     glutenFree: true,
     category: 'Familien-Klassiker',
     shortDesc: 'Deftiger Familien-Liebling aus der Pfanne mit cremigem Kartoffelpüree und Gemüsebeilage.',
-    keywords: ['rostbratwurst', 'bratwurst', 'wurst', 'würstchen', 'kartoffelpüree', 'pfanni', 'kartoffel', 'rotkohl', 'sauerkraut', 'kräuterbutter', 'butter', 'senf'],
-    ingredients: ['Bratwurst / Würstchen', 'Kartoffelpüree', 'Apfel-Rotkohl oder Salat', 'Kräuterbutter / Senf']
+    keywords: ['rostbratwurst', 'bratwurst', 'wurst', 'bacon', 'kartoffelpüree', 'kartoffeln', 'rotkohl', 'buttergemüse'],
+    ingredients: ['Bratwurst oder Bacon', 'Kartoffelpüree', 'Buttergemüse oder Rotkohl', 'Kräuterbutter / Senf']
   },
   {
     id: 'fam_kartoffel_gratin',
@@ -119,17 +581,13 @@ const FAMILY_RECIPES_DB = [
     kidFavorite: true,
     glutenFree: true,
     category: 'Ofen & Familie',
-    shortDesc: 'Kartoffelpüree mit Sahne, Frischkäse und Gemüse oder Schinkenwürfeln im Ofen überbacken.',
-    keywords: ['kartoffelpüree', 'pfanni', 'kartoffel', 'schlagsahne', 'sahne', 'vollmilch', 'frischkäse', 'philadelphia', 'parmesan', 'käse', 'butter'],
-    ingredients: ['Kartoffelpüree / Kartoffeln', 'Schlagsahne & Milch', 'Frischkäse', 'Reibekäse / Parmesan']
+    shortDesc: 'Kartoffelpüree mit Sahne, Frischkäse und Gemüse oder Baconwürfeln im Ofen überbacken.',
+    keywords: ['kartoffelpüree', 'kartoffeln', 'schlagsahne', 'vollmilch', 'frischkäse', 'parmesan', 'käse', 'bacon'],
+    ingredients: ['Kartoffelpüree / Kartoffeln', 'Schlagsahne & Vollmilch', 'Frischkäse', 'Reibekäse / Bacon']
   }
 ];
 
-// ============================================================================
-// PUNKT 4: DYNAMISCHER ECHTZEIT-REZEPTGENERATOR AUS DEM AKTUELLEN BESTAND
-// Erstellt automatisch neue 15-Minuten-Rezepte, sobald neue Produkte im Vorrat landen!
-// ============================================================================
-function generateDynamicRecipesFromStock(safeStock, todayStr) {
+function generateDynamicRecipesFromStock(safeStock) {
   if (!Array.isArray(safeStock) || safeStock.length === 0) return [];
 
   const findInStock = (regex) => safeStock.find(it => regex.test(String(it.name || '').toLowerCase()));
@@ -142,17 +600,16 @@ function generateDynamicRecipesFromStock(safeStock, todayStr) {
   const wrapItem = findInStock(/wrap|tortilla|taco/);
   const flourItem = findInStock(/mehl|backmischung/);
 
-  const meatFishList = findAllInStock(/filet|schwein|rind|hackfleisch|hähnchen|pute|schnitzel|steak|wurst|bratwurst|schinken|salami|speck|lachs|fisch|thunfisch|ei\b|eier/);
-  const veggieMushroomList = findAllInStock(/pilz|pfifferling|champignon|salat|gurke|tomate|paprika|karotte|möhre|brokkoli|blumenkohl|spinat|spargel|rotkohl|mais|erbse|bohne|avocado|zwiebel/);
-  const dairySauceList = findAllInStock(/käse|frischkäse|philadelphia|mozzarella|gouda|parmesan|sahne|schlagsahne|schmand|milch|vollmilch|butter|kräuterbutter|pesto|tomatenmark|passierte|sauce|soße|ketchup/);
+  const meatFishList = findAllInStock(/filet|schwein|rind|hackfleisch|hähnchen|pute|schnitzel|steak|wurst|bratwurst|schinken|salami|speck|bacon|lachs|fisch|thunfisch|\bei\b|eier/);
+  const veggieMushroomList = findAllInStock(/pilz|pfifferling|champignon|buttergemüse|salat|gurke|tomate|paprika|karotte|möhre|brokkoli|blumenkohl|spinat|spargel|rotkohl|mais|erbse|bohne|avocado|zwiebel/);
+  const dairySauceList = findAllInStock(/käse|frischkäse|philadelphia|mozzarella|gouda|parmesan|sahne|schlagsahne|schmand|vollmilch|kräuterbutter|pesto|tomatenmark|passierte|sauce|soße|ketchup/);
 
   const dynamicRecipes = [];
 
-  // 1. SPOTLIGHT-REZEPT FÜR DAS ZULETZT HINZUGEFÜGTE PRODUKT (hält die Liste bei jedem Scan sofort aktuell!)
   const newestItem = safeStock[0];
   if (newestItem && newestItem.name) {
     const nLower = newestItem.name.toLowerCase();
-    const isSweetOrDrink = /wasser|cola|limo|bier|wein|kaffee|tee|futter|tierfutter|kauknochen/.test(nLower);
+    const isSweetOrDrink = /wasser|cola|limo|bier|wein|kaffee|tee|futter|tierfutter|kauknochen|milka|kuhflecken|schokolade|keks/.test(nLower);
 
     if (!isSweetOrDrink) {
       const partnerBase =
@@ -163,12 +620,12 @@ function generateDynamicRecipesFromStock(safeStock, todayStr) {
         'Nudeln / Reis / Kartoffeln';
 
       const partnerSauce =
-        dairySauceList.find(d => d.id !== newestItem.id)?.name || 'Sahne / Frischkäse / Butter';
+        dairySauceList.find(d => d.id !== newestItem.id)?.name || 'Schlagsahne / Frischkäse';
 
       const partnerExtra =
         veggieMushroomList.find(v => v.id !== newestItem.id)?.name ||
         meatFishList.find(m => m.id !== newestItem.id)?.name ||
-        'Frische Kräuter / Gemüse nach Wahl';
+        'Frisches Gemüse / Zwiebel';
 
       dynamicRecipes.push({
         id: 'dyn_newest_' + newestItem.id,
@@ -191,10 +648,9 @@ function generateDynamicRecipesFromStock(safeStock, todayStr) {
     }
   }
 
-  // 2. DYNAMISCHE PASTA-KOMBINATION AUS DEM AKTUELLEN VORRAT
   if (pastaItem) {
     const sauce1 = dairySauceList[0]?.name || 'Schlagsahne / Passierte Tomaten';
-    const extra1 = veggieMushroomList[0]?.name || meatFishList[0]?.name || 'Parmesan / Frisches Gemüse';
+    const extra1 = veggieMushroomList[0]?.name || meatFishList[0]?.name || 'Parmesan / Gemüse';
     dynamicRecipes.push({
       id: 'dyn_pasta_' + pastaItem.id,
       title: '🍝 15-Minuten Pfannen-Pasta mit ' + pastaItem.name,
@@ -209,15 +665,14 @@ function generateDynamicRecipesFromStock(safeStock, todayStr) {
         pastaItem.name,
         sauce1,
         extra1,
-        dairySauceList[1]?.name || 'Reibekäse / Gewürze'
+        dairySauceList[1]?.name || 'Reibekäse'
       ]
     });
   }
 
-  // 3. DYNAMISCHE REIS-BOWL / REISPFANNE AUS DEM AKTUELLEN VORRAT
   if (riceItem) {
     const mainAdd = meatFishList[0]?.name || veggieMushroomList[0]?.name || 'Hähnchen / Gemüse / Pilze';
-    const sauceAdd = dairySauceList[0]?.name || 'Frischkäse / Sahne / Sojasauce';
+    const sauceAdd = dairySauceList[0]?.name || 'Frischkäse / Sahne';
     dynamicRecipes.push({
       id: 'dyn_rice_' + riceItem.id,
       title: '🍚 Schnelle Familien-Reispfanne mit ' + riceItem.name,
@@ -232,15 +687,14 @@ function generateDynamicRecipesFromStock(safeStock, todayStr) {
         riceItem.name,
         mainAdd,
         sauceAdd,
-        veggieMushroomList[1]?.name || 'Frühlingszwiebeln / Paprika'
+        veggieMushroomList[1]?.name || 'Paprika / Zwiebeln'
       ]
     });
   }
 
-  // 4. DYNAMISCHES BAGUETTE / ÜBERBACKENES BROT-GERICHT
   if (breadItem) {
     const spread = dairySauceList[0]?.name || 'Kräuterbutter / Frischkäse';
-    const topping = veggieMushroomList[0]?.name || meatFishList[0]?.name || 'Tomaten & Mozzarella';
+    const topping = meatFishList[0]?.name || veggieMushroomList[0]?.name || 'Tomaten & Mozzarella';
     dynamicRecipes.push({
       id: 'dyn_bread_' + breadItem.id,
       title: '🥖 Knuspriges Ofen-' + breadItem.name + ' (10 Min.)',
@@ -260,7 +714,6 @@ function generateDynamicRecipesFromStock(safeStock, todayStr) {
     });
   }
 
-  // 5. DYNAMISCHES MEHL-PFANNENGERICHT (WENN MEHL IM VORRAT IST)
   if (flourItem && !wrapItem) {
     dynamicRecipes.push({
       id: 'dyn_flour_' + flourItem.id,
@@ -274,9 +727,9 @@ function generateDynamicRecipesFromStock(safeStock, todayStr) {
       keywords: [cleanProductCoreName(flourItem.name)],
       ingredients: [
         flourItem.name,
-        findInStock(/milch|vollmilch/)?.name || 'Vollmilch',
+        findInStock(/vollmilch|\bmilch\b/)?.name || 'Vollmilch',
         findInStock(/\bei\b|eier/)?.name || 'Frische Eier',
-        findInStock(/apfel|beere|käse|schinken/)?.name || 'Apfelmus oder Käse & Schinken'
+        findInStock(/apfel|beere|käse|schinken|bacon/)?.name || 'Apfelmus oder Käse & Bacon'
       ]
     });
   }
@@ -288,38 +741,19 @@ const DE_TO_EN_INGREDIENT_MAP = [
   { de: ['tomatenmark', 'tomate', 'passierte'], en: 'tomato', label: 'Tomaten' },
   { de: ['käse', 'frischkäse', 'scheibenkäse', 'parmesan', 'gouda', 'mozzarella'], en: 'cheese', label: 'Käse' },
   { de: ['schlagsahne', 'sahne'], en: 'cream', label: 'Sahne' },
-  { de: ['milch', 'vollmilch'], en: 'milk', label: 'Milch' },
   { de: ['kartoffel', 'kartoffeln', 'kartoffelpüree'], en: 'potatoes', label: 'Kartoffeln' },
   { de: ['apfel', 'äpfel', 'elstar', 'apfelmus'], en: 'apple', label: 'Äpfel' },
   { de: ['gurke'], en: 'cucumber', label: 'Gurke' },
-  { de: ['salat', 'mâche', 'feldsalat', 'eisberg'], en: 'lettuce', label: 'Salat' },
-  { de: ['hähnchen', 'huhn', 'pute', 'geflügel'], en: 'chicken', label: 'Hähnchen' },
-  { de: ['hackfleisch', 'rinderhack', 'rind'], en: 'beef', label: 'Rind / Hackfleisch' },
-  { de: ['schwein', 'schweinefilet', 'schinken', 'speck', 'bratwurst', 'wurst'], en: 'pork', label: 'Schwein / Filet' },
+  { de: ['paprika'], en: 'red_pepper', label: 'Paprika' },
+  { de: ['hähnchen', 'huhn', 'pute', 'geflügel'], en: 'chicken_breast', label: 'Hähnchen' },
+  { de: ['hackfleisch', 'rinderhack', 'rind'], en: 'minced_beef', label: 'Rinderhack' },
+  { de: ['schweinefilet', 'schweinestrang', 'schwein', 'schinken', 'speck', 'bacon', 'bratwurst'], en: 'pork', label: 'Schweinefilet / Bacon' },
   { de: ['lachs', 'fisch'], en: 'salmon', label: 'Lachs / Fisch' },
   { de: ['reis', 'rize', 'spitzenreis', 'langkorn', 'basmatireis'], en: 'rice', label: 'Reis' },
   { de: ['nudel', 'rigatoni', 'spaghetti', 'pasta'], en: 'pasta', label: 'Pasta / Nudeln' },
   { de: ['pilz', 'pfifferling', 'champignon'], en: 'mushrooms', label: 'Pilze' },
   { de: ['ei', 'eier'], en: 'egg', label: 'Eier' }
 ];
-
-const EN_TO_DE_DISH_WORDS = {
-  'Chicken': 'Hähnchen', 'Beef': 'Rindfleisch', 'Pork': 'Schweinefilet / Schwein',
-  'Pasta': 'Nudel-Pfanne', 'Spaghetti': 'Spaghetti', 'Salmon': 'Lachs',
-  'Potato': 'Kartoffel', 'Potatoes': 'Kartoffeln', 'Cheese': 'Käse',
-  'Creamy': 'Cremige', 'Baked': 'Ofen-', 'Salad': 'Salat', 'Rice': 'Reis-Pfanne',
-  'With': 'mit', 'And': '&', 'Egg': 'Ei', 'Eggs': 'Eier', 'Soup': 'Suppe',
-  'Tomato': 'Tomaten', 'Apple': 'Apfel', 'Mushroom': 'Pilz', 'Mushrooms': 'Pilzen'
-};
-
-function translateWebMealTitle(enTitle) {
-  let out = String(enTitle || '');
-  Object.keys(EN_TO_DE_DISH_WORDS).forEach(enWord => {
-    const reg = new RegExp('\\b' + enWord + '\\b', 'gi');
-    out = out.replace(reg, EN_TO_DE_DISH_WORDS[enWord]);
-  });
-  return out;
-}
 
 const WEEKDAY_SHORT_BTNS = [
   { id: 1, short: 'Mo', full: 'Montag' },
@@ -349,12 +783,10 @@ export default function PantryRecipes({
   const [webRecipes, setWebRecipes] = useState([]);
   const [isLoadingWebRecipes, setIsLoadingWebRecipes] = useState(false);
 
-  // Signatur des aktuellen Vorrats: Sobald neue Produkte hinzukommen, aktualisiert sich die Rezeptliste sofort
   const stockSignature = useMemo(() => {
     return (Array.isArray(safeStock) ? safeStock : []).map(it => it.id + ':' + it.name).join('|');
   }, [safeStock]);
 
-  // Vorrats-Zutaten für die interaktive Schnell-Auswahl (neueste & bald ablaufende zuerst)
   const selectableStockPills = useMemo(() => {
     return [...safeStock]
       .sort((a, b) => String(a.expiryDate || '9999').localeCompare(String(b.expiryDate || '9999')))
@@ -372,6 +804,9 @@ export default function PantryRecipes({
     return safeStock.filter(it => selectedStockIds.includes(it.id));
   }, [safeStock, selectedStockIds]);
 
+  // ============================================================================
+  // LÄDT WEB-REZEPTE & ÜBERSETZT ALLE ZUTATEN UND TITEL SOFORT INS DEUTSCHE!
+  // ============================================================================
   const fetchWebRecipesFromStock = async (silent = false) => {
     if (safeStock.length === 0) return;
     setIsLoadingWebRecipes(true);
@@ -385,6 +820,8 @@ export default function PantryRecipes({
       const matchedQueries = [];
       sourceItems.forEach(item => {
         const lower = String(item.name || '').toLowerCase();
+        // Keine Süßigkeiten für herzhafte Web-Suche verwenden
+        if (/milka|kuhflecken|schokolade|gummibär|haribo/.test(lower)) return;
         DE_TO_EN_INGREDIENT_MAP.forEach(entry => {
           if (entry.de.some(w => lower.includes(w)) && !matchedQueries.some(q => q.en === entry.en)) {
             matchedQueries.push({ en: entry.en, deLabel: item.name });
@@ -413,19 +850,34 @@ export default function PantryRecipes({
           const fullMeal = detailData?.meals?.[0];
           if (!fullMeal) continue;
 
-          const rawIngs = [];
-          for (let i = 1; i <= 6; i++) {
-            const ingName = String(fullMeal['strIngredient' + i] || '').trim();
-            if (ingName) rawIngs.push(ingName);
+          const translatedIngs = [];
+          const rawEnIngs = [];
+
+          for (let i = 1; i <= 10; i++) {
+            const ingEn = String(fullMeal['strIngredient' + i] || '').trim();
+            if (!ingEn) continue;
+            rawEnIngs.push(ingEn);
+
+            // Ignoriere Leitungswasser, Salz und Pfeffer in der Einkaufs-Zutatenliste
+            if (/^(water|salt|sea salt|black pepper|pepper|boiling water|cold water)$/i.test(ingEn)) {
+              continue;
+            }
+
+            const deIng = translateWebIngredientToGerman(ingEn);
+            if (deIng && !translatedIngs.includes(deIng) && translatedIngs.length < 6) {
+              translatedIngs.push(deIng);
+            }
           }
 
-          const hasGlutenIng = rawIngs.some(ing =>
-            /flour|wheat|bread|soy sauce|couscous|barley/i.test(ing)
+          const hasGlutenIng = rawEnIngs.some(ing =>
+            /flour|wheat|bread|baguette|soy sauce|couscous|barley|pasta|spaghetti|noodles/i.test(ing)
           );
+
+          const germanTitle = translateWebMealTitle(fullMeal.strMeal);
 
           fetchedCards.push({
             id: 'web_' + fullMeal.idMeal,
-            title: '🌐 ' + translateWebMealTitle(fullMeal.strMeal),
+            title: '🌐 ' + germanTitle,
             prepMinutes: 20,
             kidFavorite: true,
             glutenFree: !hasGlutenIng,
@@ -433,16 +885,16 @@ export default function PantryRecipes({
             thumbUrl: fullMeal.strMealThumb || '',
             sourceUrl: fullMeal.strSource || fullMeal.strYoutube || '',
             category: 'Web-Rezept zu ' + q.deLabel,
-            shortDesc: 'Passend zu deinem Vorrat: „' + q.deLabel + '“.',
-            keywords: [cleanProductCoreName(q.deLabel), q.en],
-            ingredients: rawIngs.length > 0 ? rawIngs : [q.deLabel, 'Beilage nach Wahl']
+            shortDesc: 'Passend zu deinem Vorrat: „' + q.deLabel + '“ (Zutaten auf Deutsch übersetzt).',
+            keywords: [cleanProductCoreName(q.deLabel)],
+            ingredients: translatedIngs.length > 0 ? translatedIngs : [q.deLabel, 'Beilage nach Wahl']
           });
         }
       }
 
       setWebRecipes(fetchedCards);
       if (!silent) {
-        showToast('Web-Rezepte aktualisiert!', fetchedCards.length + ' passende Rezepte zum Bestand geladen.', '🌐');
+        showToast('Web-Rezepte auf Deutsch geladen!', fetchedCards.length + ' passende Rezepte gefunden.', '🌐');
       }
     } catch (err) {
       if (!silent) showToast('Hinweis', 'Nutze unsere integrierten Vorrats-Schnellrezepte.', 'ℹ️');
@@ -451,7 +903,6 @@ export default function PantryRecipes({
     }
   };
 
-  // Lädt beim Ändern des Lebensmittelbestands automatisch passende Web-Ergänzungen im Hintergrund nach
   useEffect(() => {
     if (safeStock.length > 0) {
       fetchWebRecipesFromStock(true);
@@ -459,66 +910,33 @@ export default function PantryRecipes({
   }, [stockSignature]);
 
   // =========================================================
-  // KOMBINIERTE AUSWERTUNG: DYNAMISCHE VORRATS-REZEPTE + KLASSIKER + WEB
+  // KOMBINIERTE AUSWERTUNG MIT FEHLERFREIEM DEUTSCH-ABGLEICH
   // =========================================================
   const evaluatedRecipes = useMemo(() => {
-    const dynamicStockRecipes = generateDynamicRecipesFromStock(safeStock, todayStr);
+    const dynamicStockRecipes = generateDynamicRecipesFromStock(safeStock);
     const combinedSource = [...dynamicStockRecipes, ...FAMILY_RECIPES_DB, ...webRecipes];
 
     return combinedSource
       .map(rec => {
-        const matchedStock = [];
         let urgentCount = 0;
         let matchesSelectedFocus = 0;
 
-        (rec.keywords || []).forEach(kw => {
-          const cleanKw = String(kw || '').toLowerCase().trim();
-          if (!cleanKw) return;
-          const found = safeStock.find(st => {
-            const rawLower = String(st.name || '').toLowerCase();
-            const coreLower = cleanProductCoreName(st.name);
-            return rawLower.includes(cleanKw) || coreLower.includes(cleanKw);
-          });
-          if (found && !matchedStock.some(m => m.id === found.id)) {
-            matchedStock.push(found);
-            if (getDaysUntil(found.expiryDate, todayStr) <= 7) {
+        const ingredientStatus = (rec.ingredients || []).map(ingLabelDe => {
+          const matchedItem = matchIngredientInGermanStock(ingLabelDe, safeStock);
+
+          if (matchedItem) {
+            if (getDaysUntil(matchedItem.expiryDate, todayStr) <= 7) {
               urgentCount++;
             }
-            if (selectedStockIds.includes(found.id)) {
+            if (selectedStockIds.includes(matchedItem.id)) {
               matchesSelectedFocus++;
             }
           }
-        });
-
-        const ingredientStatus = (rec.ingredients || []).map(ingLabel => {
-          // Direkter Treffer, falls die Zutat exakt einem Vorrats-Produktnamen entspricht
-          const exactMatch = safeStock.find(
-            st => String(st.name || '').toLowerCase() === String(ingLabel || '').toLowerCase()
-          );
-
-          const words = String(ingLabel)
-            .toLowerCase()
-            .split(/[\s/(),&-]+/)
-            .filter(w => w.length >= 3 && !/mit|oder|und|aus|zum|für|klecks|prise|optional|wahl/.test(w));
-
-          const inPantry = exactMatch || safeStock.find(st => {
-            const stLower = String(st.name || '').toLowerCase();
-            const stCore = cleanProductCoreName(st.name);
-            const coreWords = stCore.split(' ').filter(w => w.length >= 3);
-            return (
-              words.some(w => stLower.includes(w)) ||
-              coreWords.some(cw => String(ingLabel).toLowerCase().includes(cw))
-            );
-          });
-
-          if (inPantry && selectedStockIds.includes(inPantry.id)) {
-            matchesSelectedFocus++;
-          }
 
           return {
-            name: ingLabel,
-            inPantry: Boolean(inPantry),
-            pantryItem: inPantry || null
+            name: ingLabelDe,
+            inPantry: Boolean(matchedItem),
+            pantryItem: matchedItem || null
           };
         });
 
@@ -529,7 +947,6 @@ export default function PantryRecipes({
 
         return {
           ...rec,
-          matchedStock,
           urgentCount,
           matchesSelectedFocus,
           ingredientStatus,
@@ -565,7 +982,7 @@ export default function PantryRecipes({
       /apfel|äpfel|clementine|mandarine|banane|obst|beeren|joghurt|quark|pudding|eis|apfelmus|choco balls/i.test(st.name)
     );
     const saladOrVeggieInStock = safeStock.find(st =>
-      /salat|eisberg|mâche|feldsalat|gurke|tomate|karotte|möhre|paprika|rotkohl|spargel/i.test(st.name)
+      /salat|eisberg|mâche|feldsalat|gurke|tomate|karotte|möhre|paprika|rotkohl|spargel|buttergemüse/i.test(st.name)
     );
 
     let finalDishTitle = rec.title;
@@ -652,7 +1069,7 @@ export default function PantryRecipes({
               <span>Dynamischer Vorrats-Rezeptfinder ({evaluatedRecipes.length} Vorschläge)</span>
             </h3>
             <p className={'text-xs font-semibold ' + themeStyles.textMuted}>
-              Aktualisiert sich sofort bei jedem neuen Produkt im Bestand • Zeigt Gerichte aus 100% Vorrat oder mit 1–2 Zukauf-Zutaten.
+              Alle Zutaten & Web-Rezepte komplett auf Deutsch • Zeigt Gerichte aus 100% Vorrat oder mit 1–2 Zukauf-Zutaten.
             </p>
           </div>
 
@@ -664,7 +1081,7 @@ export default function PantryRecipes({
               className="tw-glow-btn px-3.5 py-2 rounded-2xl text-xs font-black flex items-center gap-1.5 cursor-pointer"
             >
               <Globe className={'w-4 h-4 text-sky-300 ' + (isLoadingWebRecipes ? 'animate-spin' : '')} />
-              <span>{isLoadingWebRecipes ? 'Lade Web-Rezepte...' : '🌐 Mehr Web-Rezepte laden'}</span>
+              <span>{isLoadingWebRecipes ? 'Übersetze Web-Rezepte...' : '🌐 Web-Rezepte (Deutsch)'}</span>
             </button>
 
             <a
@@ -825,7 +1242,7 @@ export default function PantryRecipes({
                     <div className="w-full h-36 rounded-2xl overflow-hidden relative border border-white/10">
                       <img src={rec.thumbUrl} alt={rec.title} className="w-full h-full object-cover" />
                       <span className="absolute top-2 right-2 px-2 py-0.5 rounded-lg bg-black/75 text-white text-[10px] font-black">
-                        🌐 Live Web-Rezept
+                        🌐 Web-Rezept (DE)
                       </span>
                     </div>
                   )}
@@ -865,14 +1282,17 @@ export default function PantryRecipes({
                     <p className={'text-xs font-semibold ' + themeStyles.textMuted}>{rec.shortDesc}</p>
                   )}
 
-                  {/* ZUTATEN-CHECKLISTE MIT GELBEM EINKAUFSWAGEN-BUTTON FÜR FEHLENDE ZUTATEN */}
+                  {/* DEUTSCHE ZUTATEN-CHECKLISTE INKL. EMOJI & GELBEM EINKAUFSWAGEN-BUTTON */}
                   <div className="space-y-1.5">
                     {rec.ingredientStatus.map((ing, idx) => (
                       <div
                         key={idx}
                         className={'px-3 py-2 rounded-xl border flex items-center justify-between gap-2 text-xs sm:text-sm font-bold ' + themeStyles.subtle}
                       >
-                        <span className="truncate">{ing.name}</span>
+                        <span className="truncate flex items-center gap-1.5">
+                          <span>{getFoodEmoji(ing.name)}</span>
+                          <span className="truncate">{ing.name}</span>
+                        </span>
                         {ing.inPantry ? (
                           <span className="text-emerald-400 font-black shrink-0 truncate max-w-[170px] flex items-center gap-1">
                             <Check className="w-3.5 h-3.5 shrink-0" />
@@ -934,7 +1354,7 @@ export default function PantryRecipes({
                     {missingIngredients.length > 0 && (
                       <button
                         type="button"
-                        title="Alle fehlenden Zutaten für dieses Rezept auf die Einkaufsliste setzen"
+                        title="Alle fehlenden Zutaten für dieses Rezept auf Deutsch auf die Einkaufsliste setzen"
                         onClick={() => {
                           missingIngredients.forEach(mi => addShoppingItem(mi.name));
                           showToast('Auf Einkaufsliste 🛒', missingIngredients.length + ' fehlende Zutat(en) übertragen.', '🛒');
