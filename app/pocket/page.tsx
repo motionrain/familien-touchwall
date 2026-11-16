@@ -4,11 +4,12 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Calendar, CheckSquare, ShoppingCart, Camera, Package,
   RefreshCw, Smartphone, LogOut, Cloud, BellRing, Download,
   WifiOff, Pencil, Check, Search, Menu, X,
-  Trash2, Wand2, CheckCircle2, AlertTriangle, SlidersHorizontal
+  Trash2, Wand2, CheckCircle2, AlertTriangle, SlidersHorizontal, RotateCcw
 } from 'lucide-react';
 
 import * as Cfg from '../touchwallConfig';
@@ -36,13 +37,7 @@ import {
 
 import PocketAgenda from './PocketAgenda';
 import PocketTasks from './PocketTasks';
-import PocketScanner, {
-  FOOD_EMOJI_PICKER,
-  simplifyProductName,
-  detectSmartCategory,
-  detectSmartLocation,
-  isProductGlutenFree
-} from './PocketScanner';
+import PocketScanner from './PocketScanner';
 import PocketShopping from './PocketShopping';
 
 const {
@@ -60,6 +55,218 @@ const {
   closeOrReopenTodoistTask,
   deleteTodoistTask
 } = Cfg;
+
+// ============================================================================
+// DIREKT INTEGRIERTE HILFSFUNKTIONEN (VERHINDERT JEGLICHEN IMPORT-FEHLER!)
+// ============================================================================
+const FOOD_EMOJI_PICKER = [
+  '🌭', '🥩', '🍗', '🥓', '🍔', '🐟', '🥚', '🧀', '🧈', '🥛',
+  '🥣', '🥬', '🥒', '🍅', '🫑', '🥕', '🥔', '🧅', '🥦', '🌽',
+  '🍄', '🥑', '🍊', '🍎', '🍌', '🍓', '🍋', '🍇', '🍝', '🍚',
+  '🥖', '🥐', '🍕', '🌮', '🥫', '🌾', '🍫', '🍪', '🧃', '🐶',
+  '🐾', '🦴', '🐱', '🐴'
+];
+
+const KNOWN_BRAND_PREFIXES = [
+  'Kaufland', 'K-Classic', 'K-Bio', 'K-Favourites', 'K-Purland', 'ja!', 'GUT&GÜNSTIG', 'Gut & Günstig',
+  'EDEKA', 'REWE Beste Wahl', 'REWE Bio', 'REWE', 'Wilhelm Brandenburg', 'Mein Metzgergut', 'Landjunker',
+  'Milbona', 'Milsani', 'Bellarom', 'Kania', 'Combino', 'Alnatura', 'dmBio', 'Schär', 'Dr. Schär', 'Seitz',
+  'Gefro', 'Meggle', 'Philadelphia', 'Thomy', 'Heinz', 'Hengstenberg', 'Pfanni', 'Barilla', 'Dr. Oetker',
+  'Iglo', 'Frosta', 'Landfein', 'Schwarzwaldmilch', 'Weihenstephan', 'Bärenmarke', 'Kerrygold',
+  'Oro di Parma', 'Alnavit', 'Bauckhof', 'Müller', 'Ehrmann', 'Zott', 'Danone', 'Arla', 'Exquisa',
+  'miree', 'Rama', 'Lätta', 'Bonduelle', 'Kühne', 'Knorr', 'Maggi', 'Löwensenf', 'Ernte Krone',
+  'mysmile', 'Die süße Susi', 'Rinti', 'Wolfsblut', 'Josera', 'Belcando', 'Animonda', 'Pedigree'
+];
+
+function shortenBrandString(rawBrand) {
+  if (!rawBrand) return '';
+  let b = String(rawBrand).split(',')[0].trim();
+
+  b = b
+    .replace(/\b(GmbH\s*&\s*Co\.?\s*KG|GmbH\s*&\s*Co\.?\s*OHG|GmbH|AG|KG|OHG|SE|mbH|e\.?\s*G\.?|Inc\.?|Ltd\.?|S\.?p\.?A\.?|S\.?A\.?)\b/gi, '')
+    .replace(/\b(Pilze\s*&\s*Waldfrüchte|Uwe\s+Niklas|Fleischwaren|Heiligenstadt|Warenhandel|Nahrungsmittel|Lebensmittel|Molkerei|Privatmolkerei|Käserei|Fleischwerke|Feinkost|Vertriebs|Handels|Werke|Deutschland|International)\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!b) return '';
+
+  const multiBrandMatch = KNOWN_BRAND_PREFIXES.find(
+    kb => b.toLowerCase() === kb.toLowerCase() || b.toLowerCase().startsWith(kb.toLowerCase() + ' ')
+  );
+  if (multiBrandMatch) return multiBrandMatch;
+
+  const tokens = b.split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return '';
+  if (tokens[0].toLowerCase() === 'dr.' && tokens[1]) {
+    return tokens[0] + ' ' + tokens[1];
+  }
+  return tokens[0].replace(/^[,;-]+|[,;-]+$/g, '');
+}
+
+function simplifyProductName(rawInputName, explicitBrand = '') {
+  let raw = String(rawInputName || '').replace(/\s+/g, ' ').trim();
+  if (!raw) return '';
+
+  let extractedBrand = explicitBrand ? shortenBrandString(explicitBrand) : '';
+  let productPart = raw;
+
+  if (productPart.includes(' / ')) {
+    const parts = productPart.split(' / ');
+    productPart = parts[0].trim();
+    if (!extractedBrand && parts[1]) {
+      extractedBrand = shortenBrandString(parts[1]);
+    }
+  }
+
+  if (explicitBrand) {
+    const cleanExp = String(explicitBrand).split(',')[0].trim();
+    if (cleanExp && productPart.toLowerCase().startsWith(cleanExp.toLowerCase())) {
+      productPart = productPart.slice(cleanExp.length).trim();
+    }
+  }
+
+  const legalSplitRegex = /^(.*?)\b(?:GmbH\s*&\s*Co\.?\s*KG|GmbH\s*&\s*Co\.?\s*OHG|GmbH|AG|KG|OHG|SE|mbH|e\.?\s*G\.?)\.?\s+(.+)$/i;
+  const legalMatch = productPart.match(legalSplitRegex);
+  if (legalMatch) {
+    const companyLeft = legalMatch[1].trim();
+    const itemRight = legalMatch[2].trim();
+    if (itemRight.length >= 2) {
+      if (!extractedBrand) extractedBrand = shortenBrandString(companyLeft);
+      productPart = itemRight;
+    }
+  }
+
+  for (const kb of KNOWN_BRAND_PREFIXES) {
+    const reg = new RegExp('^' + kb.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b\\s*', 'i');
+    if (reg.test(productPart)) {
+      const rest = productPart.replace(reg, '').trim();
+      if (rest.length >= 2) {
+        if (!extractedBrand) extractedBrand = kb;
+        productPart = rest;
+        break;
+      }
+    }
+  }
+
+  productPart = productPart
+    .replace(/\b(tiefgekühlt|tiefgefroren|tiefkühlkost|tiefkühl)\b/gi, 'TK')
+    .replace(/\b(delikatess|das komplette|flow pack de|unter schutzatmosphäre|servierfertig|küchenfertig|erntefrisch|feinste|klassische|fleischwaren|heiligenstadt)\b/gi, '')
+    .replace(/\b\d+(?:[.,]\d+)?\s*(?:g|gr|kg|ml|l)\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .replace(/^[,;.\-/]+|[,;.\-/]+$/g, '')
+    .trim();
+
+  if (!productPart) productPart = raw;
+  productPart = productPart.charAt(0).toUpperCase() + productPart.slice(1);
+
+  if (extractedBrand && !productPart.toLowerCase().includes(extractedBrand.toLowerCase())) {
+    return productPart + ' / ' + extractedBrand;
+  }
+  return productPart;
+}
+
+function detectSmartCategory(nameStr, customCategory = '', offTags = []) {
+  if (customCategory && customCategory !== 'auto' && FOOD_CATEGORIES.some(c => c.id === customCategory)) {
+    return customCategory;
+  }
+  const n = String(nameStr || '').toLowerCase();
+  const tags = Array.isArray(offTags) ? offTags.join(' ').toLowerCase() : '';
+
+  if (/hundefutter|katzenfutter|tierfutter|pferdefutter|futter|leckerli|kauknochen|pansen|rinti|wolfsblut|josera|belcando|animonda|pedigree|whiskas|felix/.test(n)) {
+    return 'sweets_snacks';
+  }
+  if (/pilz|pfifferling|steinpilz|champignon|kräuterseitling|waldfrüchte|beeren|erdbeer|himbeer|heidelbeer|blaubeer|apfel|äpfel|apfelmus|apfelmark|banane|orange|clementine|mandarine|zitrone|limette|melone|ananas|mango|kiwi|traube|birne|avocado|salat|eisberg|feldsalat|mâche|rucola|spinat|gurke|tomate|tomatenmark|oro di parma|paprika|karotte|möhre|zwiebel|knoblauch|brokkoli|blumenkohl|spargel|rotkohl|sauerkraut|mais|erbse|bohne|linse|kichererbse|chili sin carne|gefro/.test(n)) {
+    return 'produce';
+  }
+  if (/butter|kräuterbutter|meggle|margarine|öl|sonnenblumenöl|olivenöl|rapsöl|kokosöl|fett|schmalz|essig|balsamico|hengstenberg|senf|thomy|ketchup|mayo|mayonnaise|remoulade|dressing|burger sauce|heinz|soße|sauce|pesto|brühe|fond/.test(n)) {
+    return 'oils_fats';
+  }
+  if (/wasser|mineralwasser|kaffee|espresso|tee|saft|apfelsaft|orangensaft|schorle|cola|limo|getränk|sirup|kakao|\bbier\b|\bwein\b|energydrink|hafermilch|mandelmilch|oatly|alpro/.test(n)) {
+    return 'drinks';
+  }
+  if (/milch|vollmilch|weidemilch|alpenmilch|schwarzwaldmilch|landfein|joghurt|quark|skyr|käse|frischkäse|philadelphia|scheibenkäse|gouda|mozzarella|parmesan|emmentaler|camembert|feta|hirtenkäse|schlagsahne|kochsahne|sahne|schmand|creme fraiche|crème fraîche|mascarpone|ayran|kefir|pudding/.test(n)) {
+    return 'dairy';
+  }
+  if (/fleisch|schweinefilet|rinderfilet|filet|lende|hackfleisch|rinderhack|rind|schwein|hähnchen|huhn|pute|geflügel|schnitzel|steak|gulasch|wurst|bratwurst|rostbratwurst|leberwurst|würstchen|wiener|lyoner|salami|schinken|speck|bacon|aufschnitt|fisch|lachs|kabeljau|seelachs|thunfisch|fischstäbchen|forelle|garnele|\bei\b|eier/.test(n)) {
+    return 'meat_fish_eggs';
+  }
+  if (/brot|landbrot|mehrkorn|knusperbrot|brötchen|toast|baguette|croissant|knäckebrot|reiswaffel|nudel|spaghetti|pasta|penne|fusilli|rigatoni|tortellini|ravioli|spätzle|reis|rize|spitzenreis|langkorn|basmati|jasmin|milchreis|risotto|getreide|haferflocken|müsli|cornflakes|choco balls|mehl|grieß|stärke|wraps|wrap|tortilla|taco|schär|seitz|kartoffel|kartoffelpüree|pfanni|gnocchi|schupfnudel|pommes|kroketten|knödel/.test(n)) {
+    return 'grains';
+  }
+  if (/schokolade|choco|schoko|nutella|haselnusscreme|konfitüre|marmelade|honig|keks|cookie|gummibär|haribo|chips|flips|eis|bonbon|praline|zuckerware|riegel/.test(n)) {
+    return 'sweets_snacks';
+  }
+
+  if (/fruits|vegetables|mushrooms|plant-based-foods-and-beverages|salads|legumes/.test(tags)) return 'produce';
+  if (/dairies|cheeses|milks|yogurts|creams/.test(tags)) return 'dairy';
+  if (/meats|poultries|fishes|seafood|sausages|eggs/.test(tags)) return 'meat_fish_eggs';
+  if (/cereals|breads|pastas|potatoes|flours|tortillas/.test(tags)) return 'grains';
+  if (/fats|oils|sauces|condiments|vinegars|mustards/.test(tags)) return 'oils_fats';
+  if (/beverages|waters|juices|coffees|teas/.test(tags)) return 'drinks';
+
+  return detectFoodCategory(nameStr);
+}
+
+function detectSmartLocation(nameStr, categoryId = '', offTags = []) {
+  const n = String(nameStr || '').toLowerCase();
+  const tags = Array.isArray(offTags) ? offTags.join(' ').toLowerCase() : '';
+
+  if (/hundefutter|katzenfutter|tierfutter|pferdefutter|futter|leckerli|kauknochen|pansen|trockenfutter|nassfutter|rinti|wolfsblut|josera|belcando|animonda|pedigree|whiskas|felix/.test(n)) {
+    return 'petfood';
+  }
+  if (/\btk\b|tiefkühl|tiefgekühlt|tiefgefroren|gefrier|eiscreme|speiseeis|fischstäbchen|pommes|kroketten|rahmspinat/.test(n) || /frozen/.test(tags)) {
+    return 'freezer';
+  }
+  if (/nudel|spaghetti|pasta|penne|fusilli|rigatoni|reis|rize|basmati|langkorn|mehl|zucker|salz|haferflocken|müsli|cornflakes|choco balls|wraps|wrap|schär|seitz|knusperbrot|knäckebrot|reiswaffel|backpulver|vanillezucker|kaffee|espresso|tee|kakao|schokolade|nutella|honig|konfitüre|keks|cookie|chips|haribo|nüsse|gefro|chili sin carne|kartoffelpüree|pfanni|tomatenmark|pesto|öl|olivenöl|sonnenblumenöl|rapsöl|essig|balsamico|senf|ketchup|mayo|burger sauce|brühe/.test(n)) {
+    return 'cupboard';
+  }
+  if (/konserve|dose|im glas|apfelmus|apfelmark|rotkohl|sauerkraut|spargel|passierte|gehackte tomaten|mais|kichererbsen|bohnen|linsen|kartoffel|zwiebel|knoblauch|haltbare|mineralwasser|saft|schorle|cola|limo|\bbier\b|\bwein\b/.test(n)) {
+    return 'pantry';
+  }
+  const resolvedCat = categoryId || detectSmartCategory(nameStr, '', offTags);
+  if (resolvedCat === 'dairy' || resolvedCat === 'meat_fish_eggs') {
+    return 'fridge';
+  }
+  if (/salat|feldsalat|mâche|eisberg|rucola|spinat|gurke|paprika|brokkoli|karotte|möhre|beere|erdbeer|himbeer|heidelbeer|pilz|pfifferling|champignon|butter|kräuterbutter|frisch/.test(n)) {
+    return 'fridge';
+  }
+  return 'kitchen';
+}
+
+function isProductGlutenFree(itemOrName, customCategory = '', manualFlag = undefined, offAllergens = [], offLabels = []) {
+  const isObj = itemOrName && typeof itemOrName === 'object';
+  const nameStr = isObj ? String(itemOrName.name || '') : String(itemOrName || '');
+  const catId = isObj
+    ? detectSmartCategory(nameStr, itemOrName.category)
+    : detectSmartCategory(nameStr, customCategory);
+  const flag = isObj ? itemOrName.glutenFree : manualFlag;
+
+  if (flag === true || flag === 'yes') return true;
+  if (flag === false || flag === 'no') return false;
+
+  const labelsStr = Array.isArray(offLabels) ? offLabels.join(' ').toLowerCase() : '';
+  const allergensStr = Array.isArray(offAllergens) ? offAllergens.join(' ').toLowerCase() : '';
+
+  if (/no-gluten|gluten-free|glutenfrei/.test(labelsStr)) return true;
+  if (/en:gluten|de:gluten/.test(allergensStr)) return false;
+
+  const n = nameStr.toLowerCase();
+  if (!n.trim()) return false;
+
+  if (/glutenfrei|gluten-free|ohne gluten|frei von|\bgf\b|schär|schaer|bauckhof|alnavit|hammermühle|seitz|schnitzer|reismehl|maismehl|buchweizen|quinoa|hirse|amarant|polenta|maisstärke|speisestärke|kartoffelmehl|reiswaffel|gefro/.test(n)) {
+    return true;
+  }
+  if (/weizen|dinkel|roggen|gerste|grünkern|bulgur|couscous|seitan|paniermehl|paniert|fischstäbchen|nuggets|schnitzel|spätzle|tortellini|ravioli|lasagne|nudel|spaghetti|pasta|penne|fusilli|rigatoni|mehl|grieß|haferflocken|müsli|cornflakes|brot|landbrot|mehrkorn|brötchen|toast|baguette|croissant|knäckebrot|kuchen|waffel|keks|cookie|brezel|pizza|flammkuchen|\bbier\b|malz|gnocchi|schupfnudel/.test(n)) {
+    return false;
+  }
+  if (catId === 'produce' || catId === 'dairy' || catId === 'oils_fats' || catId === 'drinks' || catId === 'meat_fish_eggs') {
+    return true;
+  }
+  if (/reis|rize|spitzenreis|langkorn|basmati|jasmin|milchreis|risotto|kartoffel|kartoffelpüree|pfanni|pommes|kroketten|mais|popcorn/.test(n)) {
+    return true;
+  }
+  return false;
+}
 
 function writeAuthSession(accountId, authKey, familyName) {
   try {
@@ -121,9 +328,6 @@ function getTaskNormKey(task) {
   return String(task.member || 'all').toLowerCase() + '::' + getTaskTitleKey(task);
 }
 
-// ============================================================================
-// 1. STABILER MERGE FÜR DIE EINKAUFSLISTE (CLOUD vs. TODOIST UNTERSCHEIDUNG)
-// ============================================================================
 function reconcileShoppingNotes(localNotes, incomingNotes, syncMeta, source = 'cloud') {
   const baseNotes = Array.isArray(incomingNotes) && incomingNotes.length > 0
     ? incomingNotes
@@ -233,9 +437,6 @@ function reconcileShoppingNotes(localNotes, incomingNotes, syncMeta, source = 'c
   return baseNotes.map((n, idx) => idx === 0 ? { ...n, items: finalFirstItems } : n);
 }
 
-// ============================================================================
-// 2. STABILER MERGE FÜR AUFGABEN / TASKS (CLOUD vs. TODOIST UNTERSCHEIDUNG)
-// ============================================================================
 function reconcileFamilyTasks(localTasks, incomingTasks, syncMeta, source = 'cloud') {
   const localList = Array.isArray(localTasks) ? localTasks : [];
   const incomingList = Array.isArray(incomingTasks) ? incomingTasks : [];
@@ -375,7 +576,6 @@ export default function TouchwallPocketApp() {
   const [currentTheme, setCurrentTheme] = useState('metal');
   const [todayStr, setTodayStr] = useState(() => formatDateStr(new Date()));
 
-  // Neues 1-Hand-Schnellmenü (ersetzt die alte platzraubende Kopfzeile!)
   const [quickCockpitOpen, setQuickCockpitOpen] = useState(false);
 
   const [members, setMembers] = useState(DEFAULT_MEMBERS);
@@ -396,12 +596,16 @@ export default function TouchwallPocketApp() {
 
   const [cartItems, setCartItems] = useState([]);
 
+  // Bestands-Unteransicht: 'stock' (Vorrat) | 'trash' (Mülleimer)
+  const [stockSubView, setStockSubView] = useState('stock');
   const [stockSearchQuery, setStockSearchQuery] = useState('');
   const [showStockMenu, setShowStockMenu] = useState(false);
   const [stockSortMode, setStockSortMode] = useState('newest');
   const [stockLocationFilter, setStockLocationFilter] = useState('all');
   const [stockCategoryFilter, setStockCategoryFilter] = useState('all');
   const [stockOnlyGlutenFree, setStockOnlyGlutenFree] = useState(false);
+
+  const [restockPromptItem, setRestockPromptItem] = useState(null);
 
   const [editStockModal, setEditStockModal] = useState({
     open: false,
@@ -508,6 +712,14 @@ export default function TouchwallPocketApp() {
         return String(a.expiryDate || '9999').localeCompare(String(b.expiryDate || '9999'));
       });
   }, [safeStock, stockLocationFilter, stockCategoryFilter, stockOnlyGlutenFree, stockSearchQuery, stockSortMode]);
+
+  const trashStats = useMemo(() => {
+    const consumed = safeTrash.filter(x => x.reason === 'consumed').length;
+    const wasted = safeTrash.filter(x => x.reason === 'expired' || x.reason === 'wasted').length;
+    const total = consumed + wasted;
+    const score = total > 0 ? Math.round((consumed / total) * 100) : 100;
+    return { consumed, wasted, total, score };
+  }, [safeTrash]);
 
   const updateCartAndPersist = (nextCart) => {
     const clean = Array.isArray(nextCart) ? nextCart : [];
@@ -845,7 +1057,7 @@ export default function TouchwallPocketApp() {
         }
       }
 
-      if (s.schoolData?.dean) setSchoolData(s.schoolData);
+      if (s.schoolData && typeof s.schoolData === 'object') setSchoolData(s.schoolData);
 
       if (Array.isArray(s.familyTasks)) {
         nextTasks = reconcileFamilyTasks(safeTasks, s.familyTasks, syncMetaRef.current, 'cloud');
@@ -1084,7 +1296,7 @@ export default function TouchwallPocketApp() {
           if (Array.isArray(parsed.members) && parsed.members.length >= 2) setMembers(parsed.members);
           if (Array.isArray(parsed.mealPlan)) setMealPlan(parsed.mealPlan);
           if (Array.isArray(parsed.familyNotes)) setFamilyNotes(parsed.familyNotes);
-          if (parsed.schoolData?.dean) setSchoolData(parsed.schoolData);
+          if (parsed.schoolData && typeof parsed.schoolData === 'object') setSchoolData(parsed.schoolData);
           if (Array.isArray(parsed.familyTasks)) setFamilyTasks(parsed.familyTasks);
           if (Array.isArray(parsed.pantryItems)) setPantryItems(parsed.pantryItems);
           if (Array.isArray(parsed.pantryTrash)) setPantryTrash(parsed.pantryTrash);
@@ -1247,6 +1459,133 @@ export default function TouchwallPocketApp() {
     showToast('Einkaufswagen eingelagert!', newStockEntries.length + ' Produkte sind jetzt im Bestand.', '🥫');
   };
 
+  const handleCheckoutStockItemByScan = async (item, mode = 'trash') => {
+    if (!item) return;
+    const now = Date.now();
+    lastLocalEditRef.current = now;
+
+    if (mode === 'decrement') {
+      const dec = decrementItemPieceCount(item.quantity);
+      if (dec.remaining > 0) {
+        const nextStock = safeStock.map(x =>
+          x.id === item.id ? { ...x, quantity: dec.nextQtyStr, updatedAt: now, fromMobile: true } : x
+        );
+        setPantryItems(nextStock);
+        await saveStateToCloud({ pantryItems: nextStock });
+        showToast('1 Stück entnommen!', item.name + ' → Rest: ' + dec.nextQtyStr, getFoodEmoji(item.name, item.customEmoji));
+        return;
+      }
+    }
+
+    syncMetaRef.current.deletedPantryIds[String(item.id)] = now;
+    saveLocalSyncMeta(syncMetaRef.current);
+
+    const nextStock = safeStock.filter(x => x.id !== item.id);
+    const nextTrash = [
+      {
+        ...item,
+        trashedAt: todayStr,
+        trashedTimestamp: now,
+        reason: 'consumed',
+        reasonLabel: '📷 Per Barcode ausgebucht am ' + todayStr,
+        updatedAt: now,
+        fromMobile: true
+      },
+      ...safeTrash
+    ];
+    setPantryItems(nextStock);
+    setPantryTrash(nextTrash);
+    await saveStateToCloud({ pantryItems: nextStock, pantryTrash: nextTrash });
+  };
+
+  const handleMoveStockItemToTrashFromPocket = async (item, reasonType = 'wasted', askForShoppingList = true) => {
+    if (!item) return;
+    const now = Date.now();
+    lastLocalEditRef.current = now;
+    syncMetaRef.current.deletedPantryIds[String(item.id)] = now;
+    saveLocalSyncMeta(syncMetaRef.current);
+
+    const nextStock = safeStock.filter(x => x.id !== item.id);
+    const nextTrash = [
+      {
+        ...item,
+        trashedAt: todayStr,
+        trashedTimestamp: now,
+        reason: reasonType,
+        reasonLabel: reasonType === 'consumed' ? ('🍽️ Verzehrt am ' + todayStr) : ('🗑️ In Mülleimer am ' + todayStr),
+        updatedAt: now,
+        fromMobile: true
+      },
+      ...safeTrash
+    ];
+    setPantryItems(nextStock);
+    setPantryTrash(nextTrash);
+    await saveStateToCloud({ pantryItems: nextStock, pantryTrash: nextTrash });
+
+    if (askForShoppingList) {
+      setRestockPromptItem(item);
+    } else {
+      showToast('In Mülleimer verschoben 🗑️', item.name, '🗑️');
+    }
+  };
+
+  const handleRestoreFromPocketTrash = async (trashItem) => {
+    if (!trashItem) return;
+    const now = Date.now();
+    lastLocalEditRef.current = now;
+    const newExp = formatDateStr(addDays(new Date(), 7));
+
+    if (syncMetaRef.current?.deletedTrashIds) {
+      syncMetaRef.current.deletedTrashIds[String(trashItem.id)] = now;
+      saveLocalSyncMeta(syncMetaRef.current);
+    }
+
+    const restoredStockItem = {
+      ...trashItem,
+      id: 'p_' + now + '_' + Math.floor(Math.random() * 1000),
+      expiryDate: newExp,
+      addedAt: todayStr,
+      addedTimestamp: now,
+      updatedAt: now,
+      fromMobile: true
+    };
+
+    const nextTrash = safeTrash.filter(x => x.id !== trashItem.id);
+    const nextStock = [restoredStockItem, ...safeStock];
+    setPantryTrash(nextTrash);
+    setPantryItems(nextStock);
+    await saveStateToCloud({ pantryItems: nextStock, pantryTrash: nextTrash });
+    showToast('Wiederhergestellt ↩️', trashItem.name + ' ist wieder im Vorrat (MHD +7T).', getFoodEmoji(trashItem.name));
+  };
+
+  const handleDeleteSinglePocketTrash = async (trashItem) => {
+    if (!trashItem) return;
+    const now = Date.now();
+    lastLocalEditRef.current = now;
+    if (!syncMetaRef.current.deletedTrashIds) syncMetaRef.current.deletedTrashIds = {};
+    syncMetaRef.current.deletedTrashIds[String(trashItem.id)] = now;
+    saveLocalSyncMeta(syncMetaRef.current);
+
+    const nextTrash = safeTrash.filter(x => x.id !== trashItem.id);
+    setPantryTrash(nextTrash);
+    await saveStateToCloud({ pantryTrash: nextTrash });
+  };
+
+  const handleClearAllPocketTrash = async () => {
+    if (safeTrash.length === 0) return;
+    const now = Date.now();
+    lastLocalEditRef.current = now;
+    if (!syncMetaRef.current.deletedTrashIds) syncMetaRef.current.deletedTrashIds = {};
+    safeTrash.forEach(t => {
+      syncMetaRef.current.deletedTrashIds[String(t.id)] = now;
+    });
+    saveLocalSyncMeta(syncMetaRef.current);
+
+    setPantryTrash([]);
+    await saveStateToCloud({ pantryTrash: [] });
+    showToast('Mülleimer geleert 🗑️', 'Alle Einträge wurden dauerhaft entfernt.', '🗑️');
+  };
+
   const openEditStockItemModal = (item) => {
     const initialGf =
       item.glutenFree === true || item.glutenFree === 'yes'
@@ -1301,33 +1640,10 @@ export default function TouchwallPocketApp() {
 
   const handleDeleteFromEditStockModal = async () => {
     const target = safeStock.find(x => x.id === editStockModal.id);
-    if (!target) {
-      setEditStockModal({ ...editStockModal, open: false });
-      return;
-    }
-    const now = Date.now();
-    lastLocalEditRef.current = now;
-    syncMetaRef.current.deletedPantryIds[String(target.id)] = now;
-    saveLocalSyncMeta(syncMetaRef.current);
-
-    const nextStock = safeStock.filter(x => x.id !== target.id);
-    const nextTrash = [
-      {
-        ...target,
-        trashedAt: todayStr,
-        trashedTimestamp: now,
-        reason: 'wasted',
-        reasonLabel: '🗑️ Gelöscht am ' + todayStr,
-        updatedAt: now,
-        fromMobile: true
-      },
-      ...safeTrash
-    ];
-    setPantryItems(nextStock);
-    setPantryTrash(nextTrash);
     setEditStockModal({ ...editStockModal, open: false });
-    await saveStateToCloud({ pantryItems: nextStock, pantryTrash: nextTrash });
-    showToast('Produkt gelöscht', target.name + ' wurde in den Mülleimer verschoben.', '🗑️');
+    if (target) {
+      await handleMoveStockItemToTrashFromPocket(target, 'wasted', true);
+    }
   };
 
   const toggleStockItemGlutenFreeDirectly = async (e, item) => {
@@ -1395,18 +1711,7 @@ export default function TouchwallPocketApp() {
       return;
     }
 
-    syncMetaRef.current.deletedPantryIds[String(item.id)] = now;
-    saveLocalSyncMeta(syncMetaRef.current);
-
-    const nextStock = safeStock.filter(x => x.id !== item.id);
-    const nextTrash = [
-      { ...item, trashedAt: todayStr, trashedTimestamp: now, reason: 'consumed', reasonLabel: '🍽️ Verzehrt am ' + todayStr, updatedAt: now, fromMobile: true },
-      ...safeTrash
-    ];
-    setPantryItems(nextStock);
-    setPantryTrash(nextTrash);
-    await saveStateToCloud({ pantryItems: nextStock, pantryTrash: nextTrash });
-    showToast('Komplett verzehrt!', item.name + ' wurde ausgebucht.', '🍽️');
+    await handleMoveStockItemToTrashFromPocket(item, 'consumed', true);
   };
 
   const handleCreateMobileEvent = async ({ title, date, time, member }) => {
@@ -1929,9 +2234,6 @@ export default function TouchwallPocketApp() {
     >
       <style>{pocketStyles}</style>
 
-      {/* ============================================================================
-          KEINE OBERE HEADER-LEISTE MEHR! 100% VOLLE SICHT FÜR ALLE KATEGORIEN
-         ============================================================================ */}
       <main
         className={
           'flex-1 overflow-x-hidden ' +
@@ -1956,7 +2258,6 @@ export default function TouchwallPocketApp() {
           />
         ) : (
           <div className="max-w-lg w-full mx-auto space-y-3">
-            {/* Kompakte Personen-Filter-Zeile direkt in Aufgaben (ohne schweren Header) */}
             {activeTab === 'tasks' && (
               <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
                 <button
@@ -2000,6 +2301,7 @@ export default function TouchwallPocketApp() {
             {activeTab === 'scanner' && (
               <PocketScanner
                 cartItems={safeCart}
+                stockItems={safeStock}
                 todayStr={todayStr}
                 isSyncing={isSyncing}
                 themeStyles={themeStyles}
@@ -2008,6 +2310,8 @@ export default function TouchwallPocketApp() {
                 onRemoveCartItem={handleRemoveCartItem}
                 onTransferSingleCartItemToStock={handleTransferSingleCartItemToStock}
                 onTransferAllCartToStock={handleTransferAllCartToStock}
+                onCheckoutStockItemByScan={handleCheckoutStockItemByScan}
+                onAddShopItem={handleAddQuickShopItem}
                 showToast={showToast}
               />
             )}
@@ -2031,403 +2335,585 @@ export default function TouchwallPocketApp() {
               />
             )}
 
-            {/* ============================================================================
-                BESTAND MIT EXTRA GROSSEN ICONS & GROSSER SCHRIFT FÜR KLEINE SMARTPHONES
-               ============================================================================ */}
             {activeTab === 'stock' && (
               <div className="space-y-3">
-                {(mhdAlertGroups.finalToday.length > 0 || mhdAlertGroups.warnTwoDays.length > 0) && (
-                  <div className="p-3.5 rounded-3xl border-2 border-rose-500/80 bg-rose-950/35 space-y-2.5 shadow-lg">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-black uppercase text-rose-300 flex items-center gap-1.5">
-                        <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
-                        <span>🔔 MHD-Ablauf-Warnung</span>
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => triggerMhdExpiryPushWarnings(true)}
-                        className="px-2.5 py-1.5 rounded-xl bg-rose-500/30 border border-rose-400/50 text-rose-100 text-xs font-black flex items-center gap-1"
-                      >
-                        <BellRing className="w-3.5 h-3.5" />
-                        <span>Push senden</span>
-                      </button>
-                    </div>
+                <div className="grid grid-cols-2 gap-1.5 p-1 rounded-2xl bg-black/35 border border-white/10">
+                  <button
+                    type="button"
+                    onClick={() => setStockSubView('stock')}
+                    className={'py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 ' +
+                      (stockSubView === 'stock' ? 'tw-active-nav' : 'tw-nav-inactive')}
+                  >
+                    <Package className="w-4 h-4" />
+                    <span>🥫 Vorrat ({safeStock.length})</span>
+                  </button>
 
-                    {mhdAlertGroups.finalToday.length > 0 && (
-                      <div className="p-3 rounded-2xl bg-rose-500/25 border border-rose-400/60 space-y-1.5">
-                        <div className="text-xs font-black text-rose-200">
-                          🚨 LETZTE WARNUNG – Läuft HEUTE ab (morgen im Mülleimer):
+                  <button
+                    type="button"
+                    onClick={() => setStockSubView('trash')}
+                    className={'py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 ' +
+                      (stockSubView === 'trash' ? 'tw-active-nav' : 'tw-nav-inactive')}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    <span>🗑️ Mülleimer ({safeTrash.length})</span>
+                  </button>
+                </div>
+
+                {stockSubView === 'stock' ? (
+                  <>
+                    {(mhdAlertGroups.finalToday.length > 0 || mhdAlertGroups.warnTwoDays.length > 0) && (
+                      <div className="p-3.5 rounded-3xl border-2 border-rose-500/80 bg-rose-950/35 space-y-2.5 shadow-lg">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-black uppercase text-rose-300 flex items-center gap-1.5">
+                            <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                            <span>🔔 MHD-Ablauf-Warnung</span>
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => triggerMhdExpiryPushWarnings(true)}
+                            className="px-2.5 py-1.5 rounded-xl bg-rose-500/30 border border-rose-400/50 text-rose-100 text-xs font-black flex items-center gap-1"
+                          >
+                            <BellRing className="w-3.5 h-3.5" />
+                            <span>Push senden</span>
+                          </button>
                         </div>
-                        <div className="flex flex-wrap gap-2">
-                          {mhdAlertGroups.finalToday.map(it => (
-                            <button
-                              key={it.id}
-                              type="button"
-                              onClick={() => openEditStockItemModal(it)}
-                              className="px-3 py-1.5 rounded-xl bg-black/50 border border-rose-300/40 text-sm font-black text-white flex items-center gap-2"
-                            >
-                              <span className="text-lg">{getFoodEmoji(it.name, it.customEmoji)}</span>
-                              <span>{it.name}</span>
-                              <span className="text-rose-300 font-black">({it.quantity})</span>
-                            </button>
-                          ))}
-                        </div>
+
+                        {mhdAlertGroups.finalToday.length > 0 && (
+                          <div className="p-3 rounded-2xl bg-rose-500/25 border border-rose-400/60 space-y-1.5">
+                            <div className="text-xs font-black text-rose-200">
+                              🚨 LETZTE WARNUNG – Läuft HEUTE ab (morgen im Mülleimer):
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              {mhdAlertGroups.finalToday.map(it => (
+                                <button
+                                  key={it.id}
+                                  type="button"
+                                  onClick={() => openEditStockItemModal(it)}
+                                  className="px-3 py-1.5 rounded-xl bg-black/50 border border-rose-300/40 text-sm font-black text-white flex items-center gap-2"
+                                >
+                                  <span className="text-lg">{getFoodEmoji(it.name, it.customEmoji)}</span>
+                                  <span>{it.name}</span>
+                                  <span className="text-rose-300 font-black">({it.quantity})</span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {mhdAlertGroups.warnTwoDays.length > 0 && (
+                          <div className="p-3 rounded-2xl bg-amber-500/20 border border-amber-400/50 space-y-1.5">
+                            <div className="text-xs font-black text-amber-200">
+                              ⚠️ Vorwarnung – Läuft in 1–2 Tagen ab:
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              {mhdAlertGroups.warnTwoDays.map(it => (
+                                <button
+                                  key={it.id}
+                                  type="button"
+                                  onClick={() => openEditStockItemModal(it)}
+                                  className="px-3 py-1.5 rounded-xl bg-black/45 border border-amber-300/40 text-sm font-black text-white flex items-center gap-2"
+                                >
+                                  <span className="text-lg">{getFoodEmoji(it.name, it.customEmoji)}</span>
+                                  <span>{it.name}</span>
+                                  <span className="text-amber-300 font-black">
+                                    ({it.daysLeft === 1 ? 'morgen' : 'in 2 T.'})
+                                  </span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
 
-                    {mhdAlertGroups.warnTwoDays.length > 0 && (
-                      <div className="p-3 rounded-2xl bg-amber-500/20 border border-amber-400/50 space-y-1.5">
-                        <div className="text-xs font-black text-amber-200">
-                          ⚠️ Vorwarnung – Läuft in 1–2 Tagen ab:
+                    <div className={'p-3.5 rounded-3xl border space-y-2.5 shadow-md ' + themeStyles.card}>
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <h2 className="font-black text-lg flex items-center gap-1.5">
+                            <span>🥫 Vorrat ({sortedStockForTab.length})</span>
+                          </h2>
+                          <p className="text-xs opacity-75 font-bold">
+                            {stockSortMode === 'newest'
+                              ? '🕒 Zuletzt gescannt oben'
+                              : stockSortMode === 'expiry'
+                              ? '📅 Nach Ablaufdatum (MHD)'
+                              : stockSortMode === 'glutenfree'
+                              ? '🌾✓ Glutenfrei zuerst'
+                              : '🔤 Alphabetisch (A–Z)'}
+                          </p>
                         </div>
-                        <div className="flex flex-wrap gap-2">
-                          {mhdAlertGroups.warnTwoDays.map(it => (
+
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setStockOnlyGlutenFree(prev => !prev)}
+                            className={'px-3 py-2 rounded-xl text-xs font-black flex items-center gap-1 border ' +
+                              (stockOnlyGlutenFree
+                                ? 'bg-emerald-500 text-slate-950 border-emerald-300 shadow-md'
+                                : 'bg-emerald-500/15 text-emerald-300 border-emerald-400/40')}
+                          >
+                            <span>🌾✓ GF ({totalGlutenFreeInStock})</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setShowStockMenu(prev => !prev)}
+                            className={'px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 ' +
+                              (showStockMenu ? 'tw-active-nav' : 'tw-glow-btn')}
+                          >
+                            {showStockMenu ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
+                            <span>Filter</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="relative">
+                        <Search className="w-4 h-4 text-sky-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                        <input
+                          type="text"
+                          value={stockSearchQuery}
+                          onChange={(e) => setStockSearchQuery(e.target.value)}
+                          placeholder="Produkt, Marke oder Kategorie suchen..."
+                          className={'w-full h-12 pl-10 pr-9 rounded-2xl border text-sm font-extrabold ' + themeStyles.input}
+                        />
+                        {stockSearchQuery && (
+                          <button
+                            type="button"
+                            onClick={() => setStockSearchQuery('')}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-white/10 flex items-center justify-center text-xs font-black"
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
+
+                      {showStockMenu && (
+                        <div className={'p-3 rounded-2xl border space-y-3 ' + themeStyles.subtle}>
+                          <div className="space-y-1.5">
+                            <span className="text-[11px] font-black uppercase text-sky-400 block">
+                              ↕️ Sortierung wählen:
+                            </span>
+                            <div className="grid grid-cols-2 gap-1.5">
+                              {[
+                                { id: 'newest',     label: '🕒 Neueste oben' },
+                                { id: 'expiry',     label: '📅 Nach MHD' },
+                                { id: 'glutenfree', label: '🌾✓ Glutenfrei oben' },
+                                { id: 'az',         label: '🔤 Name (A–Z)' }
+                              ].map(sOpt => (
+                                <button
+                                  key={sOpt.id}
+                                  type="button"
+                                  onClick={() => setStockSortMode(sOpt.id)}
+                                  className={'py-2.5 px-3 rounded-xl text-xs font-extrabold text-left ' +
+                                    (stockSortMode === sOpt.id ? 'tw-active-nav' : 'tw-nav-inactive')}
+                                >
+                                  {sOpt.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="text-[11px] font-black uppercase text-emerald-400 block mb-1">
+                                🏠 Lagerort:
+                              </label>
+                              <select
+                                value={stockLocationFilter}
+                                onChange={(e) => setStockLocationFilter(e.target.value)}
+                                className={'w-full h-11 px-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+                              >
+                                <option value="all" className="bg-slate-800 text-white">🏠 Alle Orte ({safeStock.length})</option>
+                                {STORAGE_PILLS.map(loc => (
+                                  <option key={loc.id} value={loc.id} className="bg-slate-800 text-white">
+                                    {loc.label} ({safeStock.filter(x => x.location === loc.id).length})
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+
+                            <div>
+                              <label className="text-[11px] font-black uppercase text-purple-300 block mb-1">
+                                🍱 Kategorie:
+                              </label>
+                              <select
+                                value={stockCategoryFilter}
+                                onChange={(e) => setStockCategoryFilter(e.target.value)}
+                                className={'w-full h-11 px-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+                              >
+                                <option value="all" className="bg-slate-800 text-white">🍱 Alle Kategorien</option>
+                                {FOOD_CATEGORIES.map(cat => (
+                                  <option key={cat.id} value={cat.id} className="bg-slate-800 text-white">
+                                    {cat.icon} {cat.title.split(',')[0]}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                             <button
-                              key={it.id}
                               type="button"
-                              onClick={() => openEditStockItemModal(it)}
-                              className="px-3 py-1.5 rounded-xl bg-black/45 border border-amber-300/40 text-sm font-black text-white flex items-center gap-2"
+                              onClick={handleSimplifyAllStockNames}
+                              className="tw-glow-btn w-full py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5"
                             >
-                              <span className="text-lg">{getFoodEmoji(it.name, it.customEmoji)}</span>
-                              <span>{it.name}</span>
-                              <span className="text-amber-300 font-black">
-                                ({it.daysLeft === 1 ? 'morgen' : 'in 2 T.'})
-                              </span>
+                              <Wand2 className="w-4 h-4 text-sky-300" />
+                              <span>✨ Alle Namen kürzen</span>
                             </button>
-                          ))}
+
+                            <button
+                              type="button"
+                              onClick={() => triggerMhdExpiryPushWarnings(true)}
+                              className="tw-glow-btn w-full py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5"
+                            >
+                              <BellRing className="w-4 h-4 text-amber-300" />
+                              <span>🔔 MHD-Push jetzt prüfen</span>
+                            </button>
+                          </div>
                         </div>
+                      )}
+
+                      <div className="flex items-center gap-1.5 overflow-x-auto pt-0.5">
+                        <button
+                          type="button"
+                          onClick={() => setStockLocationFilter('all')}
+                          className={'px-3.5 py-2 rounded-xl text-xs font-extrabold shrink-0 ' +
+                            (stockLocationFilter === 'all' ? 'tw-active-nav' : 'tw-nav-inactive')}
+                        >
+                          🏠 Alle ({safeStock.length})
+                        </button>
+                        {STORAGE_PILLS.map(loc => {
+                          const count = safeStock.filter(x => x.location === loc.id).length;
+                          return (
+                            <button
+                              key={loc.id}
+                              type="button"
+                              onClick={() => setStockLocationFilter(loc.id)}
+                              className={'px-3.5 py-2 rounded-xl text-xs font-extrabold shrink-0 ' +
+                                (stockLocationFilter === loc.id ? 'tw-active-nav' : 'tw-nav-inactive')}
+                            >
+                              {loc.label} ({count})
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      {sortedStockForTab.length === 0 ? (
+                        <div className={'p-8 rounded-3xl border text-center space-y-2 ' + themeStyles.card}>
+                          <div className="text-3xl">🥫</div>
+                          <div className="text-sm font-extrabold opacity-70">
+                            Keine Produkte für diese Suche oder Filterung gefunden.
+                          </div>
+                        </div>
+                      ) : (
+                        sortedStockForTab.map((item, idx) => {
+                          const catObj = FOOD_CATEGORIES.find(c => c.id === item.resolvedCategory) || FOOD_CATEGORIES[1];
+                          const locObj = STORAGE_PILLS.find(l => l.id === item.location) || STORAGE_PILLS[0];
+                          const decPreview = decrementItemPieceCount(item.quantity);
+                          const daysLeft = getDaysUntilMhd(item.expiryDate, todayStr);
+                          const isFinalDayZero = daysLeft <= 0;
+                          const isWarnTwoDays = daysLeft === 1 || daysLeft === 2;
+                          const isWarnWeek = daysLeft > 2 && daysLeft <= 7;
+                          const isNewestTop = stockSortMode === 'newest' && idx === 0 && !stockSearchQuery;
+                          const isGf = Boolean(item.resolvedGlutenFree);
+                          const emojiIcon = getFoodEmoji(item.name, item.customEmoji);
+
+                          const daysLabel = daysLeft <= 0
+                            ? '🚨 HEUTE!'
+                            : daysLeft === 1
+                            ? '⚠️ Morgen'
+                            : daysLeft === 2
+                            ? '⚠️ 2 Tage'
+                            : (daysLeft + ' Tage');
+
+                          return (
+                            <div
+                              key={item.id}
+                              onClick={() => openEditStockItemModal(item)}
+                              className={'p-4 rounded-3xl border flex flex-col gap-3.5 cursor-pointer shadow-md transition-all ' +
+                                themeStyles.card + ' ' +
+                                (isFinalDayZero
+                                  ? 'border-rose-500 border-2 bg-rose-950/35'
+                                  : isWarnTwoDays
+                                  ? 'border-rose-400/80 bg-rose-950/20'
+                                  : isWarnWeek
+                                  ? 'border-amber-400/80 bg-amber-950/20'
+                                  : isNewestTop
+                                  ? 'border-sky-400/80 bg-sky-500/10'
+                                  : '')}
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="flex items-start gap-3.5 min-w-0 flex-1">
+                                  <span className="w-14 h-14 rounded-2xl bg-black/40 border border-white/15 flex items-center justify-center text-3xl shrink-0 shadow-inner">
+                                    {emojiIcon}
+                                  </span>
+
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                                      {isNewestTop && (
+                                        <span className="px-2 py-0.5 rounded-md bg-sky-500 text-white text-[10px] font-black shrink-0">
+                                          NEU
+                                        </span>
+                                      )}
+                                      <button
+                                        type="button"
+                                        onClick={(e) => toggleStockItemGlutenFreeDirectly(e, item)}
+                                        className={'px-2 py-0.5 rounded-md text-[10px] font-black shrink-0 ' +
+                                          (isGf
+                                            ? 'bg-emerald-500/25 border border-emerald-400/50 text-emerald-300'
+                                            : 'bg-white/5 border border-white/10 text-slate-400')}
+                                      >
+                                        {isGf ? '🌾✓ GF' : '🌾?'}
+                                      </button>
+                                      <span className="text-xs font-extrabold opacity-80 truncate">
+                                        {catObj.icon} {catObj.title.split(',')[0]}
+                                      </span>
+                                    </div>
+
+                                    <h3 className="font-black text-base sm:text-lg leading-snug break-words">
+                                      {item.name}
+                                    </h3>
+                                  </div>
+                                </div>
+
+                                <div
+                                  className={'px-3 py-2 rounded-2xl border text-right shrink-0 ' +
+                                    (isFinalDayZero
+                                      ? 'bg-rose-500/35 border-rose-300 text-rose-100'
+                                      : isWarnTwoDays
+                                      ? 'bg-rose-500/25 border-rose-400 text-rose-100'
+                                      : isWarnWeek
+                                      ? 'bg-amber-500/30 border-amber-400 text-amber-100'
+                                      : 'bg-black/35 border-white/15')}
+                                >
+                                  <div className="text-sm font-black">
+                                    {item.expiryDate.slice(8, 10)}.{item.expiryDate.slice(5, 7)}.{item.expiryDate.slice(2, 4)}
+                                  </div>
+                                  <div className={'text-xs font-black mt-0.5 ' + (isFinalDayZero || isWarnTwoDays ? 'text-rose-300' : isWarnWeek ? 'text-amber-300' : 'text-emerald-400')}>
+                                    {daysLabel}
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center justify-between gap-2 pt-2.5 border-t border-white/10">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="px-3 py-1.5 rounded-xl bg-black/45 border border-amber-400/40 text-sm font-black text-amber-300">
+                                    📦 {item.quantity}
+                                  </span>
+                                  <span className="px-3 py-1.5 rounded-xl bg-black/35 border border-white/10 text-xs sm:text-sm font-extrabold">
+                                    {locObj.label}
+                                  </span>
+                                </div>
+
+                                <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                                  <button
+                                    type="button"
+                                    onClick={() => openEditStockItemModal(item)}
+                                    title="Bearbeiten"
+                                    className="tw-nav-inactive p-2.5 rounded-xl text-sky-300"
+                                  >
+                                    <Pencil className="w-4 h-4" />
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => handleAddQuickShopItem(item.name)}
+                                    title="Auf die Einkaufsliste setzen"
+                                    className="p-2.5 rounded-xl bg-amber-500/20 border border-amber-400/40 text-amber-300"
+                                  >
+                                    <ShoppingCart className="w-4 h-4" />
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => handleMoveStockItemToTrashFromPocket(item, 'wasted', true)}
+                                    title="Direkt in den Mülleimer verschieben"
+                                    className="tw-nav-inactive p-2.5 rounded-xl text-rose-400"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => handleConsumeFromPocket(item)}
+                                    className="tw-glow-btn px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-black flex items-center gap-1"
+                                  >
+                                    <CheckCircle2 className="w-4 h-4 text-emerald-300" />
+                                    <span>{decPreview.remaining > 0 ? '-1' : 'Weg'}</span>
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <div className="space-y-3">
+                    <div className={'p-4 rounded-3xl border space-y-2.5 shadow-md ' + themeStyles.card}>
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <h2 className="font-black text-lg flex items-center gap-1.5">
+                            <span>🗑️ Mülleimer ({safeTrash.length})</span>
+                          </h2>
+                          <p className="text-xs font-bold text-emerald-300">
+                            🌱 Quote: {trashStats.score}% ({trashStats.consumed} verzehrt / {trashStats.wasted} weggeworfen)
+                          </p>
+                        </div>
+
+                        {safeTrash.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={handleClearAllPocketTrash}
+                            className="px-3.5 py-2.5 rounded-2xl bg-rose-600 text-white text-xs font-black flex items-center gap-1.5 shadow-md"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                            <span>Alle leeren</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {safeTrash.length === 0 ? (
+                      <div className={'p-8 rounded-3xl border text-center space-y-2 ' + themeStyles.card}>
+                        <div className="text-3xl">🌱</div>
+                        <div className="text-sm font-extrabold opacity-75">
+                          Der Mülleimer ist leer!
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-2.5">
+                        {safeTrash.map(tItem => {
+                          const isWasted = tItem.reason === 'expired' || tItem.reason === 'wasted';
+                          return (
+                            <div
+                              key={tItem.id}
+                              className={'p-4 rounded-3xl border flex flex-col gap-3 shadow-sm ' +
+                                themeStyles.card + ' ' +
+                                (isWasted ? 'border-rose-500/60' : 'border-emerald-500/40')}
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="flex items-start gap-3 min-w-0 flex-1">
+                                  <span className="w-13 h-13 rounded-2xl bg-black/40 border border-white/15 flex items-center justify-center text-3xl shrink-0">
+                                    {getFoodEmoji(tItem.name, tItem.customEmoji)}
+                                  </span>
+                                  <div className="min-w-0 flex-1">
+                                    <span
+                                      className={'inline-block px-2 py-0.5 rounded-md text-[10px] font-black mb-1 ' +
+                                        (isWasted ? 'bg-rose-500/25 text-rose-300' : 'bg-emerald-500/25 text-emerald-300')}
+                                    >
+                                      {tItem.reasonLabel || '🍽️ Verbraucht'}
+                                    </span>
+                                    <h3 className="font-black text-base sm:text-lg leading-snug break-words">
+                                      {tItem.name}
+                                    </h3>
+                                    <div className="text-xs opacity-75 font-bold mt-0.5">
+                                      {tItem.quantity} • MHD war: {tItem.expiryDate}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteSinglePocketTrash(tItem)}
+                                  className="tw-nav-inactive w-8 h-8 rounded-xl text-rose-400 font-black flex items-center justify-center shrink-0"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+
+                              <div className="flex items-center gap-2 pt-2 border-t border-white/10">
+                                <button
+                                  type="button"
+                                  onClick={() => handleAddQuickShopItem(tItem.name)}
+                                  className="flex-1 py-2.5 px-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs sm:text-sm font-black flex items-center justify-center gap-1.5 shadow-md"
+                                >
+                                  <ShoppingCart className="w-4 h-4 stroke-[2.5]" />
+                                  <span>Zur Einkaufsliste</span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleRestoreFromPocketTrash(tItem)}
+                                  title="Zurück in den Vorrats-Bestand legen"
+                                  className="tw-nav-inactive px-3.5 py-2.5 rounded-xl text-xs font-black flex items-center gap-1.5"
+                                >
+                                  <RotateCcw className="w-4 h-4 text-sky-300" />
+                                  <span>Zurück</span>
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
                 )}
-
-                <div className={'p-3.5 rounded-3xl border space-y-2.5 shadow-md ' + themeStyles.card}>
-                  <div className="flex items-center justify-between gap-2">
-                    <div>
-                      <h2 className="font-black text-lg flex items-center gap-1.5">
-                        <span>🥫 Bestand ({sortedStockForTab.length})</span>
-                      </h2>
-                      <p className="text-xs opacity-75 font-bold">
-                        {stockSortMode === 'newest'
-                          ? '🕒 Zuletzt gescannt oben'
-                          : stockSortMode === 'expiry'
-                          ? '📅 Nach Ablaufdatum (MHD)'
-                          : stockSortMode === 'glutenfree'
-                          ? '🌾✓ Glutenfrei zuerst'
-                          : '🔤 Alphabetisch (A–Z)'}
-                      </p>
-                    </div>
-
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => setStockOnlyGlutenFree(prev => !prev)}
-                        className={'px-3 py-2 rounded-xl text-xs font-black flex items-center gap-1 border ' +
-                          (stockOnlyGlutenFree
-                            ? 'bg-emerald-500 text-slate-950 border-emerald-300 shadow-md'
-                            : 'bg-emerald-500/15 text-emerald-300 border-emerald-400/40')}
-                      >
-                        <span>🌾✓ GF ({totalGlutenFreeInStock})</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setShowStockMenu(prev => !prev)}
-                        className={'px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 ' +
-                          (showStockMenu ? 'tw-active-nav' : 'tw-glow-btn')}
-                      >
-                        {showStockMenu ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
-                        <span>Filter</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="relative">
-                    <Search className="w-4 h-4 text-sky-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                    <input
-                      type="text"
-                      value={stockSearchQuery}
-                      onChange={(e) => setStockSearchQuery(e.target.value)}
-                      placeholder="Produkt, Marke oder Kategorie suchen..."
-                      className={'w-full h-12 pl-10 pr-9 rounded-2xl border text-sm font-extrabold ' + themeStyles.input}
-                    />
-                    {stockSearchQuery && (
-                      <button
-                        type="button"
-                        onClick={() => setStockSearchQuery('')}
-                        className="absolute right-2.5 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-white/10 flex items-center justify-center text-xs font-black"
-                      >
-                        ✕
-                      </button>
-                    )}
-                  </div>
-
-                  {showStockMenu && (
-                    <div className={'p-3 rounded-2xl border space-y-3 ' + themeStyles.subtle}>
-                      <div className="space-y-1.5">
-                        <span className="text-[11px] font-black uppercase text-sky-400 block">
-                          ↕️ Sortierung wählen:
-                        </span>
-                        <div className="grid grid-cols-2 gap-1.5">
-                          {[
-                            { id: 'newest',     label: '🕒 Neueste oben' },
-                            { id: 'expiry',     label: '📅 Nach MHD' },
-                            { id: 'glutenfree', label: '🌾✓ Glutenfrei oben' },
-                            { id: 'az',         label: '🔤 Name (A–Z)' }
-                          ].map(sOpt => (
-                            <button
-                              key={sOpt.id}
-                              type="button"
-                              onClick={() => setStockSortMode(sOpt.id)}
-                              className={'py-2.5 px-3 rounded-xl text-xs font-extrabold text-left ' +
-                                (stockSortMode === sOpt.id ? 'tw-active-nav' : 'tw-nav-inactive')}
-                            >
-                              {sOpt.label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <label className="text-[11px] font-black uppercase text-emerald-400 block mb-1">
-                            🏠 Lagerort:
-                          </label>
-                          <select
-                            value={stockLocationFilter}
-                            onChange={(e) => setStockLocationFilter(e.target.value)}
-                            className={'w-full h-11 px-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
-                          >
-                            <option value="all" className="bg-slate-800 text-white">🏠 Alle Orte ({safeStock.length})</option>
-                            {STORAGE_PILLS.map(loc => (
-                              <option key={loc.id} value={loc.id} className="bg-slate-800 text-white">
-                                {loc.label} ({safeStock.filter(x => x.location === loc.id).length})
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-
-                        <div>
-                          <label className="text-[11px] font-black uppercase text-purple-300 block mb-1">
-                            🍱 Kategorie:
-                          </label>
-                          <select
-                            value={stockCategoryFilter}
-                            onChange={(e) => setStockCategoryFilter(e.target.value)}
-                            className={'w-full h-11 px-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
-                          >
-                            <option value="all" className="bg-slate-800 text-white">🍱 Alle Kategorien</option>
-                            {FOOD_CATEGORIES.map(cat => (
-                              <option key={cat.id} value={cat.id} className="bg-slate-800 text-white">
-                                {cat.icon} {cat.title.split(',')[0]}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        <button
-                          type="button"
-                          onClick={handleSimplifyAllStockNames}
-                          className="tw-glow-btn w-full py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5"
-                        >
-                          <Wand2 className="w-4 h-4 text-sky-300" />
-                          <span>✨ Alle Namen kürzen</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => triggerMhdExpiryPushWarnings(true)}
-                          className="tw-glow-btn w-full py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5"
-                        >
-                          <BellRing className="w-4 h-4 text-amber-300" />
-                          <span>🔔 MHD-Push jetzt prüfen</span>
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="flex items-center gap-1.5 overflow-x-auto pt-0.5">
-                    <button
-                      type="button"
-                      onClick={() => setStockLocationFilter('all')}
-                      className={'px-3.5 py-2 rounded-xl text-xs font-extrabold shrink-0 ' +
-                        (stockLocationFilter === 'all' ? 'tw-active-nav' : 'tw-nav-inactive')}
-                    >
-                      🏠 Alle ({safeStock.length})
-                    </button>
-                    {STORAGE_PILLS.map(loc => {
-                      const count = safeStock.filter(x => x.location === loc.id).length;
-                      return (
-                        <button
-                          key={loc.id}
-                          type="button"
-                          onClick={() => setStockLocationFilter(loc.id)}
-                          className={'px-3.5 py-2 rounded-xl text-xs font-extrabold shrink-0 ' +
-                            (stockLocationFilter === loc.id ? 'tw-active-nav' : 'tw-nav-inactive')}
-                        >
-                          {loc.label} ({count})
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* EXTRA GROSSE, PERFEKT LESBARE PRODUKT-KACHELN (PUNKT 1) */}
-                <div className="space-y-3">
-                  {sortedStockForTab.length === 0 ? (
-                    <div className={'p-8 rounded-3xl border text-center space-y-2 ' + themeStyles.card}>
-                      <div className="text-3xl">🥫</div>
-                      <div className="text-sm font-extrabold opacity-70">
-                        Keine Produkte für diese Suche oder Filterung gefunden.
-                      </div>
-                    </div>
-                  ) : (
-                    sortedStockForTab.map((item, idx) => {
-                      const catObj = FOOD_CATEGORIES.find(c => c.id === item.resolvedCategory) || FOOD_CATEGORIES[1];
-                      const locObj = STORAGE_PILLS.find(l => l.id === item.location) || STORAGE_PILLS[0];
-                      const decPreview = decrementItemPieceCount(item.quantity);
-                      const daysLeft = getDaysUntilMhd(item.expiryDate, todayStr);
-                      const isFinalDayZero = daysLeft <= 0;
-                      const isWarnTwoDays = daysLeft === 1 || daysLeft === 2;
-                      const isWarnWeek = daysLeft > 2 && daysLeft <= 7;
-                      const isNewestTop = stockSortMode === 'newest' && idx === 0 && !stockSearchQuery;
-                      const isGf = Boolean(item.resolvedGlutenFree);
-                      const emojiIcon = getFoodEmoji(item.name, item.customEmoji);
-
-                      const daysLabel = daysLeft <= 0
-                        ? '🚨 HEUTE!'
-                        : daysLeft === 1
-                        ? '⚠️ Morgen'
-                        : daysLeft === 2
-                        ? '⚠️ 2 Tage'
-                        : (daysLeft + ' Tage');
-
-                      return (
-                        <div
-                          key={item.id}
-                          onClick={() => openEditStockItemModal(item)}
-                          className={'p-4 rounded-3xl border flex flex-col gap-3.5 cursor-pointer shadow-md transition-all ' +
-                            themeStyles.card + ' ' +
-                            (isFinalDayZero
-                              ? 'border-rose-500 border-2 bg-rose-950/35'
-                              : isWarnTwoDays
-                              ? 'border-rose-400/80 bg-rose-950/20'
-                              : isWarnWeek
-                              ? 'border-amber-400/80 bg-amber-950/20'
-                              : isNewestTop
-                              ? 'border-sky-400/80 bg-sky-500/10'
-                              : '')}
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="flex items-start gap-3.5 min-w-0 flex-1">
-                              {/* DEUTLICH GRÖSSERES PRODUKT-ICON (w-14 h-14 text-3xl) */}
-                              <span className="w-14 h-14 rounded-2xl bg-black/40 border border-white/15 flex items-center justify-center text-3xl shrink-0 shadow-inner">
-                                {emojiIcon}
-                              </span>
-
-                              <div className="min-w-0 flex-1">
-                                <div className="flex items-center gap-1.5 flex-wrap mb-1">
-                                  {isNewestTop && (
-                                    <span className="px-2 py-0.5 rounded-md bg-sky-500 text-white text-[10px] font-black shrink-0">
-                                      NEU
-                                    </span>
-                                  )}
-                                  <button
-                                    type="button"
-                                    onClick={(e) => toggleStockItemGlutenFreeDirectly(e, item)}
-                                    className={'px-2 py-0.5 rounded-md text-[10px] font-black shrink-0 ' +
-                                      (isGf
-                                        ? 'bg-emerald-500/25 border border-emerald-400/50 text-emerald-300'
-                                        : 'bg-white/5 border border-white/10 text-slate-400')}
-                                  >
-                                    {isGf ? '🌾✓ GF' : '🌾?'}
-                                  </button>
-                                  <span className="text-xs font-extrabold opacity-80 truncate">
-                                    {catObj.icon} {catObj.title.split(',')[0]}
-                                  </span>
-                                </div>
-
-                                {/* DEUTLICH GRÖSSERER PRODUKTNAME (text-base sm:text-lg font-black) */}
-                                <h3 className="font-black text-base sm:text-lg leading-snug break-words">
-                                  {item.name}
-                                </h3>
-                              </div>
-                            </div>
-
-                            <div
-                              className={'px-3 py-2 rounded-2xl border text-right shrink-0 ' +
-                                (isFinalDayZero
-                                  ? 'bg-rose-500/35 border-rose-300 text-rose-100'
-                                  : isWarnTwoDays
-                                  ? 'bg-rose-500/25 border-rose-400 text-rose-100'
-                                  : isWarnWeek
-                                  ? 'bg-amber-500/30 border-amber-400 text-amber-100'
-                                  : 'bg-black/35 border-white/15')}
-                            >
-                              <div className="text-sm font-black">
-                                {item.expiryDate.slice(8, 10)}.{item.expiryDate.slice(5, 7)}.{item.expiryDate.slice(2, 4)}
-                              </div>
-                              <div className={'text-xs font-black mt-0.5 ' + (isFinalDayZero || isWarnTwoDays ? 'text-rose-300' : isWarnWeek ? 'text-amber-300' : 'text-emerald-400')}>
-                                {daysLabel}
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center justify-between gap-2 pt-2.5 border-t border-white/10">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="px-3 py-1.5 rounded-xl bg-black/45 border border-amber-400/40 text-sm font-black text-amber-300">
-                                📦 {item.quantity}
-                              </span>
-                              <span className="px-3 py-1.5 rounded-xl bg-black/35 border border-white/10 text-xs sm:text-sm font-extrabold">
-                                {locObj.label}
-                              </span>
-                            </div>
-
-                            <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
-                              <button
-                                type="button"
-                                onClick={() => openEditStockItemModal(item)}
-                                className="tw-nav-inactive px-3 py-2.5 rounded-xl text-xs font-black text-sky-300 flex items-center gap-1"
-                              >
-                                <Pencil className="w-4 h-4" />
-                                <span>Edit</span>
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => handleAddQuickShopItem(item.name)}
-                                title="Auf die Einkaufsliste setzen"
-                                className="tw-nav-inactive p-2.5 rounded-xl text-amber-300"
-                              >
-                                <ShoppingCart className="w-4 h-4" />
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => handleConsumeFromPocket(item)}
-                                className="tw-glow-btn px-4 py-2.5 rounded-xl text-xs sm:text-sm font-black flex items-center gap-1"
-                              >
-                                <CheckCircle2 className="w-4 h-4 text-emerald-300" />
-                                <span>{decPreview.remaining > 0 ? '-1' : 'Weg'}</span>
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
               </div>
             )}
           </div>
         )}
       </main>
 
-      {/* ============================================================================
-          INTELLIGENTES 1-HAND-SCHNELL-COCKPIT (ERSATZ FÜR DIE ALTE OBERE LEISTE)
-         ============================================================================ */}
+      {restockPromptItem && typeof document !== 'undefined' && createPortal(
+        <div
+          onClick={() => setRestockPromptItem(null)}
+          className="fixed inset-0 w-screen h-screen z-[9999] bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 select-none"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className={'w-full max-w-md rounded-3xl border-2 border-amber-400 p-6 shadow-2xl space-y-5 text-center my-auto ' + themeStyles.modal}
+          >
+            <div className="w-16 h-16 rounded-3xl bg-amber-500/20 border-2 border-amber-400/60 flex items-center justify-center text-4xl mx-auto shadow-inner">
+              {getFoodEmoji(restockPromptItem.name, restockPromptItem.customEmoji)}
+            </div>
+
+            <div className="space-y-1.5">
+              <div className="text-xs font-black uppercase tracking-wider text-emerald-400">
+                🗑️ Im Mülleimer abgelegt
+              </div>
+              <h3 className="text-xl font-black leading-snug">
+                {restockPromptItem.name}
+              </h3>
+              <p className="text-sm font-bold opacity-85 pt-1">
+                Soll dieses Produkt wieder auf die Einkaufsliste aufgenommen werden?
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const name = restockPromptItem.name;
+                  setRestockPromptItem(null);
+                  showToast('Ausgebucht 🗑️', '„' + name + '“ liegt jetzt im Mülleimer.', '🗑️');
+                }}
+                className="tw-nav-inactive py-3.5 px-4 rounded-2xl text-sm font-black"
+              >
+                Nein
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const name = restockPromptItem.name;
+                  handleAddQuickShopItem(name);
+                  setRestockPromptItem(null);
+                }}
+                className="py-3.5 px-4 rounded-2xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-sm font-black flex items-center justify-center gap-2 shadow-lg"
+              >
+                <ShoppingCart className="w-4 h-4 stroke-[2.5]" />
+                <span>Ja, Einkaufsliste</span>
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
       {quickCockpitOpen && (
         <div
           onClick={() => setQuickCockpitOpen(false)}
@@ -2460,7 +2946,6 @@ export default function TouchwallPocketApp() {
               </button>
             </div>
 
-            {/* PERSONEN-FILTER FÜR 1-HAND-BEDIENUNG */}
             <div className="space-y-2">
               <span className="text-[11px] font-black uppercase text-sky-400 block">
                 👤 Personen-Filter (für Kalender & Aufgaben):
@@ -2492,7 +2977,6 @@ export default function TouchwallPocketApp() {
               </div>
             </div>
 
-            {/* SCHNELL-AKTIONEN (SYNC, PUSH, WAND, LOGOUT) */}
             <div className="grid grid-cols-2 gap-2 pt-1">
               <button
                 type="button"
@@ -2550,7 +3034,6 @@ export default function TouchwallPocketApp() {
         </div>
       )}
 
-      {/* VOLLWERTIGES BEARBEITEN-MODAL FÜR DEN BESTAND */}
       {editStockModal.open && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-3 overflow-y-auto">
           <form
@@ -2757,7 +3240,7 @@ export default function TouchwallPocketApp() {
                 className="px-3.5 py-2.5 rounded-2xl bg-rose-600 text-white text-xs font-black flex items-center gap-1"
               >
                 <Trash2 className="w-4 h-4" />
-                <span>Löschen</span>
+                <span>In Mülleimer</span>
               </button>
 
               <div className="flex items-center gap-2">
@@ -2781,7 +3264,7 @@ export default function TouchwallPocketApp() {
         </div>
       )}
 
-      {/* UNTERE NAVIGATION INKL. INTELLIGENTEM COCKPIT-/PERSONEN-BUTTON STATT HEADER */}
+      {/* UNTERE NAVIGATION */}
       <nav className={'shrink-0 z-40 border-t px-1.5 py-1.5 flex items-center justify-around gap-1 shadow-2xl ' + themeStyles.header}>
         {[
           { id: 'agenda',   label: 'Kalender', icon: Calendar,     badge: filteredEvents.filter(e => e.date === todayStr).length },
@@ -2819,7 +3302,6 @@ export default function TouchwallPocketApp() {
           );
         })}
 
-        {/* 6. BUTTON: 1-HAND-COCKPIT (PERSONENWAHL, SYNC & EINSTELLUNGEN) */}
         <button
           type="button"
           onClick={() => setQuickCockpitOpen(prev => !prev)}
