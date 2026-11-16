@@ -3,10 +3,10 @@
 /* eslint-disable @next/next/no-img-element */
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
-  Utensils, ShoppingCart, Sparkles, Globe, Clock,
-  Wand2, ExternalLink, ChefHat, Check, Plus, Filter
+  Utensils, ShoppingCart, Globe, Clock,
+  Wand2, ExternalLink, ChefHat, Plus, Filter, Sparkles, Check
 } from 'lucide-react';
 import { getFoodEmoji, isProductGlutenFree, getDaysUntil } from './PantrySection';
 
@@ -14,25 +14,81 @@ import { getFoodEmoji, isProductGlutenFree, getDaysUntil } from './PantrySection
 function cleanProductCoreName(rawName) {
   return String(rawName || '')
     .toLowerCase()
-    .replace(/\b(\d+\s*(g|kg|ml|l|stk|pcs|x)|k-classic|ja!|mysmile|die süsse susi|ernte krone|landfein|haltbare|schwarzwaldmilch|oro di parma|hengstenberg|altmeister|delikatess|das komplette|france|flow pack de|3,5%|1,5%)\b/gi, ' ')
+    .replace(/\/.*$/, ' ')
+    .replace(/\b(\d+\s*(g|kg|ml|l|stk|pcs|x|pkg)|k-classic|kaufland|ja!|rewe|edeka|schär|seitz|pfanni|gefro|meggle|landfein|haltbare|schwarzwaldmilch|oro di parma|hengstenberg|delikatess|bio|classic|glutenfrei|frei von|tk)\b/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
 
 // ============================================================================
-// ERWEITERTE FAMILIEN- & GLUTENFREI-REZEPTDATENBANK (AUF VORRAT ABGESTIMMT)
+// ERWEITERTE SCHNELL-REZEPT-DATENBANK (10 BIS 25 MINUTEN • FAMILIEN & GLUTENFREI)
 // ============================================================================
 const FAMILY_RECIPES_DB = [
   {
-    id: 'fam_wraps',
-    title: '🌮 Knusprige Schär-Wraps mit Frischkäse & Salat',
+    id: 'fam_rigatoni_creme',
+    title: '🍝 Schnelle Rigatoni / Pasta in cremiger Käse-Sahne-Soße',
     prepMinutes: 15,
     kidFavorite: true,
     glutenFree: true,
+    category: 'Express-Pasta (15 Min.)',
+    shortDesc: 'Rigatoni oder Lieblingsnudeln in einer schnellen 5-Minuten-Soße aus Sahne, Frischkäse und Käse.',
+    keywords: ['rigatoni', 'nudel', 'spaghetti', 'pasta', 'penne', 'frischkäse', 'philadelphia', 'schlagsahne', 'sahne', 'käse', 'parmesan', 'vollmilch', 'milch'],
+    ingredients: ['Rigatoni / Glutenfreie Nudeln', 'Schlagsahne oder Vollmilch', 'Frischkäse / Reibekäse', 'Tomatenmark oder Kräuter']
+  },
+  {
+    id: 'fam_wraps',
+    title: '🌮 Knusprige Schär-Wraps aus der Pfanne',
+    prepMinutes: 12,
+    kidFavorite: true,
+    glutenFree: true,
     category: 'Express & Glutenfrei',
-    shortDesc: 'Schär Wraps warm aus der Pfanne mit Philadelphia Frischkäse, Käse, Gurke und Salat.',
-    keywords: ['wraps', 'wrap', 'schär', 'frischkäse', 'philadelphia', 'scheibenkäse', 'käse', 'gurke', 'salat', 'eisbergsalat', 'mâche', 'burger sauce'],
-    ingredients: ['Schär Wraps', 'Philadelphia Frischkäse / Käse', 'Gurke & Salat (z.B. Mâche)', 'Burger Sauce oder Tomatenmark']
+    shortDesc: 'Gefüllte Wraps warm in der Pfanne angeröstet mit Frischkäse, Käse, Salat oder Gurke.',
+    keywords: ['wraps', 'wrap', 'schär', 'tortilla', 'frischkäse', 'philadelphia', 'scheibenkäse', 'käse', 'gurke', 'salat', 'eisbergsalat', 'mâche', 'burger sauce'],
+    ingredients: ['Wraps (z.B. Schär)', 'Frischkäse oder Scheibenkäse', 'Salat / Gurke / Tomate', 'Sauce oder Kräuterbutter']
+  },
+  {
+    id: 'fam_reis_pfanne',
+    title: '🍚 Schnelle Gemüse- & Pilz-Reispfanne',
+    prepMinutes: 18,
+    kidFavorite: true,
+    glutenFree: true,
+    category: 'One-Pot & Glutenfrei',
+    shortDesc: 'Langkorn-Reis aus einer Pfanne mit Pilzen, Gemüse und einem cremigen Schuss Sahne oder Frischkäse.',
+    keywords: ['reis', 'rize', 'langkorn', 'basmati', 'spitzenreis', 'pilz', 'pfifferling', 'champignon', 'paprika', 'mais', 'erbsen', 'schlagsahne', 'frischkäse'],
+    ingredients: ['Langkorn-Reis / Basmatireis', 'Pilze (z.B. Pfifferlinge) oder Gemüse', 'Schlagsahne / Frischkäse', 'Zwiebel & Brühe/Gewürze']
+  },
+  {
+    id: 'fam_filet_rahm',
+    title: '🥩 Zartes Filet / Geschnetzeltes in Pfifferling-Rahm mit Püree',
+    prepMinutes: 20,
+    kidFavorite: true,
+    glutenFree: true,
+    category: 'Familien-Highlight',
+    shortDesc: 'Kurzgebratenes Schweine- oder Hähnchenfilet mit Pilzen in Rahmsoße zu schnellem Kartoffelpüree.',
+    keywords: ['schweinefilet', 'filet', 'hähnchen', 'pute', 'schnitzel', 'fleisch', 'pfifferling', 'pilz', 'champignon', 'kartoffelpüree', 'pfanni', 'reis', 'schlagsahne', 'sahne'],
+    ingredients: ['Schweinefilet / Hähnchenfilet', 'Pfifferlinge / Pilze', 'Kartoffelpüree oder Reis', 'Schlagsahne / Cremefine']
+  },
+  {
+    id: 'fam_baguette_ofen',
+    title: '🥖 Überbackenes Ofen-Baguette / Knusperbrot „Pizzastyle“',
+    prepMinutes: 12,
+    kidFavorite: true,
+    glutenFree: true,
+    category: 'Blitz-Abendessen (12 Min.)',
+    shortDesc: 'Halbiertes Baguette oder Landbrot bestrichen mit Tomatenmark/Frischkäse und mit Käse goldbraun überbacken.',
+    keywords: ['baguette', 'landbrot', 'brot', 'brötchen', 'knusperbrot', 'tomatenmark', 'passierte', 'käse', 'mozzarella', 'gouda', 'frischkäse', 'salami', 'schinken', 'kräuterbutter'],
+    ingredients: ['Baguette / Landbrot', 'Tomatenmark oder Kräuterbutter', 'Käse / Mozzarella zum Überbacken', 'Schinken / Salami / Paprika (optional)']
+  },
+  {
+    id: 'fam_pfannkuchen_gf',
+    title: '🥞 Schnelle Goldgelbe Familien-Pfannkuchen / Kaiserschmarrn',
+    prepMinutes: 15,
+    kidFavorite: true,
+    glutenFree: true,
+    category: 'Süß & Schnell',
+    shortDesc: 'Fluffige Pfannkuchen aus der Eisenpfanne mit Mehl, Milch und Eiern – perfekt mit Apfelmus oder Obst.',
+    keywords: ['mehl', 'schär', 'vollmilch', 'milch', 'ei', 'eier', 'apfelmus', 'apfel', 'butter', 'zucker', 'beeren'],
+    ingredients: ['Mehl (z.B. Schär glutenfrei)', 'Vollmilch', 'Frische Eier', 'Apfelmus / Obst / Zimt & Zucker']
   },
   {
     id: 'fam_chili_reis',
@@ -41,99 +97,192 @@ const FAMILY_RECIPES_DB = [
     kidFavorite: true,
     glutenFree: true,
     category: 'One-Pot & Glutenfrei',
-    shortDesc: 'Wärmendes Gefro Chili sin Carne verfeinert mit Tomatenmark, Sahne/Frischkäse und Beilage.',
-    keywords: ['chili', 'gefro', 'tomatenmark', 'oro di parma', 'reis', 'kartoffelpüree', 'schlagsahne', 'frischkäse', 'mais'],
-    ingredients: ['Gefro Chili sin carne', 'Tomatenmark', 'Reis oder Kartoffelpüree', 'Klecks Schlagsahne / Frischkäse']
-  },
-  {
-    id: 'fam_mac_cheese_gf',
-    title: '🧀 Cremige Glutenfreie Käse-Sahne-Nudeln (Mac & Cheese)',
-    prepMinutes: 20,
-    kidFavorite: true,
-    glutenFree: true,
-    category: 'Kinder-Hit & Glutenfrei',
-    shortDesc: 'Schnelle Käsesoße aus Milch, Schlagsahne, Frischkäse und Parmesan (mit Maisstärke gebunden).',
-    keywords: ['parmesan', 'käse', 'scheibenkäse', 'frischkäse', 'philadelphia', 'schlagsahne', 'sahne', 'vollmilch', 'milch', 'nudeln', 'pasta'],
-    ingredients: ['Glutenfreie Nudeln / Pasta', 'Vollmilch & Schlagsahne', 'Parmesan & Frischkäse', 'Prise Muskat / Maisstärke']
+    shortDesc: 'Wärmendes Chili verfeinert mit Tomatenmark, Mais und Reis oder Kartoffelpüree als Beilage.',
+    keywords: ['chili', 'gefro', 'tomatenmark', 'oro di parma', 'reis', 'rize', 'kartoffelpüree', 'schlagsahne', 'frischkäse', 'mais', 'bohne'],
+    ingredients: ['Chili sin carne / Bohnen & Mais', 'Tomatenmark', 'Reis oder Kartoffelpüree', 'Klecks Schmand / Frischkäse']
   },
   {
     id: 'fam_bratwurst_rotkohl',
-    title: '🌭 Rostbratwurst mit Kartoffelpüree & Apfel-Rotkohl',
-    prepMinutes: 20,
+    title: '🌭 Bratwurst mit schnellem Kartoffelpüree & Rotkohl',
+    prepMinutes: 18,
     kidFavorite: true,
     glutenFree: true,
     category: 'Familien-Klassiker',
-    shortDesc: 'Deftiger Familien-Liebling mit Kartoffelpüree, warmem Apfel-Rotkohl und Kräuterbutter.',
-    keywords: ['rostbratwurst', 'bratwurst', 'wurst', 'kartoffelpüree', 'kartoffel', 'rotkohl', 'apfel rotkohl', 'kräuterbutter', 'butter', 'senf'],
-    ingredients: ['Rostbratwurst / Würstchen', 'Kartoffelpüree', 'Apfel-Rotkohl', 'Kräuterbutter / Senf']
-  },
-  {
-    id: 'fam_spargel_pfanne',
-    title: '🥦 Cremige Spargel-Kartoffel-Pfanne mit Sahnesoße',
-    prepMinutes: 20,
-    kidFavorite: false,
-    glutenFree: true,
-    category: 'Feine Familienküche',
-    shortDesc: 'Stangenspargel in einer milden Frischkäse-Sahne-Parmesan-Soße zu Kartoffelpüree oder Reis.',
-    keywords: ['spargel', 'stangenspargel', 'schlagsahne', 'sahne', 'frischkäse', 'philadelphia', 'parmesan', 'kartoffelpüree', 'kartoffel', 'butter'],
-    ingredients: ['Stangenspargel', 'Kartoffelpüree oder Kartoffeln', 'Schlagsahne & Frischkäse', 'Parmesan Käse']
-  },
-  {
-    id: 'fam_tomatensuppe',
-    title: '🍅 Cremige Blitz-Tomatensuppe mit Sahnehaube & Parmesan',
-    prepMinutes: 15,
-    kidFavorite: true,
-    glutenFree: true,
-    category: 'Express (15 Min.)',
-    shortDesc: 'Aus Tomatenmark, Vollmilch, Schlagsahne und Frischkäse in 15 Minuten heiß auf dem Tisch.',
-    keywords: ['tomatenmark', 'oro di parma', 'passierte', 'schlagsahne', 'sahne', 'vollmilch', 'milch', 'frischkäse', 'parmesan', 'reis'],
-    ingredients: ['Tomatenmark (z.B. Oro di Parma)', 'Schlagsahne & Vollmilch', 'Frischkäse Schnittlauch', 'Parmesan oder Reis-Einlage']
-  },
-  {
-    id: 'fam_salat_bowl',
-    title: '🥗 Knackige Feldsalat-Gurken-Schüssel mit Haus-Dressing',
-    prepMinutes: 10,
-    kidFavorite: false,
-    glutenFree: true,
-    category: 'Frisch & Leicht',
-    shortDesc: 'Frischer Mâche-Feldsalat und Gurke mit Honig-Essig-Sahne-Dressing und Käsewürfeln.',
-    keywords: ['mâche', 'feldsalat', 'salat', 'eisbergsalat', 'gurke', 'essig', 'hengstenberg', 'schlagsahne', 'parmesan', 'käse', 'apfel', 'clementinen'],
-    ingredients: ['Mâche / Feldsalat', 'Frische Gurke', 'Weinwürziger Essig & Öl/Sahne', 'Parmesan / Apfelstücke']
-  },
-  {
-    id: 'fam_apfel_nachtisch',
-    title: '🍎 Warmer Bratapfel-Traum mit Apfelmus, Sahne & Choco Balls',
-    prepMinutes: 15,
-    kidFavorite: true,
-    glutenFree: true,
-    category: 'Süßes & Kinder-Hit',
-    shortDesc: 'Elstar-Äpfel aus der Pfanne mit Apfelmus, geschlagener Sahne und knusprigen Schär Choco Balls.',
-    keywords: ['äpfel', 'apfel', 'elstar', 'apfelmus', 'schlagsahne', 'sahne', 'choco balls', 'schär', 'clementinen', 'butter'],
-    ingredients: ['Äpfel (Elstar) & Apfelmus', 'Schlagsahne', 'Schär Choco Balls (Topping)', 'Clementinen']
-  },
-  {
-    id: 'fam_bolo',
-    title: '🍝 Schnelle Familien-Bolognese mit Parmesan',
-    prepMinutes: 20,
-    kidFavorite: true,
-    glutenFree: true,
-    category: 'One-Pot & Pasta',
-    shortDesc: 'Klassiker für Kinder mit Tomatenmark, einem Schuss Sahne und frisch geriebenem Parmesan.',
-    keywords: ['spaghetti', 'nudeln', 'pasta', 'hackfleisch', 'rinderhack', 'chili', 'tomaten', 'passierte', 'tomatenmark', 'oro di parma', 'parmesan', 'karotten'],
-    ingredients: ['Nudeln (auch GF möglich)', 'Hackfleisch oder Chili sin carne', 'Tomatenmark / Passierte Tomaten', 'Parmesan Käse & Schuss Sahne']
+    shortDesc: 'Deftiger Familien-Liebling aus der Pfanne mit cremigem Kartoffelpüree und Gemüsebeilage.',
+    keywords: ['rostbratwurst', 'bratwurst', 'wurst', 'würstchen', 'kartoffelpüree', 'pfanni', 'kartoffel', 'rotkohl', 'sauerkraut', 'kräuterbutter', 'butter', 'senf'],
+    ingredients: ['Bratwurst / Würstchen', 'Kartoffelpüree', 'Apfel-Rotkohl oder Salat', 'Kräuterbutter / Senf']
   },
   {
     id: 'fam_kartoffel_gratin',
-    title: '🥔 Überbackener Kartoffelpüree-Käse-Auflauf',
-    prepMinutes: 25,
+    title: '🥔 Schneller Kartoffelpüree-Auflauf aus dem Ofen',
+    prepMinutes: 20,
     kidFavorite: true,
     glutenFree: true,
     category: 'Ofen & Familie',
-    shortDesc: 'Kartoffelpüree verfeinert mit Schlagsahne, Frischkäse und einer goldenen Parmesan-Kruste.',
-    keywords: ['kartoffelpüree', 'kartoffel', 'schlagsahne', 'sahne', 'vollmilch', 'frischkäse', 'philadelphia', 'parmesan', 'käse', 'butter'],
-    ingredients: ['Kartoffelpüree / Kartoffeln', 'Schlagsahne & Vollmilch', 'Philadelphia Frischkäse', 'Parmesan zum Überbacken']
+    shortDesc: 'Kartoffelpüree mit Sahne, Frischkäse und Gemüse oder Schinkenwürfeln im Ofen überbacken.',
+    keywords: ['kartoffelpüree', 'pfanni', 'kartoffel', 'schlagsahne', 'sahne', 'vollmilch', 'frischkäse', 'philadelphia', 'parmesan', 'käse', 'butter'],
+    ingredients: ['Kartoffelpüree / Kartoffeln', 'Schlagsahne & Milch', 'Frischkäse', 'Reibekäse / Parmesan']
   }
 ];
+
+// ============================================================================
+// PUNKT 4: DYNAMISCHER ECHTZEIT-REZEPTGENERATOR AUS DEM AKTUELLEN BESTAND
+// Erstellt automatisch neue 15-Minuten-Rezepte, sobald neue Produkte im Vorrat landen!
+// ============================================================================
+function generateDynamicRecipesFromStock(safeStock, todayStr) {
+  if (!Array.isArray(safeStock) || safeStock.length === 0) return [];
+
+  const findInStock = (regex) => safeStock.find(it => regex.test(String(it.name || '').toLowerCase()));
+  const findAllInStock = (regex) => safeStock.filter(it => regex.test(String(it.name || '').toLowerCase()));
+
+  const pastaItem = findInStock(/nudel|rigatoni|spaghetti|pasta|penne|fusilli|spätzle|gnocchi/);
+  const riceItem = findInStock(/reis|rize|basmati|langkorn|jasmin|risotto/);
+  const potatoItem = findInStock(/kartoffelpüree|pfanni|kartoffel|pommes|kroketten/);
+  const breadItem = findInStock(/baguette|landbrot|brot|toast|brötchen|knusperbrot/);
+  const wrapItem = findInStock(/wrap|tortilla|taco/);
+  const flourItem = findInStock(/mehl|backmischung/);
+
+  const meatFishList = findAllInStock(/filet|schwein|rind|hackfleisch|hähnchen|pute|schnitzel|steak|wurst|bratwurst|schinken|salami|speck|lachs|fisch|thunfisch|ei\b|eier/);
+  const veggieMushroomList = findAllInStock(/pilz|pfifferling|champignon|salat|gurke|tomate|paprika|karotte|möhre|brokkoli|blumenkohl|spinat|spargel|rotkohl|mais|erbse|bohne|avocado|zwiebel/);
+  const dairySauceList = findAllInStock(/käse|frischkäse|philadelphia|mozzarella|gouda|parmesan|sahne|schlagsahne|schmand|milch|vollmilch|butter|kräuterbutter|pesto|tomatenmark|passierte|sauce|soße|ketchup/);
+
+  const dynamicRecipes = [];
+
+  // 1. SPOTLIGHT-REZEPT FÜR DAS ZULETZT HINZUGEFÜGTE PRODUKT (hält die Liste bei jedem Scan sofort aktuell!)
+  const newestItem = safeStock[0];
+  if (newestItem && newestItem.name) {
+    const nLower = newestItem.name.toLowerCase();
+    const isSweetOrDrink = /wasser|cola|limo|bier|wein|kaffee|tee|futter|tierfutter|kauknochen/.test(nLower);
+
+    if (!isSweetOrDrink) {
+      const partnerBase =
+        pastaItem && pastaItem.id !== newestItem.id ? pastaItem.name :
+        riceItem && riceItem.id !== newestItem.id ? riceItem.name :
+        potatoItem && potatoItem.id !== newestItem.id ? potatoItem.name :
+        breadItem && breadItem.id !== newestItem.id ? breadItem.name :
+        'Nudeln / Reis / Kartoffeln';
+
+      const partnerSauce =
+        dairySauceList.find(d => d.id !== newestItem.id)?.name || 'Sahne / Frischkäse / Butter';
+
+      const partnerExtra =
+        veggieMushroomList.find(v => v.id !== newestItem.id)?.name ||
+        meatFishList.find(m => m.id !== newestItem.id)?.name ||
+        'Frische Kräuter / Gemüse nach Wahl';
+
+      dynamicRecipes.push({
+        id: 'dyn_newest_' + newestItem.id,
+        title: '✨ Neu-im-Vorrat Express-Gericht mit ' + newestItem.name,
+        prepMinutes: 15,
+        kidFavorite: true,
+        glutenFree: isProductGlutenFree(newestItem),
+        isDynamic: true,
+        isNewestSpotlight: true,
+        category: '🆕 Direkt aus deinem neuesten Scan',
+        shortDesc: 'Automatisch für dein zuletzt eingebuchtes Produkt „' + newestItem.name + '“ zusammengestellt.',
+        keywords: [cleanProductCoreName(newestItem.name)],
+        ingredients: [
+          newestItem.name,
+          partnerBase,
+          partnerSauce,
+          partnerExtra
+        ]
+      });
+    }
+  }
+
+  // 2. DYNAMISCHE PASTA-KOMBINATION AUS DEM AKTUELLEN VORRAT
+  if (pastaItem) {
+    const sauce1 = dairySauceList[0]?.name || 'Schlagsahne / Passierte Tomaten';
+    const extra1 = veggieMushroomList[0]?.name || meatFishList[0]?.name || 'Parmesan / Frisches Gemüse';
+    dynamicRecipes.push({
+      id: 'dyn_pasta_' + pastaItem.id,
+      title: '🍝 15-Minuten Pfannen-Pasta mit ' + pastaItem.name,
+      prepMinutes: 15,
+      kidFavorite: true,
+      glutenFree: isProductGlutenFree(pastaItem),
+      isDynamic: true,
+      category: '⚡ Aus deinem Vorrat kombiniert',
+      shortDesc: 'Schnelles Hauptgericht rund um deinen Vorrat „' + pastaItem.name + '“.',
+      keywords: [cleanProductCoreName(pastaItem.name)],
+      ingredients: [
+        pastaItem.name,
+        sauce1,
+        extra1,
+        dairySauceList[1]?.name || 'Reibekäse / Gewürze'
+      ]
+    });
+  }
+
+  // 3. DYNAMISCHE REIS-BOWL / REISPFANNE AUS DEM AKTUELLEN VORRAT
+  if (riceItem) {
+    const mainAdd = meatFishList[0]?.name || veggieMushroomList[0]?.name || 'Hähnchen / Gemüse / Pilze';
+    const sauceAdd = dairySauceList[0]?.name || 'Frischkäse / Sahne / Sojasauce';
+    dynamicRecipes.push({
+      id: 'dyn_rice_' + riceItem.id,
+      title: '🍚 Schnelle Familien-Reispfanne mit ' + riceItem.name,
+      prepMinutes: 18,
+      kidFavorite: true,
+      glutenFree: true,
+      isDynamic: true,
+      category: '⚡ Aus deinem Vorrat kombiniert',
+      shortDesc: 'In einer Pfanne zubereitet mit „' + riceItem.name + '“ und passenden Vorrats-Zutaten.',
+      keywords: [cleanProductCoreName(riceItem.name)],
+      ingredients: [
+        riceItem.name,
+        mainAdd,
+        sauceAdd,
+        veggieMushroomList[1]?.name || 'Frühlingszwiebeln / Paprika'
+      ]
+    });
+  }
+
+  // 4. DYNAMISCHES BAGUETTE / ÜBERBACKENES BROT-GERICHT
+  if (breadItem) {
+    const spread = dairySauceList[0]?.name || 'Kräuterbutter / Frischkäse';
+    const topping = veggieMushroomList[0]?.name || meatFishList[0]?.name || 'Tomaten & Mozzarella';
+    dynamicRecipes.push({
+      id: 'dyn_bread_' + breadItem.id,
+      title: '🥖 Knuspriges Ofen-' + breadItem.name + ' (10 Min.)',
+      prepMinutes: 10,
+      kidFavorite: true,
+      glutenFree: isProductGlutenFree(breadItem),
+      isDynamic: true,
+      category: '⚡ Blitz-Küche aus deinem Vorrat',
+      shortDesc: 'Im Ofen oder in der Pfanne knusprig geröstet mit Zutaten aus deinem Bestand.',
+      keywords: [cleanProductCoreName(breadItem.name)],
+      ingredients: [
+        breadItem.name,
+        spread,
+        topping,
+        'Reibekäse zum Überbacken'
+      ]
+    });
+  }
+
+  // 5. DYNAMISCHES MEHL-PFANNENGERICHT (WENN MEHL IM VORRAT IST)
+  if (flourItem && !wrapItem) {
+    dynamicRecipes.push({
+      id: 'dyn_flour_' + flourItem.id,
+      title: '🥞 Schnelle Pfannkuchen / Flammkuchen aus ' + flourItem.name,
+      prepMinutes: 15,
+      kidFavorite: true,
+      glutenFree: isProductGlutenFree(flourItem),
+      isDynamic: true,
+      category: '⚡ Aus deinem Vorrat kombiniert',
+      shortDesc: 'Mit deinem vorrätigen „' + flourItem.name + '“ süß oder herzhaft in 15 Minuten fertig.',
+      keywords: [cleanProductCoreName(flourItem.name)],
+      ingredients: [
+        flourItem.name,
+        findInStock(/milch|vollmilch/)?.name || 'Vollmilch',
+        findInStock(/\bei\b|eier/)?.name || 'Frische Eier',
+        findInStock(/apfel|beere|käse|schinken/)?.name || 'Apfelmus oder Käse & Schinken'
+      ]
+    });
+  }
+
+  return dynamicRecipes;
+}
 
 const DE_TO_EN_INGREDIENT_MAP = [
   { de: ['tomatenmark', 'tomate', 'passierte'], en: 'tomato', label: 'Tomaten' },
@@ -146,20 +295,21 @@ const DE_TO_EN_INGREDIENT_MAP = [
   { de: ['salat', 'mâche', 'feldsalat', 'eisberg'], en: 'lettuce', label: 'Salat' },
   { de: ['hähnchen', 'huhn', 'pute', 'geflügel'], en: 'chicken', label: 'Hähnchen' },
   { de: ['hackfleisch', 'rinderhack', 'rind'], en: 'beef', label: 'Rind / Hackfleisch' },
-  { de: ['schwein', 'schinken', 'speck', 'bratwurst', 'wurst'], en: 'pork', label: 'Wurst / Schinken' },
+  { de: ['schwein', 'schweinefilet', 'schinken', 'speck', 'bratwurst', 'wurst'], en: 'pork', label: 'Schwein / Filet' },
   { de: ['lachs', 'fisch'], en: 'salmon', label: 'Lachs / Fisch' },
-  { de: ['reis', 'spitzenreis', 'langkorn', 'basmatireis'], en: 'rice', label: 'Reis' },
-  { de: ['ei', 'eier'], en: 'egg', label: 'Eier' },
-  { de: ['spargel', 'stangenspargel'], en: 'asparagus', label: 'Spargel' }
+  { de: ['reis', 'rize', 'spitzenreis', 'langkorn', 'basmatireis'], en: 'rice', label: 'Reis' },
+  { de: ['nudel', 'rigatoni', 'spaghetti', 'pasta'], en: 'pasta', label: 'Pasta / Nudeln' },
+  { de: ['pilz', 'pfifferling', 'champignon'], en: 'mushrooms', label: 'Pilze' },
+  { de: ['ei', 'eier'], en: 'egg', label: 'Eier' }
 ];
 
 const EN_TO_DE_DISH_WORDS = {
-  'Chicken': 'Hähnchen', 'Beef': 'Rindfleisch', 'Pork': 'Bratwurst / Schwein',
+  'Chicken': 'Hähnchen', 'Beef': 'Rindfleisch', 'Pork': 'Schweinefilet / Schwein',
   'Pasta': 'Nudel-Pfanne', 'Spaghetti': 'Spaghetti', 'Salmon': 'Lachs',
   'Potato': 'Kartoffel', 'Potatoes': 'Kartoffeln', 'Cheese': 'Käse',
   'Creamy': 'Cremige', 'Baked': 'Ofen-', 'Salad': 'Salat', 'Rice': 'Reis-Pfanne',
   'With': 'mit', 'And': '&', 'Egg': 'Ei', 'Eggs': 'Eier', 'Soup': 'Suppe',
-  'Tomato': 'Tomaten', 'Apple': 'Apfel', 'Asparagus': 'Spargel'
+  'Tomato': 'Tomaten', 'Apple': 'Apfel', 'Mushroom': 'Pilz', 'Mushrooms': 'Pilzen'
 };
 
 function translateWebMealTitle(enTitle) {
@@ -190,7 +340,7 @@ export default function PantryRecipes({
   themeStyles,
   showToast
 }) {
-  // 'all' | 'ready' | 'glutenfree' | 'express' | 'kids' | 'web'
+  // 'all' | 'ready' | 'buy_few' | 'glutenfree' | 'express' | 'web'
   const [recipeFilter, setRecipeFilter] = useState('all');
   const [selectedStockIds, setSelectedStockIds] = useState([]);
   const [targetMealDayId, setTargetMealDayId] = useState(1);
@@ -199,11 +349,16 @@ export default function PantryRecipes({
   const [webRecipes, setWebRecipes] = useState([]);
   const [isLoadingWebRecipes, setIsLoadingWebRecipes] = useState(false);
 
-  // Vorrats-Zutaten sortiert nach "läuft bald ab" für die interaktive Fokus-Auswahl
+  // Signatur des aktuellen Vorrats: Sobald neue Produkte hinzukommen, aktualisiert sich die Rezeptliste sofort
+  const stockSignature = useMemo(() => {
+    return (Array.isArray(safeStock) ? safeStock : []).map(it => it.id + ':' + it.name).join('|');
+  }, [safeStock]);
+
+  // Vorrats-Zutaten für die interaktive Schnell-Auswahl (neueste & bald ablaufende zuerst)
   const selectableStockPills = useMemo(() => {
     return [...safeStock]
       .sort((a, b) => String(a.expiryDate || '9999').localeCompare(String(b.expiryDate || '9999')))
-      .slice(0, 18);
+      .slice(0, 20);
   }, [safeStock]);
 
   const toggleSelectStockPill = (itemId) => {
@@ -217,17 +372,15 @@ export default function PantryRecipes({
     return safeStock.filter(it => selectedStockIds.includes(it.id));
   }, [safeStock, selectedStockIds]);
 
-  // =========================================================
-  // OPTIMIERTES LIVE-WEB-REZEPT LADEN (NUTZT AUSGEWÄHLTE ODER BALD ABLAUFENDE VORRÄTE)
-  // =========================================================
-  const fetchWebRecipesFromStock = async () => {
+  const fetchWebRecipesFromStock = async (silent = false) => {
+    if (safeStock.length === 0) return;
     setIsLoadingWebRecipes(true);
-    setRecipeFilter('web');
+    if (!silent) setRecipeFilter('web');
 
     try {
       const sourceItems = activeFocusItems.length > 0
         ? activeFocusItems
-        : [...safeStock].sort((a, b) => String(a.expiryDate || '9999').localeCompare(String(b.expiryDate || '9999')));
+        : [...safeStock];
 
       const matchedQueries = [];
       sourceItems.forEach(item => {
@@ -240,16 +393,16 @@ export default function PantryRecipes({
       });
 
       if (matchedQueries.length === 0) {
-        matchedQueries.push({ en: 'cheese', deLabel: 'Käse & Vorrat' }, { en: 'tomato', deLabel: 'Tomate & Vorrat' });
+        matchedQueries.push({ en: 'pasta', deLabel: 'Pasta & Vorrat' }, { en: 'rice', deLabel: 'Reis & Vorrat' });
       }
 
       const fetchedCards = [];
       const seenMealIds = new Set();
 
-      for (const q of matchedQueries.slice(0, 4)) {
+      for (const q of matchedQueries.slice(0, 3)) {
         const res = await fetch('https://www.themealdb.com/api/json/v1/1/filter.php?i=' + encodeURIComponent(q.en));
         const data = await res.json();
-        const meals = Array.isArray(data?.meals) ? data.meals.slice(0, 3) : [];
+        const meals = Array.isArray(data?.meals) ? data.meals.slice(0, 2) : [];
 
         for (const m of meals) {
           if (seenMealIds.has(m.idMeal)) continue;
@@ -261,19 +414,19 @@ export default function PantryRecipes({
           if (!fullMeal) continue;
 
           const rawIngs = [];
-          for (let i = 1; i <= 7; i++) {
+          for (let i = 1; i <= 6; i++) {
             const ingName = String(fullMeal['strIngredient' + i] || '').trim();
             if (ingName) rawIngs.push(ingName);
           }
 
           const hasGlutenIng = rawIngs.some(ing =>
-            /flour|wheat|bread|pasta|spaghetti|noodle|soy sauce|couscous|barley/i.test(ing)
+            /flour|wheat|bread|soy sauce|couscous|barley/i.test(ing)
           );
 
           fetchedCards.push({
             id: 'web_' + fullMeal.idMeal,
             title: '🌐 ' + translateWebMealTitle(fullMeal.strMeal),
-            prepMinutes: 25,
+            prepMinutes: 20,
             kidFavorite: true,
             glutenFree: !hasGlutenIng,
             isWebRecipe: true,
@@ -288,19 +441,29 @@ export default function PantryRecipes({
       }
 
       setWebRecipes(fetchedCards);
-      showToast('Web-Rezepte geladen!', fetchedCards.length + ' passende Rezepte zu deinem Bestand gefunden!', '🌐');
+      if (!silent) {
+        showToast('Web-Rezepte aktualisiert!', fetchedCards.length + ' passende Rezepte zum Bestand geladen.', '🌐');
+      }
     } catch (err) {
-      showToast('Web-Suche Hinweis', 'Nutze unsere integrierten 20-Minuten-Familienrezepte.', 'ℹ️');
+      if (!silent) showToast('Hinweis', 'Nutze unsere integrierten Vorrats-Schnellrezepte.', 'ℹ️');
     } finally {
       setIsLoadingWebRecipes(false);
     }
   };
 
+  // Lädt beim Ändern des Lebensmittelbestands automatisch passende Web-Ergänzungen im Hintergrund nach
+  useEffect(() => {
+    if (safeStock.length > 0) {
+      fetchWebRecipesFromStock(true);
+    }
+  }, [stockSignature]);
+
   // =========================================================
-  // INTELLIGENTER BESTANDS-ABGLEICH (INKL. FOKUS-ZUTATEN & MHD-DRINGLICHKEIT)
+  // KOMBINIERTE AUSWERTUNG: DYNAMISCHE VORRATS-REZEPTE + KLASSIKER + WEB
   // =========================================================
   const evaluatedRecipes = useMemo(() => {
-    const combinedSource = [...webRecipes, ...FAMILY_RECIPES_DB];
+    const dynamicStockRecipes = generateDynamicRecipesFromStock(safeStock, todayStr);
+    const combinedSource = [...dynamicStockRecipes, ...FAMILY_RECIPES_DB, ...webRecipes];
 
     return combinedSource
       .map(rec => {
@@ -308,9 +471,8 @@ export default function PantryRecipes({
         let urgentCount = 0;
         let matchesSelectedFocus = 0;
 
-        // 1. Prüfe Keywords gegen den gesamten Vorrat
         (rec.keywords || []).forEach(kw => {
-          const cleanKw = kw.toLowerCase().trim();
+          const cleanKw = String(kw || '').toLowerCase().trim();
           if (!cleanKw) return;
           const found = safeStock.find(st => {
             const rawLower = String(st.name || '').toLowerCase();
@@ -328,14 +490,18 @@ export default function PantryRecipes({
           }
         });
 
-        // 2. Prüfe jede einzelne Rezept-Zutat gegen den Vorrat
         const ingredientStatus = (rec.ingredients || []).map(ingLabel => {
+          // Direkter Treffer, falls die Zutat exakt einem Vorrats-Produktnamen entspricht
+          const exactMatch = safeStock.find(
+            st => String(st.name || '').toLowerCase() === String(ingLabel || '').toLowerCase()
+          );
+
           const words = String(ingLabel)
             .toLowerCase()
             .split(/[\s/(),&-]+/)
-            .filter(w => w.length >= 3 && !/mit|oder|und|aus|zum|für|klecks|prise/.test(w));
+            .filter(w => w.length >= 3 && !/mit|oder|und|aus|zum|für|klecks|prise|optional|wahl/.test(w));
 
-          const inPantry = safeStock.find(st => {
+          const inPantry = exactMatch || safeStock.find(st => {
             const stLower = String(st.name || '').toLowerCase();
             const stCore = cleanProductCoreName(st.name);
             const coreWords = stCore.split(' ').filter(w => w.length >= 3);
@@ -374,18 +540,19 @@ export default function PantryRecipes({
       })
       .filter(rec => {
         if (selectedStockIds.length > 0 && rec.matchesSelectedFocus === 0) return false;
+        if (recipeFilter === 'ready') return rec.missingCount === 0 || rec.matchPercent >= 75;
+        if (recipeFilter === 'buy_few') return rec.haveCount >= 1 && rec.missingCount >= 1 && rec.missingCount <= 3;
         if (recipeFilter === 'glutenfree') return Boolean(rec.glutenFree);
-        if (recipeFilter === 'ready') return rec.matchPercent >= 65 || rec.missingCount <= 1;
-        if (recipeFilter === 'express') return rec.prepMinutes <= 20;
-        if (recipeFilter === 'kids') return Boolean(rec.kidFavorite);
+        if (recipeFilter === 'express') return rec.prepMinutes <= 18;
         if (recipeFilter === 'web') return Boolean(rec.isWebRecipe);
         return true;
       })
       .sort((a, b) => {
+        if (a.isNewestSpotlight !== b.isNewestSpotlight) return a.isNewestSpotlight ? -1 : 1;
         if (selectedStockIds.length > 0 && b.matchesSelectedFocus !== a.matchesSelectedFocus) {
           return b.matchesSelectedFocus - a.matchesSelectedFocus;
         }
-        return (b.matchPercent * 2 + b.urgentCount * 25) - (a.matchPercent * 2 + a.urgentCount * 25);
+        return (b.matchPercent * 2 + b.urgentCount * 20) - (a.matchPercent * 2 + a.urgentCount * 20);
       });
   }, [safeStock, todayStr, webRecipes, recipeFilter, selectedStockIds]);
 
@@ -459,10 +626,9 @@ export default function PantryRecipes({
       };
     }));
 
-    showToast('Wochenplan erstellt!', 'Alle 7 Tage wurden passend zu eurem Vorrat gefüllt!', '🪄');
+    showToast('Wochenplan erstellt!', 'Alle 7 Tage wurden passend zu eurem aktuellen Vorrat gefüllt!', '🪄');
   };
 
-  // Dynamische Such-Links basierend auf ausgewählten oder bald ablaufenden Vorrats-Zutaten
   const searchQueryWords = useMemo(() => {
     const source = activeFocusItems.length > 0 ? activeFocusItems : safeStock.slice(0, 3);
     const words = source
@@ -474,32 +640,31 @@ export default function PantryRecipes({
   }, [activeFocusItems, safeStock]);
 
   const chefkochSearchUrl = 'https://www.chefkoch.de/rs/s0/' + encodeURIComponent(searchQueryWords + (recipeFilter === 'glutenfree' ? ' glutenfrei' : '')) + '/Rezepte.html';
-  const glutenfreePortalUrl = 'https://www.chefkoch.de/rs/s0/' + encodeURIComponent(searchQueryWords + ' glutenfrei schnell') + '/Rezepte.html';
 
   return (
-    <div className="space-y-3.5">
+    <div className="tw-pantry-no-scale space-y-3.5">
       {/* KOPF- & FILTER-COCKPIT */}
       <div className={'p-4 rounded-3xl border space-y-3 ' + themeStyles.card}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h3 className="text-lg font-extrabold flex items-center gap-2">
               <ChefHat className="w-5 h-5 text-amber-400" />
-              <span>Intelligenter Vorrats-Rezeptfinder & Tages-Menü Planer</span>
+              <span>Dynamischer Vorrats-Rezeptfinder ({evaluatedRecipes.length} Vorschläge)</span>
             </h3>
             <p className={'text-xs font-semibold ' + themeStyles.textMuted}>
-              Erkennt deine Vorräte automatisch (inkl. Glutenfrei-Status) • Klicke unten auf Zutaten, um gezielt dafür Rezepte zu kombinieren!
+              Aktualisiert sich sofort bei jedem neuen Produkt im Bestand • Zeigt Gerichte aus 100% Vorrat oder mit 1–2 Zukauf-Zutaten.
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-1.5">
             <button
               type="button"
-              onClick={fetchWebRecipesFromStock}
+              onClick={() => fetchWebRecipesFromStock(false)}
               disabled={isLoadingWebRecipes}
               className="tw-glow-btn px-3.5 py-2 rounded-2xl text-xs font-black flex items-center gap-1.5 cursor-pointer"
             >
               <Globe className={'w-4 h-4 text-sky-300 ' + (isLoadingWebRecipes ? 'animate-spin' : '')} />
-              <span>{isLoadingWebRecipes ? 'Lade Web-Rezepte...' : '🌐 Live Web-Rezepte zum Vorrat'}</span>
+              <span>{isLoadingWebRecipes ? 'Lade Web-Rezepte...' : '🌐 Mehr Web-Rezepte laden'}</span>
             </button>
 
             <a
@@ -510,16 +675,6 @@ export default function PantryRecipes({
             >
               <ExternalLink className="w-3.5 h-3.5" />
               <span>🔍 Chefkoch ({searchQueryWords})</span>
-            </a>
-
-            <a
-              href={glutenfreePortalUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="tw-glow-btn px-3.5 py-2 rounded-2xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer no-underline"
-            >
-              <ExternalLink className="w-3.5 h-3.5 text-emerald-300" />
-              <span>🌾✓ Glutenfrei-Suche</span>
             </a>
 
             <button
@@ -533,14 +688,12 @@ export default function PantryRecipes({
           </div>
         </div>
 
-        {/* =========================================================
-            INTERAKTIVE VORRATS-ZUTATEN-AUSWAHL (ZUTATEN ANKLICKEN!)
-           ========================================================= */}
+        {/* INTERAKTIVE VORRATS-ZUTATEN-AUSWAHL */}
         <div className={'p-3 rounded-2xl border space-y-2 ' + themeStyles.subtle}>
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <span className="text-[11px] font-black uppercase text-sky-400 flex items-center gap-1.5">
               <Filter className="w-3.5 h-3.5" />
-              <span>🎯 Welche Vorräte möchtest du heute verwerten? (Anklicken zum Filtern):</span>
+              <span>🎯 Vorräte im Bestand (Antippen, um gezielt Rezepte für bestimmte Produkte zu filtern):</span>
             </span>
             {selectedStockIds.length > 0 && (
               <button
@@ -563,7 +716,7 @@ export default function PantryRecipes({
                   key={stItem.id}
                   type="button"
                   onClick={() => toggleSelectStockPill(stItem.id)}
-                  className={'px-2.5 py-1 rounded-xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer transition-all ' +
+                  className={'px-2.5 py-1.5 rounded-xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer transition-colors ' +
                     (isSelected
                       ? 'tw-active-nav ring-2 ring-sky-300'
                       : daysLeft <= 5
@@ -571,7 +724,7 @@ export default function PantryRecipes({
                       : 'tw-nav-inactive')}
                 >
                   <span>{getFoodEmoji(stItem.name, stItem.customEmoji)}</span>
-                  <span className="truncate max-w-[140px]">{stItem.name}</span>
+                  <span className="truncate max-w-[160px]">{stItem.name}</span>
                   {isGf && <span className="text-[9px] text-emerald-300 font-black">🌾✓</span>}
                   {daysLeft <= 7 && (
                     <span className="px-1 py-0.2 rounded bg-black/40 text-[9px] font-black text-amber-300">
@@ -588,11 +741,11 @@ export default function PantryRecipes({
         <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
           <div className="flex flex-wrap items-center gap-1.5">
             {[
-              { id: 'all',        label: '⭐ Beste Vorrats-Treffer' },
+              { id: 'all',        label: '⭐ Alle Empfehlungen' },
               { id: 'ready',      label: '🟢 Sofort kochbar (Fast alles da)' },
+              { id: 'buy_few',    label: '🛒 Mit 1–2 Zukauf-Zutaten' },
+              { id: 'express',    label: '⚡ Express (10–18 Min.)' },
               { id: 'glutenfree', label: '🌾✓ 100% Glutenfrei' },
-              { id: 'express',    label: '⚡ Express (max. 20 Min.)' },
-              { id: 'kids',       label: '👨‍👩‍👧‍👦 Kinder-Lieblinge' },
               { id: 'web',        label: '🌐 Web-Rezepte (' + webRecipes.length + ')' }
             ].map(f => (
               <button
@@ -600,7 +753,7 @@ export default function PantryRecipes({
                 type="button"
                 onClick={() => {
                   if (f.id === 'web' && webRecipes.length === 0) {
-                    fetchWebRecipesFromStock();
+                    fetchWebRecipesFromStock(false);
                   } else {
                     setRecipeFilter(f.id);
                   }
@@ -620,7 +773,7 @@ export default function PantryRecipes({
                 onChange={(e) => setIncludeSideAndDessert(e.target.checked)}
                 className="w-4 h-4 accent-emerald-500 rounded cursor-pointer"
               />
-              <span>🥗+🍊 Salat/Obst aus Vorrat ergänzen</span>
+              <span>🥗+🍊 Beilage/Nachtisch ergänzen</span>
             </label>
 
             <label className="flex items-center gap-1.5 cursor-pointer">
@@ -630,7 +783,7 @@ export default function PantryRecipes({
                 onChange={(e) => setAlsoSendMissingToShopping(e.target.checked)}
                 className="w-4 h-4 accent-amber-500 rounded cursor-pointer"
               />
-              <span>🛒 Fehlendes automatisch auf Einkaufsliste</span>
+              <span>🛒 Fehlendes beim Einplanen auf Einkaufsliste</span>
             </label>
           </div>
         </div>
@@ -657,7 +810,15 @@ export default function PantryRecipes({
             return (
               <div
                 key={rec.id}
-                className={'tw-pantry-tile p-4 rounded-3xl border flex flex-col justify-between gap-3.5 shadow-sm ' + themeStyles.card + (rec.matchPercent >= 75 ? ' border-emerald-400/60' : rec.urgentCount > 0 ? ' border-amber-400/70' : '')}
+                className={'p-4 rounded-3xl border flex flex-col justify-between gap-3.5 shadow-sm ' +
+                  themeStyles.card + ' ' +
+                  (rec.isNewestSpotlight
+                    ? 'border-2 border-sky-400 bg-sky-950/15'
+                    : rec.matchPercent >= 75
+                    ? 'border-2 border-emerald-500/60'
+                    : rec.urgentCount > 0
+                    ? 'border-2 border-amber-500/70'
+                    : '')}
               >
                 <div className="space-y-2.5">
                   {rec.thumbUrl && (
@@ -672,6 +833,11 @@ export default function PantryRecipes({
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                        {rec.isNewestSpotlight && (
+                          <span className="px-2 py-0.5 rounded-md bg-sky-500 text-white text-[10px] font-black">
+                            🆕 PASSEND ZUM NEUESTEN PRODUKT
+                          </span>
+                        )}
                         <span className="px-2 py-0.5 rounded-md bg-sky-500/20 text-sky-300 text-[10px] font-black flex items-center gap-1">
                           <Clock className="w-3 h-3" /> {rec.prepMinutes} Min.
                         </span>
@@ -680,17 +846,18 @@ export default function PantryRecipes({
                             🌾✓ Glutenfrei
                           </span>
                         )}
-                        {rec.kidFavorite && (
-                          <span className="px-2 py-0.5 rounded-md bg-pink-500/20 text-pink-300 text-[10px] font-black">
-                            👨‍👩‍👧‍👦 Kinder-Hit
-                          </span>
-                        )}
                       </div>
-                      <h4 className="font-extrabold text-base leading-snug">{rec.title}</h4>
+                      <h4 className="font-black text-base sm:text-lg leading-snug">{rec.title}</h4>
                     </div>
 
-                    <span className={'px-2.5 py-1 rounded-full text-xs font-black shrink-0 ' + (rec.matchPercent >= 75 ? 'bg-emerald-500/25 text-emerald-300 border border-emerald-400/40' : rec.matchPercent >= 50 ? 'bg-sky-500/20 text-sky-300' : 'bg-amber-500/20 text-amber-300')}>
-                      {rec.haveCount}/{rec.ingredientStatus.length} da ({rec.matchPercent}%)
+                    <span className={'px-2.5 py-1 rounded-full text-xs font-black shrink-0 ' +
+                      (rec.matchPercent >= 75
+                        ? 'bg-emerald-500/25 text-emerald-300 border border-emerald-400/40'
+                        : rec.matchPercent >= 50
+                        ? 'bg-sky-500/20 text-sky-300'
+                        : 'bg-amber-500/20 text-amber-300')}
+                    >
+                      {rec.haveCount}/{rec.ingredientStatus.length} da
                     </span>
                   </div>
 
@@ -698,31 +865,30 @@ export default function PantryRecipes({
                     <p className={'text-xs font-semibold ' + themeStyles.textMuted}>{rec.shortDesc}</p>
                   )}
 
-                  {rec.urgentCount > 0 && (
-                    <div className="px-2.5 py-1 rounded-xl bg-amber-500/20 border border-amber-400/40 text-amber-300 text-[11px] font-extrabold">
-                      ⚡ Verwertet {rec.urgentCount} bald ablaufende(s) Produkt(e) aus eurem Bestand!
-                    </div>
-                  )}
-
-                  {/* ZUTATEN-CHECKLISTE MIT DIREKTEM EINKAUFS-BUTTON PRO FEHLENDER ZUTAT */}
-                  <div className="space-y-1">
+                  {/* ZUTATEN-CHECKLISTE MIT GELBEM EINKAUFSWAGEN-BUTTON FÜR FEHLENDE ZUTATEN */}
+                  <div className="space-y-1.5">
                     {rec.ingredientStatus.map((ing, idx) => (
-                      <div key={idx} className={'px-2.5 py-1.5 rounded-xl border flex items-center justify-between gap-2 text-xs font-bold ' + themeStyles.subtle}>
+                      <div
+                        key={idx}
+                        className={'px-3 py-2 rounded-xl border flex items-center justify-between gap-2 text-xs sm:text-sm font-bold ' + themeStyles.subtle}
+                      >
                         <span className="truncate">{ing.name}</span>
                         {ing.inPantry ? (
-                          <span className="text-emerald-400 font-extrabold shrink-0 truncate max-w-[160px]">
-                            ✓ {ing.pantryItem?.name}
+                          <span className="text-emerald-400 font-black shrink-0 truncate max-w-[170px] flex items-center gap-1">
+                            <Check className="w-3.5 h-3.5 shrink-0" />
+                            <span className="truncate">{ing.pantryItem?.name}</span>
                           </span>
                         ) : (
                           <button
                             type="button"
                             onClick={() => {
                               addShoppingItem(ing.name);
-                              showToast('Auf Einkaufsliste', ing.name + ' wurde zur Einkaufsliste hinzugefügt.', '🛒');
+                              showToast('Auf Einkaufsliste 🛒', ing.name + ' wurde zur Einkaufsliste hinzugefügt.', '🛒');
                             }}
-                            className="px-2 py-0.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/35 text-amber-300 border border-amber-400/40 text-[10px] font-black flex items-center gap-1 shrink-0 cursor-pointer"
+                            className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-[11px] font-black flex items-center gap-1 shrink-0 cursor-pointer shadow-xs"
                           >
-                            <Plus className="w-3 h-3" /> 🛒 Einkauf
+                            <ShoppingCart className="w-3 h-3 stroke-[2.5]" />
+                            <span>+ Dazukaufen</span>
                           </button>
                         )}
                       </div>
@@ -730,11 +896,11 @@ export default function PantryRecipes({
                   </div>
                 </div>
 
-                {/* UNTERE AKTIONSLEISTE: DIREKTE WOCHENTAGS-WAHL (MO - SO) & EINKAUFS-TRANSFER */}
+                {/* UNTERE AKTIONSLEISTE: WOCHENTAGS-WAHL (MO - SO) & ALLE FEHLENDEN KAUFEN */}
                 <div className="space-y-2 pt-2 border-t border-white/10">
                   <div className="flex items-center justify-between gap-1">
                     <span className="text-[10px] font-black uppercase text-sky-400 shrink-0">
-                      📅 Direkt einplanen:
+                      📅 Einplanen:
                     </span>
                     <div className="flex items-center gap-1">
                       {WEEKDAY_SHORT_BTNS.map(dayBtn => (
@@ -768,29 +934,18 @@ export default function PantryRecipes({
                     {missingIngredients.length > 0 && (
                       <button
                         type="button"
-                        title="Nur die fehlenden Zutaten auf die Einkaufsliste setzen"
+                        title="Alle fehlenden Zutaten für dieses Rezept auf die Einkaufsliste setzen"
                         onClick={() => {
                           missingIngredients.forEach(mi => addShoppingItem(mi.name));
-                          showToast('Fehlendes auf Einkaufsliste', missingIngredients.length + ' Zutat(en) übertragen.', '🛒');
+                          showToast('Auf Einkaufsliste 🛒', missingIngredients.length + ' fehlende Zutat(en) übertragen.', '🛒');
                         }}
-                        className="tw-nav-inactive py-2.5 px-3 rounded-2xl text-amber-300 text-xs font-black flex items-center gap-1 cursor-pointer shrink-0"
+                        className="py-2.5 px-3 rounded-2xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black flex items-center gap-1 cursor-pointer shrink-0 shadow-md"
                       >
-                        <ShoppingCart className="w-3.5 h-3.5" />
-                        <span>+{missingIngredients.length}</span>
+                        <ShoppingCart className="w-3.5 h-3.5 stroke-[2.5]" />
+                        <span>+{missingIngredients.length} Einkauf</span>
                       </button>
                     )}
                   </div>
-
-                  {rec.sourceUrl && (
-                    <a
-                      href={rec.sourceUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="tw-nav-inactive w-full py-1.5 rounded-xl text-[11px] font-extrabold flex items-center justify-center gap-1.5 no-underline"
-                    >
-                      <ExternalLink className="w-3 h-3" /> Original-Kochanleitung öffnen
-                    </a>
-                  )}
                 </div>
               </div>
             );
