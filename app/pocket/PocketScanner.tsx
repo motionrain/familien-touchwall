@@ -3,2336 +3,3151 @@
 /* eslint-disable @next/next/no-img-element */
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import {
-  Camera, ScanLine, FileText, Trash2,
-  Check, Zap, ZoomIn, Sparkles, Apple, ShoppingCart,
-  PackagePlus, ChevronDown, ChevronUp, Wand2, Tag
+  Calendar, CheckSquare, ShoppingCart, Camera, Package,
+  RefreshCw, Smartphone, LogOut, Cloud, BellRing, Download,
+  WifiOff, Pencil, Check, Search, Menu, X,
+  Trash2, Wand2, CheckCircle2, AlertTriangle, SlidersHorizontal, RotateCcw
 } from 'lucide-react';
+
 import * as Cfg from '../touchwallConfig';
+import {
+  PUBLIC_CLOUD_BACKEND_URL,
+  hasJsonChanged,
+  loadLocalSyncMeta,
+  saveLocalSyncMeta,
+  mergeSyncMetaMaps,
+  mergePantryChannelSafe,
+  registerPendingCalendarOp,
+  mergeCalendarEventsSafe,
+  mergeSkillBoardSafe,
+  callCloudApi
+} from '../sync';
 import {
   FOOD_CATEGORIES,
   STORAGE_PILLS,
   detectFoodCategory,
   getFoodEmoji,
+  decrementItemPieceCount,
   stepMobileQty,
   playMobileBeep
 } from '../foodUtils';
 
-const { formatDateStr, addDays } = Cfg;
+import PocketAgenda from './PocketAgenda';
+import PocketTasks from './PocketTasks';
+import PocketScanner, {
+  FOOD_EMOJI_PICKER,
+  simplifyProductName,
+  detectSmartCategory,
+  detectSmartLocation,
+  isProductGlutenFree
+} from './PocketScanner';
+import PocketShopping from './PocketShopping';
 
-// Alle 1D- & 2D-Barcode- und QR-Code-Formate
-const ALL_DESIRED_BARCODE_FORMATS = [
-  'ean_13',
-  'ean_8',
-  'upc_a',
-  'upc_e',
-  'code_128',
-  'code_39',
-  'code_93',
-  'codabar',
-  'itf',
-  'qr_code',
-  'data_matrix',
-  'pdf417',
-  'aztec'
-];
+const {
+  formatDateStr,
+  addDays,
+  COLOR_PALETTES,
+  DEFAULT_MEMBERS,
+  DEFAULT_MEALS,
+  DEFAULT_NOTES,
+  DEFAULT_SCHOOL,
+  buildThemeStyles,
+  buildMemberStyles,
+  pullFromTodoistTwoWay,
+  createTodoistTaskItem,
+  closeOrReopenTodoistTask,
+  deleteTodoistTask
+} = Cfg;
 
-export const FOOD_EMOJI_PICKER = [
-  '🌭', '🥩', '🍗', '🥓', '🍔', '🐟', '🥚', '🧀', '🧈', '🥛',
-  '🥣', '🥬', '🥒', '🍅', '🫑', '🥕', '🥔', '🧅', '🥦', '🌽',
-  '🍄', '🥑', '🍊', '🍎', '🍌', '🍓', '🍋', '🍇', '🍝', '🍚',
-  '🥖', '🥐', '🍕', '🌮', '🥫', '🌾', '🍫', '🍪', '🧃', '🐶',
-  '🐾', '🦴', '🐱', '🐴'
-];
-
-export const FRESH_PRODUCE_MHD_DB = [
-  { id: 'cucumber',    name: 'Gurke (Schlangengurke)',             emoji: '🥒', days: 7,  location: 'fridge',  category: 'produce',        hint: 'Im Kühlschrank ca. 7 Tage knackig',        keywords: ['gurke', 'schlangengurke', 'minigurke', 'landgurke'], aiLabels: ['cucumber', 'cuke', 'zucchini', 'courgette'] },
-  { id: 'apple',       name: 'Frische Äpfel',                      emoji: '🍎', days: 21, location: 'kitchen', category: 'produce',        hint: 'Kühl gelagert ca. 3 Wochen haltbar',       keywords: ['apfel', 'äpfel', 'elstar', 'boskoop', 'pink lady', 'gala', 'braeburn'], aiLabels: ['granny smith', 'apple', 'pomegranate', 'fig'] },
-  { id: 'orange',      name: 'Orangen / Clementinen',              emoji: '🍊', days: 14, location: 'kitchen', category: 'produce',        hint: 'Zitrusfrüchte halten ca. 14 Tage',         keywords: ['orange', 'orangen', 'clementine', 'clementinen', 'mandarine', 'mandarinen', 'apfelsine'], aiLabels: ['orange', 'tangerine', 'clementine', 'mandarin'] },
-  { id: 'melon',       name: 'Melone (Wasser-/Honigmelone)',       emoji: '🍈', days: 10, location: 'kitchen', category: 'produce',        hint: 'Ungeschnitten ca. 10 Tage haltbar',        keywords: ['melone', 'wassermelone', 'honigmelone', 'galiamelone', 'cantaloupe'], aiLabels: ['watermelon', 'melon', 'cantaloupe', 'honeydew', 'jackfruit', 'spaghetti squash', 'butternut squash'] },
-  { id: 'salad',       name: 'Frischer Salat (Eisberg / Feldsalat)', emoji: '🥬', days: 4, location: 'fridge', category: 'produce',        hint: 'Im Gemüsefach ca. 4 Tage frisch',          keywords: ['salat', 'eisbergsalat', 'kopfsalat', 'feldsalat', 'mâche', 'rucola', 'blattsalat', 'spinat'], aiLabels: ['head cabbage', 'cabbage', 'lettuce', 'artichoke', 'cardoon', 'bok choy'] },
-  { id: 'banana',      name: 'Bananen',                            emoji: '🍌', days: 5,  location: 'kitchen', category: 'produce',        hint: 'Bei Raumtemperatur ca. 5 Tage',            keywords: ['banane', 'bananen'], aiLabels: ['banana', 'plantain'] },
-  { id: 'tomato',      name: 'Frische Tomaten',                    emoji: '🍅', days: 7,  location: 'kitchen', category: 'produce',        hint: 'Bei Zimmertemperatur ca. 7 Tage',          keywords: ['tomate', 'tomaten', 'rispentomaten', 'cherrytomaten', 'strauchtomaten'], aiLabels: ['tomato', 'hip'] },
-  { id: 'pepper',      name: 'Paprika',                            emoji: '🫑', days: 8,  location: 'fridge',  category: 'produce',        hint: 'Im Kühlschrank ca. 8 Tage knackig',        keywords: ['paprika', 'spitzpaprika', 'paprikaschote'], aiLabels: ['bell pepper', 'pepper', 'chilli', 'jalapeno'] },
-  { id: 'broccoli',    name: 'Brokkoli / Blumenkohl',              emoji: '🥦', days: 5,  location: 'fridge',  category: 'produce',        hint: 'Im Kühlschrank ca. 5 Tage frisch',         keywords: ['brokkoli', 'blumenkohl', 'kohlrabi', 'rosenkohl'], aiLabels: ['broccoli', 'cauliflower'] },
-  { id: 'carrot',      name: 'Karotten / Möhren',                  emoji: '🥕', days: 14, location: 'fridge',  category: 'produce',        hint: 'Im Gemüsefach bis zu 14 Tage haltbar',     keywords: ['karotte', 'karotten', 'möhre', 'möhren', 'wurzel'], aiLabels: ['carrot', 'parsnip'] },
-  { id: 'berries',     name: 'Frische Beeren (Erd-/Heidelbeeren)', emoji: '🍓', days: 3,  location: 'fridge',  category: 'produce',        hint: 'Empfindlich – im Kühlschrank ca. 3 Tage',  keywords: ['erdbeeren', 'erdbeere', 'himbeeren', 'heidelbeeren', 'blaubeeren', 'brombeeren', 'beeren'], aiLabels: ['strawberry', 'raspberry', 'blackberry', 'blueberry'] },
-  { id: 'lemon',       name: 'Zitrone / Limette',                  emoji: '🍋', days: 14, location: 'kitchen', category: 'produce',        hint: 'Hält ca. 14 Tage frisch',                  keywords: ['zitrone', 'zitronen', 'limette', 'limetten'], aiLabels: ['lemon', 'lime'] },
-  { id: 'avocado',     name: 'Avocado',                            emoji: '🥑', days: 5,  location: 'kitchen', category: 'produce',        hint: 'Reift in ca. 5 Tagen nach',                keywords: ['avocado', 'avocados'], aiLabels: ['avocado', 'guacamole', 'custard apple'] },
-  { id: 'mushrooms',   name: 'Frische Champignons / Pilze',        emoji: '🍄', days: 4,  location: 'fridge',  category: 'produce',        hint: 'Im Kühlschrank ca. 4 Tage haltbar',        keywords: ['pilze', 'champignons', 'steinpilze', 'pfifferlinge', 'kräuterseitlinge'], aiLabels: ['mushroom', 'agaric', 'bolete', 'gyromitra'] },
-  { id: 'potato',      name: 'Kartoffeln',                         emoji: '🥔', days: 30, location: 'pantry',  category: 'grains',         hint: 'Dunkel & kühl ca. 30 Tage lagerfähig',     keywords: ['kartoffel', 'kartoffeln', 'speisekartoffeln', 'drillinge'], aiLabels: ['potato', 'mashed potato', 'sweet potato'] },
-  { id: 'onion',       name: 'Zwiebeln / Knoblauch',               emoji: '🧅', days: 30, location: 'pantry',  category: 'produce',        hint: 'Trocken gelagert ca. 30 Tage haltbar',     keywords: ['zwiebel', 'zwiebeln', 'knoblauch', 'schalotten'], aiLabels: ['onion', 'garlic', 'shallot'] },
-  { id: 'pork_fillet', name: 'Schweinefilet / Frischfleisch',      emoji: '🥩', days: 4,  location: 'fridge',  category: 'meat_fish_eggs', hint: 'Frischfleisch im Kühlschrank ca. 3–4 Tage', keywords: ['schweinefilet', 'schweinelende', 'filet vom schwein', 'schnitzel', 'rumpsteak'], aiLabels: [] },
-  { id: 'minced_meat', name: 'Hackfleisch (Rind / Gemischt)',      emoji: '🥩', days: 2,  location: 'fridge',  category: 'meat_fish_eggs', hint: 'Hackfleisch sehr kühl lagern (1–2 Tage)',   keywords: ['hackfleisch', 'rinderhack', 'mett'], aiLabels: [] },
-  { id: 'poultry',     name: 'Hähnchen- / Putenbrustfilet',        emoji: '🍗', days: 3,  location: 'fridge',  category: 'meat_fish_eggs', hint: 'Geflügel im Kühlschrank ca. 2–3 Tage',      keywords: ['hähnchenbrust', 'putenbrust', 'hähnchenfilet', 'hähnchen', 'putenschnitzel'], aiLabels: [] }
-];
-
-const KNOWN_BRAND_PREFIXES = [
-  'Kaufland', 'K-Classic', 'K-Bio', 'K-Favourites', 'K-Purland', 'ja!', 'GUT&GÜNSTIG', 'Gut & Günstig',
-  'EDEKA', 'REWE Beste Wahl', 'REWE Bio', 'REWE', 'Wilhelm Brandenburg', 'Mein Metzgergut', 'Landjunker',
-  'Milbona', 'Milsani', 'Bellarom', 'Kania', 'Combino', 'Alnatura', 'dmBio', 'Schär', 'Dr. Schär',
-  'Gefro', 'Meggle', 'Philadelphia', 'Thomy', 'Heinz', 'Hengstenberg', 'Pfanni', 'Barilla', 'Dr. Oetker',
-  'Iglo', 'Frosta', 'Landfein', 'Schwarzwaldmilch', 'Weihenstephan', 'Bärenmarke', 'Kerrygold',
-  'Oro di Parma', 'Alnavit', 'Bauckhof', 'Müller', 'Ehrmann', 'Zott', 'Danone', 'Arla', 'Exquisa',
-  'miree', 'Rama', 'Lätta', 'Bonduelle', 'Kühne', 'Knorr', 'Maggi', 'Löwensenf', 'Ernte Krone',
-  'mysmile', 'Die süße Susi', 'Rinti', 'Wolfsblut', 'Josera', 'Belcando', 'Animonda', 'Pedigree',
-  'Haribo', 'Ritter Sport', 'Milka', 'Lindt', 'Nutella', 'Ferrero', 'Kinder', 'Lorenz', 'Funny-frisch',
-  'Chio', 'DeBeukelaer', 'Bahlsen', 'Leibniz', 'Kölln', 'Seitenbacher', 'Ben\'s Original', 'Uncle Ben\'s',
-  'Kikkoman', 'Develey', 'Bautz\'ner', 'Homann', 'Miracel Whip', 'Zentis', 'Schwartau', 'Bonne Maman',
-  'Teekanne', 'Meßmer', 'Jacobs', 'Tchibo', 'Dallmayr', 'Lavazza', 'Melitta', 'Nescafé', 'Oatly', 'Alpro'
-];
-
-const LABEL_FOOD_KEYWORDS = [
-  'Alpenmilch', 'Weidemilch', 'Haltbare Vollmilch', 'Frische Vollmilch', 'Vollmilch', 'Fettarme Milch', 'Hafermilch', 'Mandelmilch',
-  'Schlagsahne', 'Kochsahne', 'Saure Sahne', 'Schmand', 'Crème fraîche', 'Mascarpone', 'Speisequark', 'Magerquark', 'Kräuterquark',
-  'Naturjoghurt', 'Fruchtjoghurt', 'Griechischer Joghurt', 'Skyr', 'Kefir', 'Buttermilch', 'Ayran',
-  'Frischkäse', 'Kräuterbutter', 'Markenbutter', 'Süßrahmbutter', 'Mildgesäuerte Butter', 'Butter', 'Margarine',
-  'Gouda', 'Emmentaler', 'Maasdamer', 'Tilsiter', 'Bergkäse', 'Mozzarella', 'Parmesan', 'Grana Padano', 'Feta', 'Hirtenkäse',
-  'Camembert', 'Brie', 'Reibekäse', 'Scheibenkäse', 'Schmelzkäse',
-  'Glutenfreie Wraps', 'Wraps', 'Tortilla Wraps', 'Landbrot', 'Mehrkornbrot', 'Vollkornbrot', 'Toastbrot', 'Buttertoast',
-  'Sonntagsbrötchen', 'Aufbackbrötchen', 'Brötchen', 'Baguette', 'Croissants', 'Knäckebrot', 'Reiswaffeln',
-  'Spaghetti', 'Penne Rigate', 'Fusilli', 'Rigatoni', 'Tagliatelle', 'Makkaroni', 'Tortellini', 'Ravioli', 'Gnocchi',
-  'Eierspätzle', 'Spätzle', 'Schupfnudeln', 'Lasagneplatten',
-  'Basmatireis', 'Jasminreis', 'Langkornreis', 'Spitzenreis', 'Milchreis', 'Risottoreis', 'Parboiled Reis',
-  'Kartoffelpüree', 'Speisekartoffeln', 'Kartoffeln', 'Pommes Frites', 'Kroketten', 'Reibekuchen', 'Knödel',
-  'Haferflocken', 'Schmelzflocken', 'Knuspermüsli', 'Früchtemüsli', 'Cornflakes', 'Choco Balls',
-  'Weizenmehl', 'Dinkelmehl', 'Reismehl', 'Buchweizenmehl', 'Speisestärke', 'Maisstärke', 'Backpulver', 'Trockenhefe',
-  'Apfelmus', 'Apfelmark', 'Apfel-Rotkohl', 'Rotkohl', 'Sauerkraut', 'Stangenspargel', 'Spargel', 'Gewürzgurken', 'Cornichons',
-  'Passierte Tomaten', 'Gehackte Tomaten', 'Tomatenmark', 'Sonnenmais', 'Kichererbsen', 'Kidneybohnen', 'Grüne Bohnen',
-  'Erbsen und Möhren', 'Junge Erbsen', 'Linsen', 'Chili sin Carne', 'Chili con Carne',
-  'Pfifferlinge', 'Champignons', 'Steinpilze', 'Waldfrüchte', 'Beerenmischung', 'Himbeeren', 'Heidelbeeren', 'Erdbeeren',
-  'Eisbergsalat', 'Feldsalat', 'Rucola', 'Blattspinat', 'Rahmspinat', 'Brokkoli', 'Blumenkohl', 'Rosenkohl',
-  'Schlangengurke', 'Rispentomaten', 'Cherrytomaten', 'Spitzpaprika', 'Paprika', 'Karotten', 'Speisemöhren', 'Avocado',
-  'Schweinefilet', 'Schweinelende', 'Schweineschnitzel', 'Schweinebraten', 'Schweinegulasch', 'Schweinehackfleisch',
-  'Rinderfilet', 'Rumpsteak', 'Rindergulasch', 'Rinderhackfleisch', 'Rinderrouladen', 'Rinderbraten',
-  'Hackfleisch gemischt', 'Hackfleisch', 'Hähnchenbrustfilet', 'Hähnchenfilet', 'Hähnchenschenkel', 'Hähnchengeschnetzeltes',
-  'Putenbrustfilet', 'Putenschnitzel', 'Putenhackfleisch', 'Minutensteaks',
-  'Rostbratwurst', 'Bratwurst', 'Wiener Würstchen', 'Bockwurst', 'Fleischwurst', 'Lyoner', 'Leberwurst',
-  'Salami', 'Kochschinken', 'Schwarzwälder Schinken', 'Lachsschinken', 'Bacon', 'Speckwürfel',
-  'Lachsfilet', 'Wildlachs', 'Kabeljaufilet', 'Seelachsfilet', 'Fischstäbchen', 'Thunfisch', 'Forellenfilet', 'Garnelen',
-  'Freilandeier', 'Bio-Eier', 'Frische Eier',
-  'Olivenöl', 'Sonnenblumenöl', 'Rapsöl', 'Kokosöl', 'Balsamico', 'Apfelessig', 'Kräuteressig', 'Weinessig',
-  'Tomatenketchup', 'Ketchup', 'Mayonnaise', 'Remoulade', 'Mittelscharfer Senf', 'Delikatess Senf', 'Burger Sauce',
-  'Pesto Verde', 'Pesto Rosso', 'Sojasauce', 'Gemüsebrühe', 'Hühnerbrühe', 'Rinderbrühe',
-  'Erdnussbutter', 'Haselnusscreme', 'Fruchtaufstrich', 'Konfitüre', 'Blütenhonig', 'Honig',
-  'Mineralwasser', 'Apfelsaft', 'Orangensaft', 'Multivitaminsaft', 'Apfelschorle', 'Rhabarberschorle',
-  'Filterkaffee', 'Caffè Crema', 'Espresso', 'Kräutertee', 'Früchtetee', 'Grüner Tee', 'Schwarzer Tee',
-  'Hundefutter', 'Katzenfutter', 'Nassfutter', 'Trockenfutter', 'Kauknochen', 'Hundesnack', 'Pferdefutter'
-];
-
-export function saveLearnedProductToMemory(barcodeKey, productData) {
+function writeAuthSession(accountId, authKey, familyName) {
   try {
-    const cleanKey = String(barcodeKey || '').trim();
-    if (!cleanKey || cleanKey.length < 4 || !productData?.name) return;
-    const rawMap = localStorage.getItem('richter_tw_barcode_memory_v1');
-    const map = rawMap ? JSON.parse(rawMap) : {};
+    const maxAge = 60 * 60 * 24 * 365;
+    if (typeof document !== 'undefined') {
+      document.cookie = 'tw_auth_session=1; path=/; max-age=' + maxAge + '; SameSite=Lax';
+      document.cookie = 'tw_account_id=' + encodeURIComponent(accountId || 'local') + '; path=/; max-age=' + maxAge + '; SameSite=Lax';
+    }
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('richter_tw_auth_active', '1');
+      localStorage.setItem('richter_tw_account_id', accountId || 'local');
+      localStorage.setItem('richter_tw_auth_key', authKey || '');
+      if (familyName) localStorage.setItem('richter_tw_family_name', familyName);
+    }
+  } catch (e) {}
+}
 
-    const entry = {
-      name: productData.name,
-      quantity: productData.quantity || '1x',
-      location: productData.location || 'fridge',
-      category: productData.category || 'produce',
-      glutenFree: productData.glutenFree || 'auto',
-      updatedAt: Date.now()
+function readAuthSession() {
+  try {
+    if (typeof localStorage === 'undefined') return { active: false, accountId: '', authKey: '' };
+    const cookieActive = typeof document !== 'undefined' && document.cookie.split(';').some(c => c.trim().startsWith('tw_auth_session=1'));
+    const storageActive = localStorage.getItem('richter_tw_auth_active') === '1';
+    return {
+      active: Boolean(cookieActive || storageActive),
+      accountId: localStorage.getItem('richter_tw_account_id') || '',
+      authKey: localStorage.getItem('richter_tw_auth_key') || ''
     };
-
-    map[cleanKey] = entry;
-
-    const digits = cleanKey.replace(/\D/g, '');
-    if (digits.length === 13 && /^2[0-9]/.test(digits)) {
-      map[digits.slice(0, 7)] = entry;
-    }
-
-    localStorage.setItem('richter_tw_barcode_memory_v1', JSON.stringify(map));
   } catch (e) {}
+  return { active: false, accountId: '', authKey: '' };
 }
 
-export function getLearnedProductFromMemory(barcodeKey) {
-  try {
-    const cleanKey = String(barcodeKey || '').trim();
-    if (!cleanKey) return null;
-    const rawMap = localStorage.getItem('richter_tw_barcode_memory_v1');
-    if (!rawMap) return null;
-    const map = JSON.parse(rawMap);
-    if (map[cleanKey]?.name) return map[cleanKey];
-
-    const digits = cleanKey.replace(/\D/g, '');
-    if (digits.length === 13 && /^2[0-9]/.test(digits)) {
-      const prefix7 = digits.slice(0, 7);
-      if (map[prefix7]?.name) return map[prefix7];
-    }
-  } catch (e) {}
-  return null;
+function getItemAddedTimestamp(item) {
+  if (!item) return 0;
+  if (item.addedTimestamp && Number(item.addedTimestamp) > 0) return Number(item.addedTimestamp);
+  const idMatch = String(item.id || '').match(/^p_(\d{10,15})/);
+  if (idMatch) return Number(idMatch[1]);
+  if (item.updatedAt && Number(item.updatedAt) > 0) return Number(item.updatedAt);
+  return 0;
 }
 
-export function shortenBrandString(rawBrand) {
-  if (!rawBrand) return '';
-  let b = String(rawBrand).split(',')[0].trim();
-
-  b = b
-    .replace(/\b(GmbH\s*&\s*Co\.?\s*KG|GmbH\s*&\s*Co\.?\s*OHG|GmbH|AG|KG|OHG|SE|mbH|e\.?\s*G\.?|Inc\.?|Ltd\.?|S\.?p\.?A\.?|S\.?A\.?)\b/gi, '')
-    .replace(/\b(Pilze\s*&\s*Waldfrüchte|Uwe\s+Niklas|Fleischwaren|Heiligenstadt|Warenhandel|Nahrungsmittel|Lebensmittel|Molkerei|Privatmolkerei|Käserei|Fleischwerke|Feinkost|Vertriebs|Handels|Werke|Deutschland|International)\b/gi, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  if (!b) return '';
-
-  const multiBrandMatch = KNOWN_BRAND_PREFIXES.find(
-    kb => b.toLowerCase() === kb.toLowerCase() || b.toLowerCase().startsWith(kb.toLowerCase() + ' ')
-  );
-  if (multiBrandMatch) return multiBrandMatch;
-
-  const tokens = b.split(/\s+/).filter(Boolean);
-  if (tokens.length === 0) return '';
-  if (tokens[0].toLowerCase() === 'dr.' && tokens[1]) {
-    return tokens[0] + ' ' + tokens[1];
-  }
-  return tokens[0].replace(/^[,;-]+|[,;-]+$/g, '');
+function getDaysUntilMhd(expiryDateStr, todayStr) {
+  if (!expiryDateStr) return 999;
+  const exp = new Date(expiryDateStr + 'T12:00:00');
+  const tod = new Date(todayStr + 'T12:00:00');
+  return Math.round((exp.getTime() - tod.getTime()) / 86400000);
 }
 
-export function simplifyProductName(rawInputName, explicitBrand = '') {
-  let raw = String(rawInputName || '').replace(/\s+/g, ' ').trim();
-  if (!raw) return '';
-
-  let extractedBrand = explicitBrand ? shortenBrandString(explicitBrand) : '';
-  let productPart = raw;
-
-  if (productPart.includes(' / ')) {
-    const parts = productPart.split(' / ');
-    productPart = parts[0].trim();
-    if (!extractedBrand && parts[1]) {
-      extractedBrand = shortenBrandString(parts[1]);
-    }
-  }
-
-  if (explicitBrand) {
-    const cleanExp = String(explicitBrand).split(',')[0].trim();
-    if (cleanExp && productPart.toLowerCase().startsWith(cleanExp.toLowerCase())) {
-      productPart = productPart.slice(cleanExp.length).trim();
-    }
-  }
-
-  const legalSplitRegex = /^(.*?)\b(?:GmbH\s*&\s*Co\.?\s*KG|GmbH\s*&\s*Co\.?\s*OHG|GmbH|AG|KG|OHG|SE|mbH|e\.?\s*G\.?)\.?\s+(.+)$/i;
-  const legalMatch = productPart.match(legalSplitRegex);
-  if (legalMatch) {
-    const companyLeft = legalMatch[1].trim();
-    const itemRight = legalMatch[2].trim();
-    if (itemRight.length >= 2) {
-      if (!extractedBrand) extractedBrand = shortenBrandString(companyLeft);
-      productPart = itemRight;
-    }
-  }
-
-  for (const kb of KNOWN_BRAND_PREFIXES) {
-    const reg = new RegExp('^' + kb.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b\\s*', 'i');
-    if (reg.test(productPart)) {
-      const rest = productPart.replace(reg, '').trim();
-      if (rest.length >= 2) {
-        if (!extractedBrand) extractedBrand = kb;
-        productPart = rest;
-        break;
-      }
-    }
-  }
-
-  productPart = productPart
-    .replace(/\b(tiefgekühlt|tiefgefroren|tiefkühlkost|tiefkühl)\b/gi, 'TK')
-    .replace(/\b(delikatess|das komplette|flow pack de|unter schutzatmosphäre|servierfertig|küchenfertig|erntefrisch|feinste|klassische|fleischwaren|heiligenstadt)\b/gi, '')
-    .replace(/\b\d+(?:[.,]\d+)?\s*(?:g|gr|kg|ml|l)\b/gi, '')
-    .replace(/\s+/g, ' ')
-    .replace(/^[,;.\-/]+|[,;.\-/]+$/g, '')
-    .trim();
-
-  if (!productPart) productPart = raw;
-  productPart = productPart.charAt(0).toUpperCase() + productPart.slice(1);
-
-  if (extractedBrand && !productPart.toLowerCase().includes(extractedBrand.toLowerCase())) {
-    return productPart + ' / ' + extractedBrand;
-  }
-  return productPart;
+function getShopNormKey(textStr) {
+  return String(textStr || '').toLowerCase().trim();
 }
 
-export function detectSmartCategory(nameStr, customCategory = '', offTags = []) {
-  if (customCategory && customCategory !== 'auto' && FOOD_CATEGORIES.some(c => c.id === customCategory)) {
-    return customCategory;
-  }
-  const n = String(nameStr || '').toLowerCase();
-  const tags = Array.isArray(offTags) ? offTags.join(' ').toLowerCase() : '';
-
-  if (/hundefutter|katzenfutter|tierfutter|pferdefutter|futter|leckerli|kauknochen|pansen|rinti|wolfsblut|josera|belcando|animonda|pedigree|whiskas|felix/.test(n)) {
-    return 'sweets_snacks';
-  }
-  if (/pilz|pfifferling|steinpilz|champignon|kräuterseitling|waldfrüchte|beeren|erdbeer|himbeer|heidelbeer|blaubeer|apfel|äpfel|apfelmus|apfelmark|banane|orange|clementine|mandarine|zitrone|limette|melone|ananas|mango|kiwi|traube|birne|avocado|salat|eisberg|feldsalat|mâche|rucola|spinat|gurke|tomate|tomatenmark|oro di parma|paprika|karotte|möhre|zwiebel|knoblauch|brokkoli|blumenkohl|spargel|rotkohl|sauerkraut|mais|erbse|bohne|linse|kichererbse|chili sin carne|gefro/.test(n)) {
-    return 'produce';
-  }
-  if (/butter|kräuterbutter|meggle|margarine|öl|sonnenblumenöl|olivenöl|rapsöl|kokosöl|fett|schmalz|essig|balsamico|hengstenberg|senf|thomy|ketchup|mayo|mayonnaise|remoulade|dressing|burger sauce|heinz|soße|sauce|pesto|brühe|fond/.test(n)) {
-    return 'oils_fats';
-  }
-  if (/wasser|mineralwasser|kaffee|espresso|tee|saft|apfelsaft|orangensaft|schorle|cola|limo|getränk|sirup|kakao|\bbier\b|\bwein\b|energydrink|hafermilch|mandelmilch|oatly|alpro/.test(n)) {
-    return 'drinks';
-  }
-  if (/milch|vollmilch|weidemilch|alpenmilch|schwarzwaldmilch|landfein|joghurt|quark|skyr|käse|frischkäse|philadelphia|scheibenkäse|gouda|mozzarella|parmesan|emmentaler|camembert|feta|hirtenkäse|schlagsahne|kochsahne|sahne|schmand|creme fraiche|crème fraîche|mascarpone|ayran|kefir|pudding/.test(n)) {
-    return 'dairy';
-  }
-  if (/fleisch|schweinefilet|rinderfilet|filet|lende|hackfleisch|rinderhack|rind|schwein|hähnchen|huhn|pute|geflügel|schnitzel|steak|gulasch|wurst|bratwurst|rostbratwurst|leberwurst|würstchen|wiener|lyoner|salami|schinken|speck|bacon|aufschnitt|fisch|lachs|kabeljau|seelachs|thunfisch|fischstäbchen|forelle|garnele|\bei\b|eier/.test(n)) {
-    return 'meat_fish_eggs';
-  }
-  if (/brot|landbrot|mehrkorn|brötchen|toast|baguette|croissant|knäckebrot|reiswaffel|nudel|spaghetti|pasta|penne|fusilli|rigatoni|tortellini|ravioli|spätzle|reis|spitzenreis|langkorn|basmati|jasmin|milchreis|risotto|getreide|haferflocken|müsli|cornflakes|choco balls|mehl|grieß|stärke|wraps|wrap|tortilla|taco|schär|kartoffel|kartoffelpüree|pfanni|gnocchi|schupfnudel|pommes|kroketten|knödel/.test(n)) {
-    return 'grains';
-  }
-  if (/schokolade|choco|schoko|nutella|haselnusscreme|konfitüre|marmelade|honig|keks|cookie|gummibär|haribo|chips|flips|eis|bonbon|praline|zuckerware|riegel/.test(n)) {
-    return 'sweets_snacks';
-  }
-
-  if (/fruits|vegetables|mushrooms|plant-based-foods-and-beverages|salads|legumes/.test(tags)) return 'produce';
-  if (/dairies|cheeses|milks|yogurts|creams/.test(tags)) return 'dairy';
-  if (/meats|poultries|fishes|seafood|sausages|eggs/.test(tags)) return 'meat_fish_eggs';
-  if (/cereals|breads|pastas|potatoes|flours|tortillas/.test(tags)) return 'grains';
-  if (/fats|oils|sauces|condiments|vinegars|mustards/.test(tags)) return 'oils_fats';
-  if (/beverages|waters|juices|coffees|teas/.test(tags)) return 'drinks';
-
-  return detectFoodCategory(nameStr);
+function getTaskTitleKey(task) {
+  if (!task) return '';
+  return String(task.title || '').toLowerCase().trim();
 }
 
-export function detectSmartLocation(nameStr, categoryId = '', offTags = []) {
-  const n = String(nameStr || '').toLowerCase();
-  const tags = Array.isArray(offTags) ? offTags.join(' ').toLowerCase() : '';
-
-  if (/hundefutter|katzenfutter|tierfutter|pferdefutter|futter|leckerli|kauknochen|pansen|trockenfutter|nassfutter|rinti|wolfsblut|josera|belcando|animonda|pedigree|whiskas|felix/.test(n)) {
-    return 'petfood';
-  }
-  if (/\btk\b|tiefkühl|tiefgekühlt|tiefgefroren|gefrier|eiscreme|speiseeis|fischstäbchen|pommes|kroketten|rahmspinat/.test(n) || /frozen/.test(tags)) {
-    return 'freezer';
-  }
-  if (/nudel|spaghetti|pasta|penne|fusilli|reis|basmati|langkorn|mehl|zucker|salz|haferflocken|müsli|cornflakes|choco balls|wraps|wrap|schär|knäckebrot|reiswaffel|backpulver|vanillezucker|kaffee|espresso|tee|kakao|schokolade|nutella|honig|konfitüre|keks|cookie|chips|haribo|nüsse|gefro|chili sin carne|kartoffelpüree|pfanni|tomatenmark|pesto|öl|olivenöl|sonnenblumenöl|rapsöl|essig|balsamico|senf|ketchup|mayo|burger sauce|brühe/.test(n)) {
-    return 'cupboard';
-  }
-  if (/konserve|dose|im glas|apfelmus|apfelmark|rotkohl|sauerkraut|spargel|passierte|gehackte tomaten|mais|kichererbsen|bohnen|linsen|kartoffel|zwiebel|knoblauch|haltbare|mineralwasser|saft|schorle|cola|limo|\bbier\b|\bwein\b/.test(n)) {
-    return 'pantry';
-  }
-  const resolvedCat = categoryId || detectSmartCategory(nameStr, '', offTags);
-  if (resolvedCat === 'dairy' || resolvedCat === 'meat_fish_eggs') {
-    return 'fridge';
-  }
-  if (/salat|feldsalat|mâche|eisberg|rucola|spinat|gurke|paprika|brokkoli|karotte|möhre|beere|erdbeer|himbeer|heidelbeer|pilz|pfifferling|champignon|butter|kräuterbutter|frisch/.test(n)) {
-    return 'fridge';
-  }
-  return 'kitchen';
+function getTaskNormKey(task) {
+  if (!task) return '';
+  return String(task.member || 'all').toLowerCase() + '::' + getTaskTitleKey(task);
 }
 
-export function isProductGlutenFree(itemOrName, customCategory = '', manualFlag = undefined, offAllergens = [], offLabels = []) {
-  const isObj = itemOrName && typeof itemOrName === 'object';
-  const nameStr = isObj ? String(itemOrName.name || '') : String(itemOrName || '');
-  const catId = isObj
-    ? detectSmartCategory(nameStr, itemOrName.category)
-    : detectSmartCategory(nameStr, customCategory);
-  const flag = isObj ? itemOrName.glutenFree : manualFlag;
+// ============================================================================
+// 1. STABILER MERGE FÜR DIE EINKAUFSLISTE (CLOUD vs. TODOIST UNTERSCHEIDUNG)
+// ============================================================================
+function reconcileShoppingNotes(localNotes, incomingNotes, syncMeta, source = 'cloud') {
+  const baseNotes = Array.isArray(incomingNotes) && incomingNotes.length > 0
+    ? incomingNotes
+    : (Array.isArray(localNotes) && localNotes.length > 0 ? localNotes : DEFAULT_NOTES);
 
-  if (flag === true || flag === 'yes') return true;
-  if (flag === false || flag === 'no') return false;
+  const localFirstItems = Array.isArray(localNotes?.[0]?.items) ? localNotes[0].items : [];
+  const incomingFirstItems = Array.isArray(baseNotes?.[0]?.items) ? baseNotes[0].items : [];
 
-  const labelsStr = Array.isArray(offLabels) ? offLabels.join(' ').toLowerCase() : '';
-  const allergensStr = Array.isArray(offAllergens) ? offAllergens.join(' ').toLowerCase() : '';
+  if (!syncMeta.deletedTaskIds) syncMeta.deletedTaskIds = {};
+  const delMap = syncMeta.deletedTaskIds;
+  const now = Date.now();
+  const TOMBSTONE_TTL = 1000 * 60 * 60 * 18;
 
-  if (/no-gluten|gluten-free|glutenfrei/.test(labelsStr)) return true;
-  if (/en:gluten|de:gluten/.test(allergensStr)) return false;
-
-  const n = nameStr.toLowerCase();
-  if (!n.trim()) return false;
-
-  if (/glutenfrei|gluten-free|ohne gluten|\bgf\b|schär|schaer|bauckhof|alnavit|hammermühle|seitz|schnitzer|reismehl|maismehl|buchweizen|quinoa|hirse|amarant|polenta|maisstärke|speisestärke|kartoffelmehl|reiswaffel|gefro/.test(n)) {
-    return true;
-  }
-  if (/weizen|dinkel|roggen|gerste|grünkern|bulgur|couscous|seitan|paniermehl|paniert|fischstäbchen|nuggets|schnitzel|spätzle|tortellini|ravioli|lasagne|nudel|spaghetti|pasta|penne|fusilli|rigatoni|mehl|grieß|haferflocken|müsli|cornflakes|brot|landbrot|mehrkorn|brötchen|toast|baguette|croissant|knäckebrot|kuchen|waffel|keks|cookie|brezel|pizza|flammkuchen|\bbier\b|malz|gnocchi|schupfnudel/.test(n)) {
+  const isDeletedItem = (it) => {
+    if (!it || !String(it.text || '').trim()) return true;
+    if (it.todoistId && delMap[String(it.todoistId)]) return true;
+    const norm = getShopNormKey(it.text);
+    const delTs = delMap['shop_del_' + norm];
+    if (delTs && (now - Number(delTs) < TOMBSTONE_TTL)) return true;
     return false;
-  }
-  if (catId === 'produce' || catId === 'dairy' || catId === 'oils_fats' || catId === 'drinks' || catId === 'meat_fish_eggs') {
-    return true;
-  }
-  if (/reis|spitzenreis|langkorn|basmati|jasmin|milchreis|risotto|kartoffel|kartoffelpüree|pfanni|pommes|kroketten|mais|popcorn/.test(n)) {
-    return true;
-  }
-  return false;
-}
-
-function estimateProduceByName(inputName) {
-  const lower = String(inputName || '').toLowerCase().trim();
-  if (!lower) return null;
-  for (const item of FRESH_PRODUCE_MHD_DB) {
-    if (item.keywords.some(kw => lower === kw || lower.includes(kw))) {
-      return item;
-    }
-  }
-  return null;
-}
-
-// ============================================================================
-// PIXEL-KONTRASTVERSTÄRKER & ERWEITERTER MHD-DATUMSPARSER (PUNKT 2)
-// ============================================================================
-function enhanceCanvasForMhdOcr(ctx, width, height) {
-  try {
-    const imgData = ctx.getImageData(0, 0, width, height);
-    const d = imgData.data;
-    let minLum = 255;
-    let maxLum = 0;
-
-    for (let i = 0; i < d.length; i += 4) {
-      const lum = Math.round(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]);
-      d[i] = lum;
-      if (lum < minLum) minLum = lum;
-      if (lum > maxLum) maxLum = lum;
-    }
-
-    const range = Math.max(25, maxLum - minLum);
-    for (let i = 0; i < d.length; i += 4) {
-      let norm = ((d[i] - minLum) / range) * 255;
-      // S-Kurve für knackigen Kontrast bei Nadeldruck-Ziffern auf Verpackungen
-      norm = norm < 118 ? Math.max(0, norm * 0.65) : Math.min(255, norm * 1.25 + 20);
-      const v = Math.round(norm);
-      d[i] = v;
-      d[i + 1] = v;
-      d[i + 2] = v;
-    }
-    ctx.putImageData(imgData, 0, 0);
-  } catch (e) {}
-}
-
-export function extractExpiryDateFromText(rawText) {
-  const rawUpper = String(rawText || '').toUpperCase();
-
-  // 1. Deutsche & internationale Monatsnamen in Ziffern umwandeln (z.B. "15 NOV 26" -> "15.11.26")
-  const withNumericMonths = rawUpper
-    .replace(/\b(JANUAR|JAN|JANUARY)\b\.?/g, '.01.')
-    .replace(/\b(FEBRUAR|FEB|FEBRUARY)\b\.?/g, '.02.')
-    .replace(/\b(MÄRZ|MAERZ|MRZ|MÄR|MAR|MARCH)\b\.?/g, '.03.')
-    .replace(/\b(APRIL|APR)\b\.?/g, '.04.')
-    .replace(/\b(MAI|MAY)\b\.?/g, '.05.')
-    .replace(/\b(JUNI|JUN|JUNE)\b\.?/g, '.06.')
-    .replace(/\b(JULI|JUL|JULY)\b\.?/g, '.07.')
-    .replace(/\b(AUGUST|AUG)\b\.?/g, '.08.')
-    .replace(/\b(SEPTEMBER|SEPT|SEP)\b\.?/g, '.09.')
-    .replace(/\b(OKTOBER|OKT|OCT|OCTOBER)\b\.?/g, '.10.')
-    .replace(/\b(NOVEMBER|NOV)\b\.?/g, '.11.')
-    .replace(/\b(DEZEMBER|DEZ|DEC|DECEMBER)\b\.?/g, '.12.');
-
-  // 2. Typische OCR-Buchstabenverwechslungen in Zahlenblöcken korrigieren
-  const clean = withNumericMonths
-    .replace(/[|lI!]/g, '1')
-    .replace(/[OQ]/g, '0')
-    .replace(/S(?=\d)/g, '5')
-    .replace(/B(?=\d)/g, '8')
-    .replace(/Z(?=\d)/g, '2');
-
-  const isValidYear = (yNum) => yNum >= 2025 && yNum <= 2036;
-
-  // Format A: ISO YYYY-MM-DD oder YYYY.MM.DD
-  const isoRegex = /\b(202[5-9]|203[0-6])\s*[-./]\s*(0?[1-9]|1[0-2])\s*[-./]\s*(0?[1-9]|[12][0-9]|3[01])\b/g;
-  let match = isoRegex.exec(clean);
-  if (match) {
-    return match[1] + '-' + String(match[2]).padStart(2, '0') + '-' + String(match[3]).padStart(2, '0');
-  }
-
-  // Format B: Klassisches DD.MM.YYYY oder DD.MM.YY (auch mit Leerzeichen bei Tintenstrahl-Aufdrucken: "24 . 11 . 26")
-  const dmyRegex = /\b(0?[1-9]|[12][0-9]|3[01])\s*[.,/\-\s:·•_]{1,4}\s*(0?[1-9]|1[0-2])\s*[.,/\-\s:·•_]{1,4}\s*(20[2-3][0-9]|2[5-9]|3[0-6])\b/g;
-  while ((match = dmyRegex.exec(clean)) !== null) {
-    const day = String(match[1]).padStart(2, '0');
-    const month = String(match[2]).padStart(2, '0');
-    let year = String(match[3]);
-    if (year.length === 2) year = '20' + year;
-    if (isValidYear(Number(year))) {
-      return year + '-' + month + '-' + day;
-    }
-  }
-
-  // Format C: Kompaktes 6- oder 8-stelliges Datum ohne Punkte (z.B. 24112026 oder 241126)
-  const compactRegex = /\b(0[1-9]|[12][0-9]|3[01])(0[1-9]|1[0-2])(202[5-9]|203[0-6]|2[6-9]|3[0-5])\b/g;
-  while ((match = compactRegex.exec(clean)) !== null) {
-    const day = match[1];
-    const month = match[2];
-    let year = match[3];
-    if (year.length === 2) year = '20' + year;
-    if (isValidYear(Number(year))) {
-      return year + '-' + month + '-' + day;
-    }
-  }
-
-  // Format D: Monats-MHD (MM.YYYY oder MM/YYYY oder MM/YY, z.B. "11/2027" oder "05.27")
-  const myRegex = /\b(0?[1-9]|1[0-2])\s*[./\-:]\s*(202[5-9]|203[0-6]|2[6-9]|3[0-5])\b/g;
-  while ((match = myRegex.exec(clean)) !== null) {
-    const month = String(match[1]).padStart(2, '0');
-    let year = String(match[2]);
-    if (year.length === 2) year = '20' + year;
-    if (isValidYear(Number(year))) {
-      return year + '-' + month + '-28';
-    }
-  }
-
-  return null;
-}
-
-// ============================================================================
-// UNIVERSAL-PARSER FÜR ALLE BARCODE-, GS1-, QR-, URL- & GEWICHTS-TYPEN
-// ============================================================================
-function parseUniversalBarcodePayload(rawVal) {
-  const clean = String(rawVal || '').replace(/[\x00-\x1F]+/g, ' ').trim();
-  const result = {
-    raw: clean,
-    lookupCodes: [],
-    extractedName: null,
-    extractedBrand: null,
-    extractedExpiry: null,
-    extractedWeightQty: null,
-    extractedLocation: null,
-    extractedBatch: null,
-    isPureMarketingUrl: false
   };
 
-  if (!clean) return result;
+  const mergedMap = new Map();
 
-  const learnedDirect = getLearnedProductFromMemory(clean);
-  if (learnedDirect) {
-    result.extractedName = learnedDirect.name;
-    result.extractedWeightQty = learnedDirect.quantity;
-    result.extractedLocation = learnedDirect.location;
-  }
+  incomingFirstItems.forEach(rawIt => {
+    const it = typeof rawIt === 'string' ? { text: rawIt, done: false } : { ...rawIt };
+    if (isDeletedItem(it)) return;
+    const norm = getShopNormKey(it.text);
+    const doneTs = delMap['shop_done_' + norm];
+    const localMatch = localFirstItems.find(loc =>
+      (it.todoistId && loc?.todoistId && String(it.todoistId) === String(loc.todoistId)) ||
+      getShopNormKey(loc?.text) === norm
+    );
 
-  if (clean.startsWith('{') && clean.endsWith('}')) {
-    try {
-      const obj = JSON.parse(clean);
-      if (obj.name || obj.n || obj.product) result.extractedName = String(obj.name || obj.n || obj.product).trim();
-      if (obj.qty || obj.q || obj.weight) result.extractedWeightQty = String(obj.qty || obj.q || obj.weight).trim();
-      if (obj.exp || obj.e || obj.mhd) result.extractedExpiry = String(obj.exp || obj.e || obj.mhd).trim();
-      if (obj.loc || obj.l) result.extractedLocation = String(obj.loc || obj.l).trim();
-      if (obj.ean || obj.gtin) result.lookupCodes.push(String(obj.ean || obj.gtin).trim());
-      return result;
-    } catch (e) {}
-  }
+    const isDone = Boolean(it.done || doneTs || localMatch?.done);
+    const resolvedDoneAt = Number(it.doneAt || localMatch?.doneAt || doneTs || (isDone ? now : 0));
 
-  if (clean.includes('|') || /^tw:/i.test(clean)) {
-    const parts = clean.replace(/^tw:/i, '').split('|').map(s => s.trim());
-    if (parts[0] && !/^\d+$/.test(parts[0])) result.extractedName = parts[0];
-    parts.forEach(p => {
-      if (/^\d{4}-\d{2}-\d{2}$/.test(p)) result.extractedExpiry = p;
-      const dmy = p.match(/^(\d{2})\.(\d{2})\.(20\d{2})$/);
-      if (dmy) result.extractedExpiry = dmy[3] + '-' + dmy[2] + '-' + dmy[1];
-      if (/^\d+(?:[.,]\d+)?\s*(g|kg|ml|l|x|stk|pcs|pack|port)$/i.test(p)) result.extractedWeightQty = p;
+    mergedMap.set(norm, {
+      ...localMatch,
+      ...it,
+      text: String(it.text).trim(),
+      done: isDone,
+      doneAt: isDone ? resolvedDoneAt : 0,
+      todoistId: it.todoistId || localMatch?.todoistId || null,
+      addedAtTs: localMatch?.addedAtTs || it.addedAtTs || now
     });
-  }
+  });
 
-  if (/^https?:\/\//i.test(clean)) {
-    const urlGtin = clean.match(/\/01\/(\d{8,14})/);
-    if (urlGtin) {
-      const g = urlGtin[1];
-      const ean13 = g.length === 14 && g.startsWith('0') ? g.slice(1) : g;
-      result.lookupCodes.push(ean13, g);
+  localFirstItems.forEach(rawLoc => {
+    const loc = typeof rawLoc === 'string' ? { text: rawLoc, done: false } : { ...rawLoc };
+    if (isDeletedItem(loc)) return;
+    const norm = getShopNormKey(loc.text);
+
+    const matchedInIncoming = incomingFirstItems.some(inc => {
+      const incObj = typeof inc === 'string' ? { text: inc } : inc;
+      return (
+        (loc.todoistId && incObj?.todoistId && String(loc.todoistId) === String(incObj.todoistId)) ||
+        getShopNormKey(incObj?.text) === norm
+      );
+    });
+
+    if (mergedMap.has(norm) || matchedInIncoming) return;
+
+    const doneTs = delMap['shop_done_' + norm];
+
+    if (loc.done || doneTs) {
+      mergedMap.set(norm, {
+        ...loc,
+        text: String(loc.text).trim(),
+        done: true,
+        doneAt: Number(loc.doneAt || doneTs || now)
+      });
+      return;
     }
-    const urlExp = clean.match(/\/1[57]\/(\d{2})(0[1-9]|1[0-2])(0[0-9]|[12][0-9]|3[01])/);
-    if (urlExp) {
-      const dd = urlExp[3] === '00' ? '28' : urlExp[3];
-      result.extractedExpiry = '20' + urlExp[1] + '-' + urlExp[2] + '-' + dd;
-    }
-    const urlWeight = clean.match(/\/310(\d)\/(\d{6})/);
-    if (urlWeight) {
-      const dec = Number(urlWeight[1]);
-      const val = parseInt(urlWeight[2], 10);
-      const grams = dec === 3 ? val : Math.round((val / Math.pow(10, dec)) * 1000);
-      if (grams >= 10 && grams <= 25000) {
-        result.extractedWeightQty = grams >= 1000 ? ((grams / 1000).toFixed(2).replace('.', ',') + ' kg') : (grams + 'g');
-      }
+
+    if (source === 'cloud') {
+      mergedMap.set(norm, {
+        ...loc,
+        text: String(loc.text).trim(),
+        done: false,
+        doneAt: 0
+      });
+      return;
     }
 
-    try {
-      const u = new URL(clean);
-      const qEan = u.searchParams.get('ean') || u.searchParams.get('gtin') || u.searchParams.get('barcode');
-      if (qEan && /^\d{8,14}$/.test(qEan.trim())) {
-        result.lookupCodes.push(qEan.trim());
-      }
-      const qName = u.searchParams.get('name') || u.searchParams.get('product') || u.searchParams.get('title');
-      if (qName) result.extractedName = qName.trim();
-      const qMhd = u.searchParams.get('mhd') || u.searchParams.get('exp');
-      if (qMhd && /^\d{4}-\d{2}-\d{2}$/.test(qMhd)) result.extractedExpiry = qMhd;
+    const isVeryRecent = loc.addedAtTs && (now - Number(loc.addedAtTs) < 25000);
+    if (!loc.todoistId || isVeryRecent) {
+      mergedMap.set(norm, {
+        ...loc,
+        text: String(loc.text).trim(),
+        done: false,
+        doneAt: 0
+      });
+    } else {
+      delMap['shop_done_' + norm] = now;
+      mergedMap.set(norm, {
+        ...loc,
+        text: String(loc.text).trim(),
+        done: true,
+        doneAt: now
+      });
+    }
+  });
 
-      const hostParts = u.hostname.replace(/^(www|qr|m|shop|info|scan)\./i, '').split('.');
-      if (hostParts[0] && !/^(gs1|bit|tinyurl|goo|qr-code|qrco)$/i.test(hostParts[0])) {
-        const domainBrand = hostParts[0].charAt(0).toUpperCase() + hostParts[0].slice(1);
-        result.extractedBrand = shortenBrandString(domainBrand);
-      }
+  saveLocalSyncMeta(syncMeta);
+  const finalFirstItems = Array.from(mergedMap.values());
+  return baseNotes.map((n, idx) => idx === 0 ? { ...n, items: finalFirstItems } : n);
+}
 
-      const pathSegments = u.pathname
-        .split('/')
-        .map(s => decodeURIComponent(s).replace(/\.(html|php|aspx|htm)$/i, '').trim())
-        .filter(s =>
-          s.length >= 4 &&
-          !/^(de|en|at|ch|p|pr|prod|product|products|produkt|produkte|artikel|item|qr|scan|info|sortiment|rezepte|nachhaltigkeit|campaign|gewinnspiel)$/i.test(s) &&
-          !/^\d+$/.test(s)
+// ============================================================================
+// 2. STABILER MERGE FÜR AUFGABEN / TASKS (CLOUD vs. TODOIST UNTERSCHEIDUNG)
+// ============================================================================
+function reconcileFamilyTasks(localTasks, incomingTasks, syncMeta, source = 'cloud') {
+  const localList = Array.isArray(localTasks) ? localTasks : [];
+  const incomingList = Array.isArray(incomingTasks) ? incomingTasks : [];
+
+  if (!syncMeta.deletedTaskIds) syncMeta.deletedTaskIds = {};
+  const delMap = syncMeta.deletedTaskIds;
+  const now = Date.now();
+  const TOMBSTONE_TTL = 1000 * 60 * 60 * 18;
+
+  const isDeletedTask = (t) => {
+    if (!t || !String(t.title || '').trim()) return true;
+    if (t.id && delMap[String(t.id)]) return true;
+    if (t.todoistId && delMap[String(t.todoistId)]) return true;
+    const norm = getTaskNormKey(t);
+    const titleKey = getTaskTitleKey(t);
+    const delTs = delMap['task_del_' + norm] || delMap['task_del_title_' + titleKey];
+    if (delTs && (now - Number(delTs) < TOMBSTONE_TTL)) return true;
+    return false;
+  };
+
+  const mergedList = [];
+  const usedLocalIndices = new Set();
+
+  incomingList.forEach(rawT => {
+    if (isDeletedTask(rawT)) return;
+    const idKey = String(rawT.id || '');
+    const tdKey = rawT.todoistId ? String(rawT.todoistId) : '';
+    const titleKey = getTaskTitleKey(rawT);
+
+    const localIdx = localList.findIndex((loc, idx) => {
+      if (usedLocalIndices.has(idx)) return false;
+      if (tdKey && loc.todoistId && String(loc.todoistId) === tdKey) return true;
+      if (idKey && loc.id && String(loc.id) === idKey) return true;
+      return getTaskTitleKey(loc) === titleKey;
+    });
+
+    const localMatch = localIdx >= 0 ? localList[localIdx] : null;
+    if (localIdx >= 0) usedLocalIndices.add(localIdx);
+
+    const resolvedMember =
+      (rawT.member && rawT.member !== 'all')
+        ? rawT.member
+        : (localMatch?.member || rawT.member || 'hans');
+
+    const norm = String(resolvedMember).toLowerCase() + '::' + titleKey;
+    const doneTs =
+      delMap['task_done_' + norm] ||
+      delMap['task_done_title_' + titleKey] ||
+      (idKey && delMap['task_done_id_' + idKey]) ||
+      (tdKey && delMap['task_done_td_' + tdKey]);
+
+    const isDone = Boolean(rawT.done || doneTs || localMatch?.done);
+    const resolvedDoneAt = Number(rawT.doneAt || localMatch?.doneAt || doneTs || (isDone ? now : 0));
+
+    mergedList.push({
+      ...localMatch,
+      ...rawT,
+      id: localMatch?.id || rawT.id || Date.now(),
+      member: resolvedMember,
+      done: isDone,
+      doneAt: isDone ? resolvedDoneAt : 0,
+      todoistId: rawT.todoistId || localMatch?.todoistId || null
+    });
+  });
+
+  localList.forEach((loc, idx) => {
+    if (usedLocalIndices.has(idx)) return;
+    if (isDeletedTask(loc)) return;
+
+    const idKey = String(loc.id || '');
+    const tdKey = loc.todoistId ? String(loc.todoistId) : '';
+    const norm = getTaskNormKey(loc);
+    const titleKey = getTaskTitleKey(loc);
+
+    const doneTs =
+      delMap['task_done_' + norm] ||
+      delMap['task_done_title_' + titleKey] ||
+      (idKey && delMap['task_done_id_' + idKey]) ||
+      (tdKey && delMap['task_done_td_' + tdKey]);
+
+    if (loc.done || doneTs) {
+      mergedList.push({
+        ...loc,
+        done: true,
+        doneAt: Number(loc.doneAt || doneTs || now)
+      });
+      return;
+    }
+
+    if (source === 'cloud') {
+      mergedList.push({
+        ...loc,
+        done: false,
+        doneAt: 0
+      });
+      return;
+    }
+
+    const createdMs = typeof loc.id === 'number' && loc.id > 1700000000000 ? loc.id : 0;
+    const isVeryRecent = createdMs && (now - createdMs < 25000);
+    if (!tdKey || isVeryRecent) {
+      mergedList.push({
+        ...loc,
+        done: false,
+        doneAt: 0
+      });
+    } else {
+      delMap['task_done_' + norm] = now;
+      delMap['task_done_title_' + titleKey] = now;
+      delMap['task_done_td_' + tdKey] = now;
+      mergedList.push({
+        ...loc,
+        done: true,
+        doneAt: now
+      });
+    }
+  });
+
+  saveLocalSyncMeta(syncMeta);
+  return mergedList;
+}
+
+export default function TouchwallPocketApp() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+  const [accountId, setAccountId] = useState('');
+  const [authKey, setAuthKey] = useState('');
+  const [familyName, setFamilyName] = useState('Touchwall Pocket');
+
+  const [formUsername, setFormUsername] = useState('');
+  const [formPassword, setFormPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+
+  const [activeTab, setActiveTab] = useState('scanner');
+  const [selectedPerson, setSelectedPerson] = useState('all');
+  const [currentTheme, setCurrentTheme] = useState('metal');
+  const [todayStr, setTodayStr] = useState(() => formatDateStr(new Date()));
+
+  const [quickCockpitOpen, setQuickCockpitOpen] = useState(false);
+
+  const [members, setMembers] = useState(DEFAULT_MEMBERS);
+  const [events, setEvents] = useState([]);
+  const [familyTasks, setFamilyTasks] = useState([]);
+  const [mealPlan, setMealPlan] = useState(DEFAULT_MEALS);
+  const [familyNotes, setFamilyNotes] = useState(DEFAULT_NOTES);
+  const [schoolData, setSchoolData] = useState(DEFAULT_SCHOOL);
+  const [pantryItems, setPantryItems] = useState([]);
+  const [pantryTrash, setPantryTrash] = useState([]);
+  const [todoistConfig, setTodoistConfig] = useState({
+    apiToken: '',
+    shoppingProjectId: '',
+    tasksProjectId: '',
+    projects: [],
+    collaborators: []
+  });
+
+  const [cartItems, setCartItems] = useState([]);
+
+  // Bestands-Unteransicht: 'stock' (Vorrat) | 'trash' (Mülleimer)
+  const [stockSubView, setStockSubView] = useState('stock');
+  const [stockSearchQuery, setStockSearchQuery] = useState('');
+  const [showStockMenu, setShowStockMenu] = useState(false);
+  const [stockSortMode, setStockSortMode] = useState('newest');
+  const [stockLocationFilter, setStockLocationFilter] = useState('all');
+  const [stockCategoryFilter, setStockCategoryFilter] = useState('all');
+  const [stockOnlyGlutenFree, setStockOnlyGlutenFree] = useState(false);
+
+  // Nachfrage-Dialog nach dem Verbrauchen / Löschen im Bestand ("Auf Einkaufsliste? Ja / Nein")
+  const [restockPromptItem, setRestockPromptItem] = useState(null);
+
+  const [editStockModal, setEditStockModal] = useState({
+    open: false,
+    id: null,
+    name: '',
+    quantity: '1x',
+    location: 'fridge',
+    category: 'produce',
+    glutenFree: 'auto',
+    expiryDate: '',
+    customEmoji: ''
+  });
+
+  const [notifPermission, setNotifPermission] = useState('default');
+  const [installPromptEvent, setInstallPromptEvent] = useState(null);
+  const [isOnline, setIsOnline] = useState(true);
+  const knownShoppingTextsRef = useRef(null);
+  const mhdPushLogRef = useRef({});
+  const pendingOfflineSaveRef = useRef(false);
+
+  const preservedWallStateRef = useRef({});
+  const syncMetaRef = useRef({ deletedPantryIds: {}, deletedTrashIds: {}, deletedTaskIds: {}, deletedEventIds: {} });
+  const pendingCalendarOpsRef = useRef({});
+  const isNetworkSavingRef = useRef(false);
+  const isSyncRunningRef = useRef(false);
+  const lastLocalEditRef = useRef(0);
+
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [toast, setToast] = useState(null);
+
+  const showToast = (title, msg, icon = '📲') => {
+    setToast({ title, msg, icon });
+    setTimeout(() => setToast(null), 4000);
+  };
+
+  const themeStyles = useMemo(() => buildThemeStyles(currentTheme), [currentTheme]);
+  const getMemberStyles = (m) => buildMemberStyles(m, themeStyles.dark);
+
+  const safeMembers = useMemo(() => {
+    return (Array.isArray(members) && members.length > 0 ? members : DEFAULT_MEMBERS).map(m => ({
+      ...m,
+      name: m?.name || 'Mitglied',
+      badge: m?.badge || 'M',
+      color: m?.color || 'royal_bold'
+    }));
+  }, [members]);
+
+  const safeEvents = useMemo(() => Array.isArray(events) ? events : [], [events]);
+  const safeTasks = useMemo(() => Array.isArray(familyTasks) ? familyTasks : [], [familyTasks]);
+  const safeMeals = useMemo(() => Array.isArray(mealPlan) && mealPlan.length > 0 ? mealPlan : DEFAULT_MEALS, [mealPlan]);
+  const safeNotes = useMemo(() => Array.isArray(familyNotes) && familyNotes.length > 0 ? familyNotes : DEFAULT_NOTES, [familyNotes]);
+  const safeStock = useMemo(() => Array.isArray(pantryItems) ? pantryItems : [], [pantryItems]);
+  const safeTrash = useMemo(() => Array.isArray(pantryTrash) ? pantryTrash : [], [pantryTrash]);
+  const safeCart = useMemo(() => Array.isArray(cartItems) ? cartItems : [], [cartItems]);
+
+  const totalGlutenFreeInStock = useMemo(() => {
+    return safeStock.filter(it => isProductGlutenFree(it)).length;
+  }, [safeStock]);
+
+  const mhdAlertGroups = useMemo(() => {
+    const finalToday = [];
+    const warnTwoDays = [];
+    safeStock.forEach(item => {
+      if (!item?.expiryDate) return;
+      const d = getDaysUntilMhd(item.expiryDate, todayStr);
+      if (d === 0) finalToday.push(item);
+      else if (d === 1 || d === 2) warnTwoDays.push({ ...item, daysLeft: d });
+    });
+    return { finalToday, warnTwoDays };
+  }, [safeStock, todayStr]);
+
+  const sortedStockForTab = useMemo(() => {
+    const q = stockSearchQuery.trim().toLowerCase();
+    return safeStock
+      .map(it => ({
+        ...it,
+        resolvedCategory: detectSmartCategory(it.name, it.category),
+        resolvedGlutenFree: isProductGlutenFree(it),
+        resolvedAddedTs: getItemAddedTimestamp(it)
+      }))
+      .filter(it => stockLocationFilter === 'all' || it.location === stockLocationFilter)
+      .filter(it => stockCategoryFilter === 'all' || it.resolvedCategory === stockCategoryFilter)
+      .filter(it => !stockOnlyGlutenFree || it.resolvedGlutenFree)
+      .filter(it => {
+        if (!q) return true;
+        const catTitle = FOOD_CATEGORIES.find(c => c.id === it.resolvedCategory)?.title || '';
+        return (
+          String(it.name || '').toLowerCase().includes(q) ||
+          String(it.quantity || '').toLowerCase().includes(q) ||
+          catTitle.toLowerCase().includes(q)
         );
-
-      if (!result.extractedName && pathSegments.length > 0) {
-        const lastSlug = pathSegments[pathSegments.length - 1]
-          .replace(/[-_]+/g, ' ')
-          .replace(/\b\d{5,}\b/g, '')
-          .trim();
-        if (lastSlug.length >= 4 && /[a-zA-ZäöüÄÖÜß]/.test(lastSlug)) {
-          result.extractedName = simplifyProductName(lastSlug, result.extractedBrand || '');
+      })
+      .sort((a, b) => {
+        if (stockSortMode === 'glutenfree') {
+          if (a.resolvedGlutenFree !== b.resolvedGlutenFree) return a.resolvedGlutenFree ? -1 : 1;
+          return b.resolvedAddedTs - a.resolvedAddedTs;
         }
-      }
+        if (stockSortMode === 'az') {
+          return String(a.name || '').localeCompare(String(b.name || ''), 'de');
+        }
+        if (stockSortMode === 'newest') {
+          return b.resolvedAddedTs - a.resolvedAddedTs;
+        }
+        return String(a.expiryDate || '9999').localeCompare(String(b.expiryDate || '9999'));
+      });
+  }, [safeStock, stockLocationFilter, stockCategoryFilter, stockOnlyGlutenFree, stockSearchQuery, stockSortMode]);
 
-      if (result.lookupCodes.length === 0 && !result.extractedName && !result.extractedExpiry) {
-        result.isPureMarketingUrl = true;
-      }
-    } catch (e) {}
-  }
+  const trashStats = useMemo(() => {
+    const consumed = safeTrash.filter(x => x.reason === 'consumed').length;
+    const wasted = safeTrash.filter(x => x.reason === 'expired' || x.reason === 'wasted').length;
+    const total = consumed + wasted;
+    const score = total > 0 ? Math.round((consumed / total) * 100) : 100;
+    return { consumed, wasted, total, score };
+  }, [safeTrash]);
 
-  const gtinMatch = clean.match(/(?:\(01\)|\b01)(\d{14})/);
-  if (gtinMatch) {
-    const gtin14 = gtinMatch[1];
-    const ean13 = gtin14.startsWith('0') ? gtin14.slice(1) : gtin14;
-    if (!result.lookupCodes.includes(ean13)) result.lookupCodes.push(ean13, gtin14);
-  }
-
-  if (!result.extractedExpiry) {
-    const expMatch = clean.match(/(?:\(1[57]\)|(?:^|\s)1[57])(\d{2})(0[1-9]|1[0-2])(0[0-9]|[12][0-9]|3[01])/);
-    if (expMatch) {
-      const yy = Number(expMatch[1]);
-      const mm = expMatch[2];
-      const dd = expMatch[3] === '00' ? '28' : expMatch[3];
-      if (yy >= 25 && yy <= 35) {
-        result.extractedExpiry = '20' + String(yy).padStart(2, '0') + '-' + mm + '-' + dd;
-      }
-    }
-  }
-
-  if (!result.extractedWeightQty) {
-    const weightGs1Match = clean.match(/(?:\(3103\)|\b3103)(\d{6})/);
-    if (weightGs1Match) {
-      const grams = parseInt(weightGs1Match[1], 10);
-      if (grams >= 20 && grams <= 25000) {
-        result.extractedWeightQty = grams >= 1000 ? ((grams / 1000).toFixed(2).replace('.', ',') + ' kg') : (grams + 'g');
-      }
-    }
-  }
-
-  const batchMatch = clean.match(/(?:\(10\)|Ch\.?:?\s*)([A-Za-z0-9\-]{4,14})/i);
-  if (batchMatch) {
-    result.extractedBatch = batchMatch[1];
-  }
-
-  const digitsOnly = clean.replace(/\D/g, '');
-  if (digitsOnly.length === 13 && /^2[0-9]/.test(digitsOnly)) {
-    const prefix7 = digitsOnly.slice(0, 7);
-    const weightOrPricePart = parseInt(digitsOnly.slice(7, 12), 10);
-    if (!result.extractedWeightQty && weightOrPricePart >= 25 && weightOrPricePart <= 5000) {
-      result.extractedWeightQty = weightOrPricePart + 'g';
-    }
-    const learnedPlu = getLearnedProductFromMemory(digitsOnly);
-    if (learnedPlu?.name && !result.extractedName) {
-      result.extractedName = learnedPlu.name;
-      result.extractedLocation = learnedPlu.location;
-    }
-    result.lookupCodes.push(digitsOnly, prefix7 + '000000');
-  }
-
-  if (!/^https?:\/\//i.test(clean)) {
-    const allNumberBlocks = clean.match(/\b\d{8,14}\b/g) || [];
-    allNumberBlocks.forEach(num => {
-      if (num.length === 14 && num.startsWith('0')) {
-        const stripped13 = num.slice(1);
-        if (!result.lookupCodes.includes(stripped13)) result.lookupCodes.push(stripped13);
-      }
-      if (!result.lookupCodes.includes(num)) {
-        result.lookupCodes.push(num);
-      }
-      if (num.length === 12 && !result.lookupCodes.includes('0' + num)) {
-        result.lookupCodes.push('0' + num);
-      }
-      if (num.length === 13 && num.startsWith('0') && !result.lookupCodes.includes(num.slice(1))) {
-        result.lookupCodes.push(num.slice(1));
-      }
-    });
-
-    if (result.lookupCodes.length === 0 && digitsOnly.length >= 8 && digitsOnly.length <= 14) {
-      result.lookupCodes.push(digitsOnly);
-    }
-  }
-
-  return result;
-}
-
-function mergeMultipleBarcodesFromFrame(detectedList) {
-  if (!Array.isArray(detectedList) || detectedList.length === 0) return null;
-
-  const parsedItems = detectedList
-    .map(b => ({
-      raw: String(b.rawValue || '').trim(),
-      format: String(b.format || 'barcode').toLowerCase(),
-      parsed: parseUniversalBarcodePayload(String(b.rawValue || '').trim())
-    }))
-    .filter(x => x.raw.length > 0);
-
-  if (parsedItems.length === 0) return null;
-
-  parsedItems.sort((a, b) => {
-    const score = (item) => {
-      if (item.parsed.isPureMarketingUrl) return -10;
-      let s = 0;
-      if (/ean_13|ean_8|upc_a|upc_e/.test(item.format)) s += 50;
-      if (item.parsed.lookupCodes.length > 0) s += 30;
-      if (item.parsed.extractedExpiry) s += 25;
-      if (item.parsed.extractedWeightQty) s += 15;
-      if (item.parsed.extractedName) s += 20;
-      return s;
-    };
-    return score(b) - score(a);
-  });
-
-  const combined = {
-    primaryRaw: parsedItems[0].raw,
-    formats: Array.from(new Set(parsedItems.map(x => x.format.toUpperCase()))).join(' + '),
-    lookupCodes: [],
-    extractedName: null,
-    extractedBrand: null,
-    extractedExpiry: null,
-    extractedWeightQty: null,
-    extractedLocation: null,
-    extractedBatch: null,
-    allPureMarketingUrls: parsedItems.every(x => x.parsed.isPureMarketingUrl)
-  };
-
-  parsedItems.forEach(({ parsed }) => {
-    parsed.lookupCodes.forEach(c => {
-      if (!combined.lookupCodes.includes(c)) combined.lookupCodes.push(c);
-    });
-    if (!combined.extractedName && parsed.extractedName) combined.extractedName = parsed.extractedName;
-    if (!combined.extractedBrand && parsed.extractedBrand) combined.extractedBrand = parsed.extractedBrand;
-    if (!combined.extractedExpiry && parsed.extractedExpiry) combined.extractedExpiry = parsed.extractedExpiry;
-    if (!combined.extractedWeightQty && parsed.extractedWeightQty) combined.extractedWeightQty = parsed.extractedWeightQty;
-    if (!combined.extractedLocation && parsed.extractedLocation) combined.extractedLocation = parsed.extractedLocation;
-    if (!combined.extractedBatch && parsed.extractedBatch) combined.extractedBatch = parsed.extractedBatch;
-  });
-
-  return combined;
-}
-
-export default function PocketScanner({
-  cartItems,
-  todayStr,
-  isSyncing,
-  themeStyles,
-  onAddSingleToCart,
-  onAddBatchToCart,
-  onRemoveCartItem,
-  onTransferSingleCartItemToStock,
-  onTransferAllCartToStock,
-  showToast
-}) {
-  const [scannerMode, setScannerMode] = useState('barcode'); // 'barcode' | 'object_ai' | 'receipt'
-  const [cameraActive, setCameraActive] = useState(false);
-  const [torchOn, setTorchOn] = useState(false);
-  const [zoomActive, setZoomActive] = useState(false);
-  const [showProduceDrawer, setShowProduceDrawer] = useState(false);
-  const [activeFormatCount, setActiveFormatCount] = useState(13);
-  const [lastDetectedFormat, setLastDetectedFormat] = useState('');
-
-  // 2-PHASEN-SCANNER-STATUS:
-  // 'barcode' = Sucht Produkt/Barcode | 'hunting_mhd' = Produkt gefunden, sucht jetzt aktiv das gedruckte MHD! | 'mhd_locked' = MHD erfasst!
-  const [scanPhase, setScanPhase] = useState('barcode');
-  const [autoAddWhenBothScanned, setAutoAddWhenBothScanned] = useState(false);
-
-  const [scannedBarcode, setScannedBarcode] = useState('');
-  const [scanName, setScanName] = useState('');
-  const [scanQty, setScanQty] = useState('1x');
-  const [scanLocation, setScanLocation] = useState('fridge');
-  const [scanCategory, setScanCategory] = useState('auto');
-  const [scanGlutenFree, setScanGlutenFree] = useState('auto');
-  const [scanExpiry, setScanExpiry] = useState('');
-  const [scanImageUrl, setScanImageUrl] = useState('');
-  const [estimatedMhdHint, setEstimatedMhdHint] = useState('');
-
-  const [isLookingUpProduct, setIsLookingUpProduct] = useState(false);
-  const [detectedMhdCandidate, setDetectedMhdCandidate] = useState('');
-  const [isMhdLockedByOcr, setIsMhdLockedByOcr] = useState(false);
-  const [lastOcrRawHint, setLastOcrRawHint] = useState('');
-  const [isReadingMhd, setIsReadingMhd] = useState(false);
-  const [isReadingFullLabel, setIsReadingFullLabel] = useState(false);
-  const [isDetectingObject, setIsDetectingObject] = useState(false);
-
-  const [isScanningReceipt, setIsScanningReceipt] = useState(false);
-  const [receiptItems, setReceiptItems] = useState([]);
-
-  const videoRef = useRef(null);
-  const streamRef = useRef(null);
-  const scanLoopRef = useRef(null);
-  const mhdAutoLoopRef = useRef(null);
-  const ocrWorkerRef = useRef(null);
-  const zxingReaderRef = useRef(null);
-  const mobileNetModelRef = useRef(null);
-  const wakeLockRef = useRef(null);
-  const lastScannedCodeRef = useRef('');
-  const lastScanTimeRef = useRef(0);
-  const isReadingMhdRef = useRef(false);
-
-  // Haptisches Vibrations-Feedback (Punkt 2)
-  const triggerVibration = (pattern) => {
+  const updateCartAndPersist = (nextCart) => {
+    const clean = Array.isArray(nextCart) ? nextCart : [];
+    setCartItems(clean);
     try {
-      if (typeof navigator !== 'undefined' && navigator.vibrate) {
-        navigator.vibrate(pattern);
-      }
+      localStorage.setItem('richter_tw_pocket_cart_v1', JSON.stringify(clean));
     } catch (e) {}
-  };
-
-  const requestScreenWakeLock = async () => {
-    try {
-      if (typeof navigator !== 'undefined' && 'wakeLock' in navigator && !wakeLockRef.current) {
-        wakeLockRef.current = await navigator.wakeLock.request('screen');
-      }
-    } catch (e) {}
-  };
-
-  const releaseScreenWakeLock = async () => {
-    try {
-      if (wakeLockRef.current) {
-        await wakeLockRef.current.release();
-        wakeLockRef.current = null;
-      }
-    } catch (e) {}
-  };
-
-  const stopCameraStream = () => {
-    if (scanLoopRef.current) clearInterval(scanLoopRef.current);
-    if (mhdAutoLoopRef.current) clearInterval(mhdAutoLoopRef.current);
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(t => t.stop());
-      streamRef.current = null;
-    }
-    releaseScreenWakeLock();
-    setCameraActive(false);
-    setTorchOn(false);
-    setZoomActive(false);
   };
 
   useEffect(() => {
-    return () => {
-      stopCameraStream();
-      if (ocrWorkerRef.current) {
-        ocrWorkerRef.current.terminate?.().catch(() => {});
-        ocrWorkerRef.current = null;
+    if (typeof window === 'undefined') return;
+
+    try {
+      const savedCart = localStorage.getItem('richter_tw_pocket_cart_v1');
+      if (savedCart) {
+        const parsedCart = JSON.parse(savedCart);
+        if (Array.isArray(parsedCart)) setCartItems(parsedCart);
       }
+      const savedMhdLog = localStorage.getItem('richter_tw_mhd_push_log_v1');
+      if (savedMhdLog) {
+        mhdPushLogRef.current = JSON.parse(savedMhdLog) || {};
+      }
+    } catch (e) {}
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(() => {});
+    }
+
+    if ('Notification' in window) {
+      setNotifPermission(Notification.permission);
+    }
+
+    const dayWatcher = setInterval(() => {
+      const nowStr = formatDateStr(new Date());
+      setTodayStr(prev => (prev !== nowStr ? nowStr : prev));
+    }, 30000);
+
+    const onBeforeInstall = (e) => {
+      e.preventDefault();
+      setInstallPromptEvent(e);
+    };
+    const onNetOnline = () => {
+      setIsOnline(true);
+      if (pendingOfflineSaveRef.current) {
+        pendingOfflineSaveRef.current = false;
+        saveStateToCloud({});
+        showToast('Wieder online!', 'Offline-Änderungen wurden synchronisiert.', '☁️');
+      }
+    };
+    const onNetOffline = () => setIsOnline(false);
+
+    window.addEventListener('beforeinstallprompt', onBeforeInstall);
+    window.addEventListener('online', onNetOnline);
+    window.addEventListener('offline', onNetOffline);
+
+    return () => {
+      clearInterval(dayWatcher);
+      window.removeEventListener('beforeinstallprompt', onBeforeInstall);
+      window.removeEventListener('online', onNetOnline);
+      window.removeEventListener('offline', onNetOffline);
     };
   }, []);
 
-  const toggleCameraTorch = async () => {
-    try {
-      const track = streamRef.current?.getVideoTracks?.()?.[0];
-      if (!track) return;
-      const next = !torchOn;
-      await track.applyConstraints({ advanced: [{ torch: next }] });
-      setTorchOn(next);
-    } catch (e) {
-      showToast('Kameralicht', 'Taschenlampe wird auf diesem Gerät nicht unterstützt.', '🔦');
+  const handleInstallAndroidApp = async () => {
+    if (!installPromptEvent) return;
+    installPromptEvent.prompt();
+    await installPromptEvent.userChoice;
+    setInstallPromptEvent(null);
+  };
+
+  const sendPhonePushNotification = async (title, bodyText, tagId, vibrationPattern = [200, 100, 250]) => {
+    playMobileBeep('shopping');
+    try { navigator.vibrate?.(vibrationPattern); } catch (e) {}
+
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+      try {
+        if ('serviceWorker' in navigator) {
+          const reg = await navigator.serviceWorker.ready;
+          await reg.showNotification(title, {
+            body: bodyText,
+            icon: '/icon-512.png',
+            badge: '/icon-512.png',
+            vibrate: vibrationPattern,
+            tag: tagId || ('tw-push-' + Date.now())
+          });
+        } else {
+          new Notification(title, {
+            body: bodyText,
+            icon: '/icon-512.png'
+          });
+        }
+      } catch (e) {}
     }
   };
 
-  const toggleCameraZoom = async () => {
-    const next = !zoomActive;
-    setZoomActive(next);
+  const requestShoppingPushPermission = async () => {
+    playMobileBeep('shopping');
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      showToast('Ton- & Vibrations-Alarm aktiv', 'Du wirst bei Einkäufen und ablaufendem MHD benachrichtigt.', '🔔');
+      return;
+    }
     try {
-      const track = streamRef.current?.getVideoTracks?.()?.[0];
-      if (track) {
-        await track.applyConstraints({ advanced: [{ zoom: next ? 2.0 : 1.0 }] });
+      const perm = await Notification.requestPermission();
+      setNotifPermission(perm);
+      if (perm === 'granted') {
+        await sendPhonePushNotification(
+          '🔔 Touchwall Push-Alarme aktiv!',
+          'Du erhältst Push-Warnungen bei neuen Einkäufen sowie 2 Tage vor MHD-Ablauf & am Ablauftag.',
+          'tw-push-test'
+        );
+        showToast('Push aktiviert!', 'Einkaufs- & MHD-Ablauf-Warnungen sind scharf.', '🔔');
       }
     } catch (e) {}
   };
 
-  const applyFreshProduceSelection = (produceItem, showFeedbackToast = true) => {
-    if (!produceItem) return;
-    const estDate = formatDateStr(addDays(new Date(), produceItem.days));
-    setScanName(produceItem.name);
-    setScanLocation(produceItem.location);
-    setScanCategory(produceItem.category);
-    setScanGlutenFree('yes');
-    setScanExpiry(estDate);
-    setDetectedMhdCandidate(estDate);
-    setIsMhdLockedByOcr(true);
-    setScanPhase('mhd_locked');
-    setEstimatedMhdHint(
-      produceItem.emoji + ' ' + produceItem.name + ' → MHD +' + produceItem.days + ' Tage (' + produceItem.hint + ')'
+  const triggerShoppingPhoneNotification = async (addedNamesList) => {
+    if (!Array.isArray(addedNamesList) || addedNamesList.length === 0) return;
+    const summaryText = addedNamesList.join(', ');
+    showToast('🛒 Neu auf der Einkaufsliste!', summaryText, '🛒');
+    await sendPhonePushNotification(
+      '🛒 Neu auf der Einkaufsliste (' + addedNamesList.length + ')',
+      summaryText,
+      'tw-shopping-' + Date.now(),
+      [200, 100, 250]
     );
-    setShowProduceDrawer(false);
-    playMobileBeep('scan');
-    triggerVibration([90, 40, 120]);
-    if (showFeedbackToast) {
-      showToast(
-        produceItem.name + ' gewählt!',
-        'Lagerort & MHD (+' + produceItem.days + ' Tage) automatisch gesetzt.',
-        produceItem.emoji
-      );
-    }
   };
 
-  const getZXingMultiFormatReader = async () => {
-    if (zxingReaderRef.current) return zxingReaderRef.current;
-    if (typeof window === 'undefined') return null;
+  const triggerMhdExpiryPushWarnings = async (forceManual = false) => {
+    const log = mhdPushLogRef.current || {};
+    const finalItemsToNotify = [];
+    const warnItemsToNotify = [];
 
-    try {
-      if (!window.ZXing) {
-        await new Promise((resolve, reject) => {
-          const s = document.createElement('script');
-          s.src = 'https://cdn.jsdelivr.net/npm/@zxing/library@0.21.2/umd/index.min.js';
-          s.onload = resolve;
-          s.onerror = reject;
-          document.head.appendChild(s);
-        });
-      }
-      if (window.ZXing?.BrowserMultiFormatReader) {
-        const hints = new Map();
-        if (window.ZXing.DecodeHintType && window.ZXing.BarcodeFormat) {
-          const formats = [
-            window.ZXing.BarcodeFormat.EAN_13,
-            window.ZXing.BarcodeFormat.EAN_8,
-            window.ZXing.BarcodeFormat.UPC_A,
-            window.ZXing.BarcodeFormat.UPC_E,
-            window.ZXing.BarcodeFormat.CODE_128,
-            window.ZXing.BarcodeFormat.CODE_39,
-            window.ZXing.BarcodeFormat.CODE_93,
-            window.ZXing.BarcodeFormat.ITF,
-            window.ZXing.BarcodeFormat.CODABAR,
-            window.ZXing.BarcodeFormat.QR_CODE,
-            window.ZXing.BarcodeFormat.DATA_MATRIX,
-            window.ZXing.BarcodeFormat.PDF_417,
-            window.ZXing.BarcodeFormat.AZTEC,
-            window.ZXing.BarcodeFormat.RSS_14,
-            window.ZXing.BarcodeFormat.RSS_EXPANDED
-          ].filter(Boolean);
-          hints.set(window.ZXing.DecodeHintType.POSSIBLE_FORMATS, formats);
-          hints.set(window.ZXing.DecodeHintType.TRY_HARDER, true);
+    safeStock.forEach(item => {
+      if (!item?.expiryDate) return;
+      const daysLeft = getDaysUntilMhd(item.expiryDate, todayStr);
+
+      if (daysLeft === 0) {
+        const key0 = 'final0d_' + item.id + '_' + todayStr;
+        if (forceManual || !log[key0]) {
+          finalItemsToNotify.push(item);
+          log[key0] = Date.now();
         }
-        const reader = new window.ZXing.BrowserMultiFormatReader(hints);
-        zxingReaderRef.current = reader;
-        return reader;
+      } else if (daysLeft === 1 || daysLeft === 2) {
+        const keyWarn = 'warn_' + daysLeft + 'd_' + item.id + '_' + todayStr;
+        if (forceManual || !log[keyWarn]) {
+          warnItemsToNotify.push({ ...item, daysLeft });
+          log[keyWarn] = Date.now();
+        }
       }
-    } catch (e) {}
-    return null;
-  };
+    });
 
-  const loadMobileNetModel = async () => {
-    if (mobileNetModelRef.current) return mobileNetModelRef.current;
-    if (typeof window === 'undefined') return null;
-
-    if (!window.tf) {
-      await new Promise((resolve, reject) => {
-        const s = document.createElement('script');
-        s.src = 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js';
-        s.onload = resolve;
-        s.onerror = reject;
-        document.head.appendChild(s);
-      });
-    }
-    if (!window.mobilenet) {
-      await new Promise((resolve, reject) => {
-        const s = document.createElement('script');
-        s.src = 'https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js';
-        s.onload = resolve;
-        s.onerror = reject;
-        document.head.appendChild(s);
-      });
-    }
-
-    const model = await window.mobilenet.load({ version: 2, alpha: 0.5 });
-    mobileNetModelRef.current = model;
-    return model;
-  };
-
-  const detectProduceByCenterColor = (canvas) => {
-    try {
-      const ctx = canvas.getContext('2d');
-      const w = canvas.width;
-      const h = canvas.height;
-      const data = ctx.getImageData(Math.floor(w * 0.25), Math.floor(h * 0.25), Math.floor(w * 0.5), Math.floor(h * 0.5)).data;
-      let rSum = 0, gSum = 0, bSum = 0, count = 0;
-      for (let i = 0; i < data.length; i += 16) {
-        rSum += data[i];
-        gSum += data[i + 1];
-        bSum += data[i + 2];
-        count++;
+    if (finalItemsToNotify.length === 0 && warnItemsToNotify.length === 0) {
+      if (forceManual) {
+        showToast('MHD-Check ✓', 'Aktuell laufen keine Produkte heute oder in den nächsten 2 Tagen ab.', '🌱');
       }
-      const r = rSum / count;
-      const g = gSum / count;
-      const b = bSum / count;
-
-      if (g > r * 1.18 && g > b * 1.25) {
-        return g < 110
-          ? FRESH_PRODUCE_MHD_DB.find(x => x.id === 'cucumber')
-          : FRESH_PRODUCE_MHD_DB.find(x => x.id === 'salad');
-      }
-      if (r > 165 && g > 95 && g < 165 && b < 80) {
-        return FRESH_PRODUCE_MHD_DB.find(x => x.id === 'orange');
-      }
-      if (r > 170 && g > 160 && b < 95) {
-        return FRESH_PRODUCE_MHD_DB.find(x => x.id === 'banana');
-      }
-      if (r > g * 1.35 && r > b * 1.35) {
-        return FRESH_PRODUCE_MHD_DB.find(x => x.id === 'apple');
-      }
-    } catch (e) {}
-    return null;
-  };
-
-  const recognizeProduceFromCamera = async () => {
-    if (!videoRef.current || videoRef.current.readyState < 2) {
-      showToast('Kamera starten', 'Bitte schalte oben rechts zuerst die Kamera ein.', '📷');
       return;
     }
-    if (isDetectingObject) return;
-    setIsDetectingObject(true);
-    showToast('KI-Objekterkennung läuft...', 'Erkenne Obst/Gemüse & schätze Haltbarkeit...', '🍎');
 
     try {
-      const vid = videoRef.current;
-      const canvas = document.createElement('canvas');
-      canvas.width = 320;
-      canvas.height = 240;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(vid, 0, 0, canvas.width, canvas.height);
+      localStorage.setItem('richter_tw_mhd_push_log_v1', JSON.stringify(log));
+    } catch (e) {}
 
-      let matchedProduce = null;
-      try {
-        const model = await loadMobileNetModel();
-        if (model) {
-          const predictions = await model.classify(canvas, 5);
-          if (Array.isArray(predictions)) {
-            for (const pred of predictions) {
-              const cls = String(pred.className || '').toLowerCase();
-              const found = FRESH_PRODUCE_MHD_DB.find(item =>
-                item.aiLabels.some(lbl => cls.includes(lbl))
-              );
-              if (found) {
-                matchedProduce = found;
-                break;
-              }
-            }
-          }
-        }
-      } catch (e) {}
+    if (finalItemsToNotify.length > 0) {
+      const names = finalItemsToNotify.map(it => getFoodEmoji(it.name, it.customEmoji) + ' ' + it.name + ' (' + (it.quantity || '1x') + ')').join(', ');
+      const title = '🚨 LETZTE WARNUNG: Läuft HEUTE ab (' + finalItemsToNotify.length + ')!';
+      const body = names + ' — Heute verbrauchen, sonst wandert es morgen automatisch in den Mülleimer!';
+      showToast(title, body, '🚨');
+      await sendPhonePushNotification(title, body, 'tw-mhd-final-' + todayStr, [320, 120, 320, 120, 450]);
+    }
 
-      if (!matchedProduce) {
-        matchedProduce = detectProduceByCenterColor(canvas);
+    if (warnItemsToNotify.length > 0) {
+      const names = warnItemsToNotify
+        .map(it => getFoodEmoji(it.name, it.customEmoji) + ' ' + it.name + ' (' + (it.daysLeft === 1 ? 'morgen' : 'in 2 Tagen') + ')')
+        .join(', ');
+      const title = '⚠️ MHD-Warnung: Läuft in 1–2 Tagen ab (' + warnItemsToNotify.length + ')';
+      const body = names + ' — Bitte bald einplanen & verbrauchen!';
+      if (finalItemsToNotify.length === 0) {
+        showToast(title, body, '⚠️');
       }
-
-      if (matchedProduce) {
-        applyFreshProduceSelection(matchedProduce, true);
-      } else {
-        setShowProduceDrawer(true);
-        showToast('Bitte näher heranhalten', 'Oder wähle das Frischeprodukt direkt im aufgeklappten Menü!', '🔍');
-      }
-    } catch (err) {
-      setShowProduceDrawer(true);
-    } finally {
-      setIsDetectingObject(false);
+      await sendPhonePushNotification(title, body, 'tw-mhd-warn-' + todayStr, [200, 100, 240]);
     }
   };
 
-  const getFastMhdOcrWorker = async () => {
-    if (ocrWorkerRef.current) return ocrWorkerRef.current;
-
-    if (typeof window !== 'undefined' && !window.Tesseract) {
-      await new Promise((resolve, reject) => {
-        const s = document.createElement('script');
-        s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
-        s.onload = resolve;
-        s.onerror = reject;
-        document.head.appendChild(s);
-      });
-    }
-
-    if (window.Tesseract?.createWorker) {
-      const worker = await window.Tesseract.createWorker('eng');
-      await worker.setParameters({
-        tessedit_char_whitelist: '0123456789.,/-:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz '
-      });
-      ocrWorkerRef.current = worker;
-      return worker;
-    }
-    return null;
-  };
-
-  // ============================================================================
-  // UNIVERSELLER VERPACKUNGS- & ETIKETTEN-LESER
-  // ============================================================================
-  const captureProductLabelFromLiveCamera = async (silentFallback = false) => {
-    if (!videoRef.current || videoRef.current.readyState < 2) {
-      if (!silentFallback) showToast('Kamera nicht bereit', 'Bitte zuerst die Kamera starten.', '⚠️');
-      return false;
-    }
-    if (isReadingFullLabel) return false;
-    setIsReadingFullLabel(true);
-    if (!silentFallback) {
-      showToast('Lese Verpackung...', 'Erkenne Produktname, Marke, Menge & MHD...', '🏷️');
-    }
-
-    try {
-      if (typeof window !== 'undefined' && !window.Tesseract) {
-        await new Promise((resolve, reject) => {
-          const s = document.createElement('script');
-          s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
-          s.onload = resolve;
-          s.onerror = reject;
-          document.head.appendChild(s);
-        });
-      }
-
-      const vid = videoRef.current;
-      const vw = vid.videoWidth || 640;
-      const vh = vid.videoHeight || 480;
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.floor(vw * 0.88);
-      canvas.height = Math.floor(vh * 0.78);
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(
-        vid,
-        Math.floor(vw * 0.06),
-        Math.floor(vh * 0.11),
-        canvas.width,
-        canvas.height,
-        0,
-        0,
-        canvas.width,
-        canvas.height
-      );
-      enhanceCanvasForMhdOcr(ctx, canvas.width, canvas.height);
-
-      const res = await window.Tesseract.recognize(canvas, 'deu');
-      const fullText = String(res?.data?.text || '');
-      if (!fullText.trim()) return false;
-
-      let foundFoodTitle = '';
-      for (const kw of LABEL_FOOD_KEYWORDS) {
-        const reg = new RegExp('\\b' + kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
-        if (reg.test(fullText)) {
-          foundFoodTitle = kw;
-          break;
-        }
-      }
-
-      let foundBrand = '';
-      for (const kb of KNOWN_BRAND_PREFIXES) {
-        const reg = new RegExp('\\b' + kb.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
-        if (reg.test(fullText)) {
-          foundBrand = kb;
-          break;
-        }
-      }
-
-      if (!foundFoodTitle) {
-        const cleanLines = fullText
-          .split(/\r?\n/)
-          .map(l => l.replace(/[^a-zA-ZäöüÄÖÜß0-9\s\-,.]/g, '').trim())
-          .filter(l =>
-            l.length >= 4 &&
-            l.length <= 36 &&
-            !/aufgezogen|geschlachtet|geboren|deutschland|verzehr|durcherhitzen|tropfsaft|lagerung|packung|mikrowellen|ch\.|g-nr|mindestens|haltbar|zutaten|nährwerte|brennwert|kühl|trocken/i.test(l)
-          );
-        if (cleanLines.length > 0) {
-          foundFoodTitle = cleanLines[0];
-        }
-      }
-
-      const weightMatch = fullText.match(/\b(\d{2,4})\s*(g|gr|kg|ml|l)\b/i);
-      const parsedExp = extractExpiryDateFromText(fullText);
-
-      if (foundFoodTitle) {
-        const finalName = simplifyProductName(foundFoodTitle, foundBrand);
-        const cat = detectSmartCategory(finalName);
-        const loc = detectSmartLocation(finalName, cat);
-
-        setScanName(finalName);
-        setScanCategory(cat);
-        setScanLocation(loc);
-        setScanGlutenFree(isProductGlutenFree(finalName, cat) ? 'yes' : 'auto');
-        if (weightMatch) {
-          setScanQty(weightMatch[1] + weightMatch[2].toLowerCase());
-        }
-
-        if (parsedExp) {
-          setScanExpiry(parsedExp);
-          setDetectedMhdCandidate(parsedExp);
-          setIsMhdLockedByOcr(true);
-          setScanPhase('mhd_locked');
-          playMobileBeep('scan');
-          triggerVibration([180, 70, 260]);
-          showToast('Etikett + MHD erkannt! 🎉', finalName + ' (' + parsedExp + ')', getFoodEmoji(finalName));
-        } else {
-          // Produktname vom Etikett erkannt -> Suche jetzt automatisch weiter nach dem MHD-Datum!
-          setIsMhdLockedByOcr(false);
-          setScanPhase('hunting_mhd');
-          playMobileBeep('scan');
-          triggerVibration([90, 45, 90]);
-          showToast('Etikett gelesen! 🏷️', finalName + ' – halte jetzt das MHD in den Rahmen!', getFoodEmoji(finalName));
-        }
-        return true;
-      } else if (parsedExp) {
-        setScanExpiry(parsedExp);
-        setDetectedMhdCandidate(parsedExp);
-        setIsMhdLockedByOcr(true);
-        setScanPhase('mhd_locked');
-        playMobileBeep('scan');
-        triggerVibration([180, 70, 260]);
-        showToast('MHD gelesen! 🎉', parsedExp, '📅');
-        return true;
-      }
-    } catch (e) {} finally {
-      setIsReadingFullLabel(false);
-    }
-    return false;
-  };
-
-  // ============================================================================
-  // VERBESSERTER LIVE-MHD-SCANNER MIT VIBRATION & AUTO-WEITERSUCHE (PUNKT 2)
-  // ============================================================================
-  const captureMhdFromLiveCamera = async (silentMode = false) => {
-    if (!videoRef.current || videoRef.current.readyState < 2) {
-      if (!silentMode) showToast('Kamera nicht bereit', 'Bitte zuerst die Kamera starten.', '⚠️');
-      return;
-    }
-    if (isReadingMhdRef.current) return;
-
-    isReadingMhdRef.current = true;
-    setIsReadingMhd(true);
-
-    try {
-      const vid = videoRef.current;
-      const vw = vid.videoWidth || 640;
-      const vh = vid.videoHeight || 480;
-
-      // Großzügiger Zielbereich in der Bildmitte für schnelle MHD-Erfassung
-      const cropX = Math.floor(vw * 0.08);
-      const cropY = Math.floor(vh * 0.22);
-      const cropW = Math.floor(vw * 0.84);
-      const cropH = Math.floor(vh * 0.52);
-
-      const canvas = document.createElement('canvas');
-      canvas.width = cropW;
-      canvas.height = cropH;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(vid, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
-
-      // Pixel-Kontrastverstärkung für Nadeldruck- und Stempel-Schriften
-      enhanceCanvasForMhdOcr(ctx, cropW, cropH);
-
-      const worker = await getFastMhdOcrWorker();
-      const result = worker
-        ? await worker.recognize(canvas)
-        : await window.Tesseract.recognize(canvas, 'eng');
-
-      const detectedText = String(result?.data?.text || '').trim();
-      const singleLineHint = detectedText.replace(/\s+/g, ' ').slice(0, 42);
-      if (singleLineHint) setLastOcrRawHint(singleLineHint);
-
-      const parsedDate = extractExpiryDateFromText(detectedText);
-
-      if (parsedDate) {
-        setDetectedMhdCandidate(parsedDate);
-        setScanExpiry(parsedDate);
-        setIsMhdLockedByOcr(true);
-        setScanPhase('mhd_locked');
-
-        // Kräftige Doppel-Vibration zur Bestätigung, dass das MHD erfasst wurde!
-        playMobileBeep('scan');
-        triggerVibration([180, 70, 260]);
-
-        const niceDate = parsedDate.slice(8, 10) + '.' + parsedDate.slice(5, 7) + '.' + parsedDate.slice(0, 4);
-
-        if (autoAddWhenBothScanned && scanName.trim()) {
-          triggerAddCurrentScanToCart(parsedDate);
-          showToast('⚡ Automatisch im Wagen!', scanName + ' (MHD: ' + niceDate + ')', getFoodEmoji(scanName));
-        } else {
-          showToast('📅 MHD erkannt: ' + niceDate, 'Vibration bestätigt – tippe auf „🛒 In Einkaufswagen“!', '🎉');
-        }
-      } else if (!silentMode) {
-        triggerVibration(40);
-        showToast('Datum noch unscharf', 'Tipp: Nutze oben im Bild „🔍 2x“ oder „🔦 Licht“.', '🔍');
-      }
-    } catch (err) {
-      if (!silentMode) showToast('MHD-Scan Hinweis', 'Bitte noch einmal antippen.', '⚠️');
-    } finally {
-      isReadingMhdRef.current = false;
-      setIsReadingMhd(false);
-    }
-  };
-
-  // Kontinuierliche MHD-Suche: Läuft nach dem Barcode-Scan automatisch im 900ms-Takt weiter,
-  // bis ein echtes MHD per Kamera-OCR (`isMhdLockedByOcr`) erfasst wurde!
   useEffect(() => {
-    if (!cameraActive || scannerMode === 'object_ai') {
-      if (mhdAutoLoopRef.current) clearInterval(mhdAutoLoopRef.current);
-      return;
-    }
+    if (!isAuthenticated || safeStock.length === 0) return;
 
-    const intervalMs = scanPhase === 'hunting_mhd' ? 850 : 1250;
-    mhdAutoLoopRef.current = setInterval(() => {
-      if (!isReadingMhdRef.current && !isMhdLockedByOcr) {
-        captureMhdFromLiveCamera(true);
-      }
-    }, intervalMs);
+    const expiredPast = safeStock.filter(it => it.expiryDate && it.expiryDate < todayStr);
+    if (expiredPast.length > 0) {
+      const now = Date.now();
+      lastLocalEditRef.current = now;
+      expiredPast.forEach(it => {
+        syncMetaRef.current.deletedPantryIds[String(it.id)] = now;
+      });
+      saveLocalSyncMeta(syncMetaRef.current);
 
-    return () => {
-      if (mhdAutoLoopRef.current) clearInterval(mhdAutoLoopRef.current);
-    };
-  }, [cameraActive, isMhdLockedByOcr, scanPhase, scannerMode, scanName, autoAddWhenBothScanned]);
+      const remainingStock = safeStock.filter(it => !it.expiryDate || it.expiryDate >= todayStr);
+      const movedToTrash = expiredPast.map((it, idx) => ({
+        ...it,
+        trashedAt: todayStr,
+        trashedTimestamp: now + idx,
+        reason: 'expired',
+        reasonLabel: '⚠️ Automatisch abgelaufen am ' + it.expiryDate,
+        updatedAt: now,
+        fromMobile: true
+      }));
 
-  const fetchProductFromAllOpenDatabases = async (candidateCode) => {
-    const endpoints = [
-      'https://de.openfoodfacts.org/api/v2/product/' + encodeURIComponent(candidateCode) + '.json',
-      'https://world.openfoodfacts.org/api/v2/product/' + encodeURIComponent(candidateCode) + '.json',
-      'https://world.openpetfoodfacts.org/api/v2/product/' + encodeURIComponent(candidateCode) + '.json',
-      'https://world.openproductsfacts.org/api/v2/product/' + encodeURIComponent(candidateCode) + '.json'
-    ];
+      const nextTrash = [...movedToTrash, ...safeTrash];
+      setPantryItems(remainingStock);
+      setPantryTrash(nextTrash);
+      saveStateToCloud({ pantryItems: remainingStock, pantryTrash: nextTrash });
 
-    for (const url of endpoints) {
-      try {
-        const res = await fetch(url);
-        if (!res.ok) continue;
-        const data = await res.json();
-        if (data && data.product && (data.product.product_name_de || data.product.product_name || data.product.generic_name_de || data.product.brands)) {
-          return data.product;
-        }
-      } catch (e) {}
-    }
-    return null;
-  };
-
-  // ============================================================================
-  // PHASE 1 -> PHASE 2 ÜBERGANG: BARCODE ERKANNT -> VIBRATION -> WEITER NACH MHD SUCHEN!
-  // ============================================================================
-  const processMergedScanResult = async (mergedScan) => {
-    if (!mergedScan || mergedScan.allPureMarketingUrls) return;
-
-    const primaryCodeKey = mergedScan.lookupCodes[0] || mergedScan.primaryRaw.slice(0, 28);
-    setScannedBarcode(primaryCodeKey);
-    if (mergedScan.formats) setLastDetectedFormat(mergedScan.formats);
-
-    // Sofortiges haptisches Feedback beim Erfassen des Barcodes!
-    playMobileBeep('scan');
-    triggerVibration([90, 45, 90]);
-
-    if (mergedScan.extractedWeightQty) {
-      setScanQty(mergedScan.extractedWeightQty);
-    }
-
-    // Nur wenn das MHD direkt digital im GS1-/QR-Code eingebettet war, ist das MHD schon fertig:
-    if (mergedScan.extractedExpiry) {
-      setScanExpiry(mergedScan.extractedExpiry);
-      setDetectedMhdCandidate(mergedScan.extractedExpiry);
-      setIsMhdLockedByOcr(true);
-      setScanPhase('mhd_locked');
-      triggerVibration([180, 70, 260]);
-    } else {
-      // WICHTIG (Punkt 2): Nach dem Barcode-Scan sucht die Kamera automatisch weiter nach dem gedruckten MHD!
-      setIsMhdLockedByOcr(false);
-      setDetectedMhdCandidate('');
-      setScanPhase('hunting_mhd');
-    }
-
-    if (mergedScan.extractedLocation) {
-      setScanLocation(mergedScan.extractedLocation);
-    }
-
-    // 1. Sofort-Treffer aus dem lokalen Barcode-Gedächtnis
-    const learnedHit = getLearnedProductFromMemory(primaryCodeKey) || getLearnedProductFromMemory(mergedScan.primaryRaw);
-    if (learnedHit?.name) {
-      const cat = detectSmartCategory(learnedHit.name, learnedHit.category);
-      const loc = mergedScan.extractedLocation || learnedHit.location || detectSmartLocation(learnedHit.name, cat);
-      setScanName(learnedHit.name);
-      if (!mergedScan.extractedWeightQty && learnedHit.quantity) setScanQty(learnedHit.quantity);
-      setScanCategory(cat);
-      setScanLocation(loc);
-      setScanGlutenFree(learnedHit.glutenFree || (isProductGlutenFree(learnedHit.name, cat) ? 'yes' : 'auto'));
-      showToast(
-        '✅ Barcode erkannt: ' + learnedHit.name,
-        mergedScan.extractedExpiry ? 'MHD aus Code übernommen!' : '👉 Halte jetzt das MHD-Datum in den Rahmen!',
-        getFoodEmoji(learnedHit.name)
+      const expiredNames = expiredPast.map(x => x.name).join(', ');
+      showToast('🗑️ MHD überschritten!', expiredNames + ' wurde automatisch in den Mülleimer verschoben.', '🗑️');
+      sendPhonePushNotification(
+        '🗑️ MHD abgelaufen – In Mülleimer verschoben',
+        expiredNames + ' ist abgelaufen und liegt jetzt im Mülleimer.',
+        'tw-mhd-trashed-' + todayStr
       );
       return;
     }
 
-    if (mergedScan.extractedName && mergedScan.lookupCodes.length === 0) {
-      const cleanQrName = simplifyProductName(mergedScan.extractedName, mergedScan.extractedBrand || '');
-      const cat = detectSmartCategory(cleanQrName);
-      const loc = mergedScan.extractedLocation || detectSmartLocation(cleanQrName, cat);
-      setScanName(cleanQrName);
-      setScanCategory(cat);
-      setScanLocation(loc);
-      setScanGlutenFree(isProductGlutenFree(cleanQrName, cat) ? 'yes' : 'auto');
-      showToast('QR-Produkt erkannt! 🎯', cleanQrName + ' – suche jetzt nach MHD...', getFoodEmoji(cleanQrName));
+    const timer = setTimeout(() => {
+      triggerMhdExpiryPushWarnings(false);
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, [isAuthenticated, safeStock, todayStr]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const currentOpenTexts = (Array.isArray(safeNotes?.[0]?.items) ? safeNotes[0].items : [])
+      .filter(it => it && !it.done && String(it.text || '').trim() !== '')
+      .map(it => String(it.text).trim());
+
+    if (knownShoppingTextsRef.current === null) {
+      knownShoppingTextsRef.current = new Set(currentOpenTexts.map(t => t.toLowerCase()));
       return;
     }
 
-    // 2. Online-Abfrage über OpenFoodFacts / PetFood / Products
-    setIsLookingUpProduct(true);
+    const newlyAdded = currentOpenTexts.filter(
+      txt => !knownShoppingTextsRef.current.has(txt.toLowerCase())
+    );
+
+    if (newlyAdded.length > 0) {
+      triggerShoppingPhoneNotification(newlyAdded);
+    }
+
+    knownShoppingTextsRef.current = new Set(currentOpenTexts.map(t => t.toLowerCase()));
+  }, [isAuthenticated, safeNotes]);
+
+  const renderAvatar = (member, size = 'w-8 h-8', textSize = 'text-xs') => {
+    const st = getMemberStyles(member);
+    if (member?.avatarType === 'photo' && member?.photoUrl) {
+      return (
+        <div
+          style={{ borderColor: COLOR_PALETTES[member.color]?.hex || '#38bdf8' }}
+          className={size + ' rounded-full border-2 overflow-hidden shrink-0 flex items-center justify-center'}
+        >
+          <img src={member.photoUrl} alt={member.name} className="w-full h-full object-cover" />
+        </div>
+      );
+    }
+    if (member?.avatarType === 'emoji' && member?.emoji) {
+      return (
+        <div style={st.badgeStyle} className={size + ' rounded-full flex items-center justify-center ' + textSize + ' shrink-0 shadow-xs'}>
+          {member.emoji}
+        </div>
+      );
+    }
+    return (
+      <div style={st.badgeStyle} className={size + ' rounded-full font-black ' + textSize + ' flex items-center justify-center shrink-0 shadow-xs'}>
+        {member?.badge || 'F'}
+      </div>
+    );
+  };
+
+  const pocketStyles = [
+    '.tw-glow-card, .tw-glow-subtle { transition: background-color 0.2s ease, border-color 0.2s ease; }',
+    '.tw-glow-btn {',
+    '  background: linear-gradient(135deg, color-mix(in srgb, var(--tw-btn-from) 28%, var(--tw-btn-rest-base)) 0%, color-mix(in srgb, var(--tw-btn-to) 28%, var(--tw-btn-rest-base)) 100%) !important;',
+    '  color: var(--tw-btn-rest-text) !important;',
+    '  border: 1px solid color-mix(in srgb, var(--tw-btn-border) 38%, transparent) !important;',
+    '  transition: box-shadow 0.16s ease, background 0.16s ease !important;',
+    '}',
+    '.tw-nav-inactive {',
+    '  background: linear-gradient(135deg, color-mix(in srgb, var(--tw-btn-from) 12%, var(--tw-btn-rest-base)) 0%, color-mix(in srgb, var(--tw-btn-to) 12%, var(--tw-btn-rest-base)) 100%);',
+    '  border: 1px solid rgba(255, 255, 255, 0.14);',
+    '}',
+    '.tw-active-nav {',
+    '  background: linear-gradient(135deg, var(--tw-btn-from) 0%, var(--tw-btn-to) 100%) !important;',
+    '  color: #ffffff !important;',
+    '  border: 1.5px solid var(--tw-btn-border) !important;',
+    '  box-shadow: 0 6px 16px -3px var(--tw-btn-glow) !important;',
+    '}'
+  ].join('\n');
+
+  const callCloudBackend = async (postBody) => {
+    return callCloudApi(
+      PUBLIC_CLOUD_BACKEND_URL,
+      'POST',
+      postBody,
+      postBody.accountId !== undefined ? postBody.accountId : accountId,
+      postBody.authKey !== undefined ? postBody.authKey : authKey
+    );
+  };
+
+  const applyRemoteBundle = (bundle, deferTasksAndNotes = false) => {
+    if (!bundle) return { resolvedNotes: safeNotes, resolvedTasks: safeTasks, resolvedTodoistCfg: todoistConfig };
+    let nextNotes = safeNotes;
+    let nextTasks = safeTasks;
+    let nextTodoistCfg = todoistConfig;
+
+    if (bundle.state) {
+      const s = bundle.state;
+      if (s.syncMeta) {
+        syncMetaRef.current = mergeSyncMetaMaps(syncMetaRef.current, s.syncMeta);
+        saveLocalSyncMeta(syncMetaRef.current);
+      }
+
+      preservedWallStateRef.current = {
+        ...preservedWallStateRef.current,
+        skillBoardData: mergeSkillBoardSafe(preservedWallStateRef.current.skillBoardData, s.skillBoardData),
+        customLogoUrl: s.customLogoUrl || preservedWallStateRef.current.customLogoUrl || '',
+        calendars: s.calendars || preservedWallStateRef.current.calendars || {}
+      };
+
+      if (s.familyName) setFamilyName(s.familyName);
+      if (Array.isArray(s.members) && s.members.length >= 2 && hasJsonChanged(safeMembers, s.members)) setMembers(s.members);
+      if (Array.isArray(s.mealPlan) && s.mealPlan.length > 0 && hasJsonChanged(safeMeals, s.mealPlan)) setMealPlan(s.mealPlan);
+
+      if (Array.isArray(s.familyNotes) && s.familyNotes.length > 0) {
+        nextNotes = reconcileShoppingNotes(safeNotes, s.familyNotes, syncMetaRef.current, 'cloud');
+        if (!deferTasksAndNotes && hasJsonChanged(safeNotes, nextNotes)) {
+          setFamilyNotes(nextNotes);
+        }
+      }
+
+      if (s.schoolData && typeof s.schoolData === 'object') setSchoolData(s.schoolData);
+
+      if (Array.isArray(s.familyTasks)) {
+        nextTasks = reconcileFamilyTasks(safeTasks, s.familyTasks, syncMetaRef.current, 'cloud');
+        if (!deferTasksAndNotes && hasJsonChanged(safeTasks, nextTasks)) {
+          setFamilyTasks(nextTasks);
+        }
+      }
+
+      if (Array.isArray(s.pantryItems) || Array.isArray(s.pantryTrash)) {
+        const { mergedStock, mergedTrash } = mergePantryChannelSafe(
+          safeStock,
+          s.pantryItems,
+          safeTrash,
+          s.pantryTrash,
+          syncMetaRef.current
+        );
+        if (hasJsonChanged(safeStock, mergedStock)) setPantryItems(mergedStock);
+        if (hasJsonChanged(safeTrash, mergedTrash)) setPantryTrash(mergedTrash);
+      }
+
+      if (s.currentTheme) setCurrentTheme(s.currentTheme);
+      if (s.todoistConfig?.apiToken) {
+        nextTodoistCfg = { ...todoistConfig, ...s.todoistConfig };
+        setTodoistConfig(nextTodoistCfg);
+      }
+    }
+
+    if (Array.isArray(bundle?.calendarData?.events)) {
+      const guardedEvents = mergeCalendarEventsSafe(bundle.calendarData.events, pendingCalendarOpsRef, syncMetaRef.current);
+      if (hasJsonChanged(safeEvents, guardedEvents)) {
+        setEvents(guardedEvents);
+        try { localStorage.setItem('richter_touchwall_events_cache', JSON.stringify(guardedEvents)); } catch (e) {}
+      }
+    }
+
+    return { resolvedNotes: nextNotes, resolvedTasks: nextTasks, resolvedTodoistCfg: nextTodoistCfg };
+  };
+
+  const saveStateToCloud = async (overrides = {}) => {
+    const localStockToSave = overrides.pantryItems !== undefined ? overrides.pantryItems : safeStock;
+    const localTrashToSave = overrides.pantryTrash !== undefined ? overrides.pantryTrash : safeTrash;
+    const localTasksToSave = overrides.familyTasks !== undefined ? overrides.familyTasks : safeTasks;
+    const localNotesToSave = overrides.familyNotes !== undefined ? overrides.familyNotes : safeNotes;
+    const localMealsToSave = overrides.mealPlan !== undefined ? overrides.mealPlan : safeMeals;
+
+    const basePayload = {
+      isConfigured: true,
+      familyName,
+      members: safeMembers,
+      mealPlan: localMealsToSave,
+      familyNotes: localNotesToSave,
+      schoolData,
+      familyTasks: localTasksToSave,
+      pantryItems: localStockToSave,
+      pantryTrash: localTrashToSave,
+      skillBoardData: preservedWallStateRef.current.skillBoardData || null,
+      syncMeta: syncMetaRef.current,
+      customLogoUrl: preservedWallStateRef.current.customLogoUrl || '',
+      currentTheme,
+      todoistConfig
+    };
+
+    try { localStorage.setItem('richter_touchwall_v6', JSON.stringify(basePayload)); } catch (e) {}
+
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      pendingOfflineSaveRef.current = true;
+      showToast('Offline gepuffert 📡', 'Wird automatisch gesendet, sobald wieder Empfang da ist.', '💾');
+      return;
+    }
+
+    if (!accountId || accountId === 'local') return;
+
+    isNetworkSavingRef.current = true;
+    lastLocalEditRef.current = Date.now();
+    setIsSyncing(true);
+
     try {
-      const candidatesToTry = mergedScan.lookupCodes.length > 0 ? mergedScan.lookupCodes : [mergedScan.primaryRaw];
+      let mergedStock = localStockToSave;
+      let mergedTrash = localTrashToSave;
+      let mergedNotes = localNotesToSave;
+      let mergedTasks = localTasksToSave;
+      let latestSkillBoard = preservedWallStateRef.current.skillBoardData || null;
+      let latestLogo = preservedWallStateRef.current.customLogoUrl || '';
 
-      for (const candidateCode of candidatesToTry.slice(0, 3)) {
-        const p = await fetchProductFromAllOpenDatabases(candidateCode);
-        if (p) {
-          const rawProdName = p.product_name_de || p.product_name || p.generic_name_de || p.generic_name || '';
-          const rawBrand = p.brands ? p.brands.split(',')[0].trim() : (mergedScan.extractedBrand || '');
-          const offCats = Array.isArray(p.categories_tags) ? p.categories_tags : [];
-          const offAllergens = Array.isArray(p.allergens_tags) ? p.allergens_tags : [];
-          const offLabels = Array.isArray(p.labels_tags) ? p.labels_tags : [];
+      try {
+        const freshBundle = await callCloudBackend({ action: 'loadBundle' });
+        if (freshBundle?.ok && freshBundle.state) {
+          const rs = freshBundle.state;
+          syncMetaRef.current = mergeSyncMetaMaps(syncMetaRef.current, rs.syncMeta);
+          saveLocalSyncMeta(syncMetaRef.current);
 
-          let nameWithTk = rawProdName;
-          if (offCats.some(t => /frozen/.test(t)) && !/\btk\b|tiefkühl|tiefgekühlt/i.test(nameWithTk)) {
-            nameWithTk = (nameWithTk + ' TK').trim();
+          if (rs.skillBoardData) latestSkillBoard = mergeSkillBoardSafe(latestSkillBoard, rs.skillBoardData);
+          if (rs.customLogoUrl) latestLogo = rs.customLogoUrl;
+
+          if (Array.isArray(rs.familyNotes)) {
+            mergedNotes = reconcileShoppingNotes(localNotesToSave, rs.familyNotes, syncMetaRef.current, 'cloud');
+            if (hasJsonChanged(safeNotes, mergedNotes)) setFamilyNotes(mergedNotes);
           }
 
-          const smartName = simplifyProductName(nameWithTk || rawBrand, rawBrand);
-          const qty = mergedScan.extractedWeightQty || (p.quantity ? String(p.quantity).trim() : '1x');
-          const img = p.image_front_small_url || p.image_thumb_url || '';
+          if (Array.isArray(rs.familyTasks)) {
+            mergedTasks = reconcileFamilyTasks(localTasksToSave, rs.familyTasks, syncMetaRef.current, 'cloud');
+            if (hasJsonChanged(safeTasks, mergedTasks)) setFamilyTasks(mergedTasks);
+          }
 
-          if (img) setScanImageUrl(img);
-          if (smartName) {
-            const detectedCat = detectSmartCategory(smartName, 'auto', offCats);
-            const detectedLoc = mergedScan.extractedLocation || detectSmartLocation(smartName, detectedCat, offCats);
-            const isGf = isProductGlutenFree(smartName, detectedCat, 'auto', offAllergens, offLabels);
+          const pMerged = mergePantryChannelSafe(
+            localStockToSave,
+            rs.pantryItems,
+            localTrashToSave,
+            rs.pantryTrash,
+            syncMetaRef.current
+          );
+          mergedStock = pMerged.mergedStock;
+          mergedTrash = pMerged.mergedTrash;
+          setPantryItems(mergedStock);
+          setPantryTrash(mergedTrash);
+        }
+      } catch (e) {}
 
-            setScanName(smartName);
-            setScanQty(qty);
-            setScanCategory(detectedCat);
-            setScanLocation(detectedLoc);
-            setScanGlutenFree(isGf ? 'yes' : 'auto');
+      await callCloudBackend({
+        action: 'saveState',
+        payload: {
+          ...basePayload,
+          familyNotes: mergedNotes,
+          familyTasks: mergedTasks,
+          pantryItems: mergedStock,
+          pantryTrash: mergedTrash,
+          skillBoardData: latestSkillBoard,
+          syncMeta: syncMetaRef.current,
+          customLogoUrl: latestLogo
+        }
+      });
+    } catch (e) {
+      pendingOfflineSaveRef.current = true;
+    } finally {
+      lastLocalEditRef.current = Date.now();
+      isNetworkSavingRef.current = false;
+      setIsSyncing(false);
+    }
+  };
 
-            // Hinweis anzeigen, aber NICHT isMhdLockedByOcr blockieren, damit der Scanner weiter nach dem echten MHD sucht!
-            const freshMatch = estimateProduceByName(smartName);
-            if (detectedLoc === 'freezer' && !mergedScan.extractedExpiry) {
-              setEstimatedMhdHint('❄️ TK erkannt – Kamera sucht weiter nach dem aufgedruckten MHD (oder tippe +6M).');
-            } else if (freshMatch && !mergedScan.extractedExpiry) {
-              setEstimatedMhdHint(freshMatch.emoji + ' Kamera sucht jetzt nach dem MHD-Aufdruck (Empfehlung: +' + freshMatch.days + 'T).');
-            } else {
-              setEstimatedMhdHint('🎯 Produkt erkannt! Halte jetzt das MHD-Datum in den gelben Rahmen.');
-            }
+  const syncAllNow = async (showFeedback = false, accOverride = undefined, keyOverride = undefined) => {
+    const activeAcc = accOverride !== undefined ? accOverride : accountId;
+    const activeKey = keyOverride !== undefined ? keyOverride : authKey;
+    if (isSyncRunningRef.current) return;
+    if (!showFeedback && (isNetworkSavingRef.current || Date.now() - lastLocalEditRef.current < 8000)) return;
 
-            triggerVibration([100, 50, 100]);
-            showToast(
-              '✅ ' + smartName,
-              'Suche jetzt automatisch weiter nach dem MHD-Datum!',
-              getFoodEmoji(smartName)
-            );
-            return;
+    isSyncRunningRef.current = true;
+    if (showFeedback) setIsSyncing(true);
+
+    try {
+      let workingNotes = safeNotes;
+      let workingTasks = safeTasks;
+      let workingTodoistCfg = todoistConfig;
+
+      if (activeAcc && activeAcc !== 'local') {
+        const bundle = await callCloudBackend({
+          action: 'loadBundle',
+          accountId: activeAcc,
+          authKey: activeKey
+        });
+        if (!showFeedback && (isNetworkSavingRef.current || Date.now() - lastLocalEditRef.current < 6000)) {
+          return;
+        }
+        if (bundle?.ok) {
+          const hasTodoistToken = Boolean(
+            bundle?.state?.todoistConfig?.apiToken?.trim() || todoistConfig?.apiToken?.trim()
+          );
+          const applied = applyRemoteBundle(bundle, hasTodoistToken);
+          workingNotes = applied.resolvedNotes;
+          workingTasks = applied.resolvedTasks;
+          workingTodoistCfg = applied.resolvedTodoistCfg;
+        }
+      }
+
+      if (workingTodoistCfg?.apiToken?.trim()) {
+        const pulled = await pullFromTodoistTwoWay(
+          workingTodoistCfg.apiToken,
+          workingTodoistCfg,
+          workingTasks,
+          workingNotes,
+          safeMembers
+        );
+        if (pulled && (showFeedback || (!isNetworkSavingRef.current && Date.now() - lastLocalEditRef.current >= 6000))) {
+          if (Array.isArray(pulled.tasks)) {
+            workingTasks = reconcileFamilyTasks(workingTasks, pulled.tasks, syncMetaRef.current, 'todoist');
+          }
+          if (Array.isArray(pulled.familyNotes)) {
+            workingNotes = reconcileShoppingNotes(workingNotes, pulled.familyNotes, syncMetaRef.current, 'todoist');
           }
         }
       }
 
-      if (mergedScan.extractedName) {
-        const cleanQrName = simplifyProductName(mergedScan.extractedName, mergedScan.extractedBrand || '');
-        const cat = detectSmartCategory(cleanQrName);
-        const loc = detectSmartLocation(cleanQrName, cat);
-        setScanName(cleanQrName);
-        setScanCategory(cat);
-        setScanLocation(loc);
-        showToast('Aus QR-Code erkannt!', cleanQrName + ' – suche jetzt MHD...', getFoodEmoji(cleanQrName));
+      if (hasJsonChanged(safeTasks, workingTasks)) {
+        setFamilyTasks(workingTasks);
+      }
+      if (hasJsonChanged(safeNotes, workingNotes)) {
+        setFamilyNotes(workingNotes);
+      }
+
+      if (showFeedback) showToast('Synchronisiert', 'Alle 4 Kanäle sauber abgeglichen.', '✅');
+    } catch (e) {} finally {
+      isSyncRunningRef.current = false;
+      if (showFeedback) setIsSyncing(false);
+    }
+  };
+
+  useEffect(() => {
+    syncMetaRef.current = loadLocalSyncMeta();
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const qrAcc = params.get('account');
+      const qrKey = params.get('key');
+      const qrFamily = params.get('family');
+      const savedPerson = localStorage.getItem('richter_tw_pocket_person');
+      if (savedPerson) setSelectedPerson(savedPerson);
+
+      if (qrAcc && qrKey) {
+        const cleanTitle = qrFamily || 'Familien-Touchwall';
+        setAccountId(qrAcc);
+        setAuthKey(qrKey);
+        setFamilyName(cleanTitle);
+        writeAuthSession(qrAcc, qrKey, cleanTitle);
+        setIsAuthenticated(true);
+        setIsCheckingAuth(false);
+        window.history.replaceState({}, '', window.location.pathname);
+        setTimeout(() => syncAllNow(true, qrAcc, qrKey), 200);
         return;
       }
 
-      const labelSuccess = await captureProductLabelFromLiveCamera(true);
-      if (!labelSuccess) {
-        showToast(
-          (mergedScan.formats || 'Barcode') + ' gescannt!',
-          'Kamera sucht jetzt weiter nach dem MHD-Datum.',
-          '🏷️'
-        );
-      }
-    } catch (e) {
-      await captureProductLabelFromLiveCamera(true);
-    } finally {
-      setIsLookingUpProduct(false);
-    }
-  };
-
-  const startLiveBarcodeCamera = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: 'environment',
-          width: { ideal: 1920 },
-          height: { ideal: 1080 }
-        }
-      });
-
-      const track = stream.getVideoTracks()[0];
-      if (track && track.applyConstraints) {
-        track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(() => {});
-      }
-
-      streamRef.current = stream;
-      setCameraActive(true);
-      setScanPhase(scanName.trim() ? 'hunting_mhd' : 'barcode');
-      requestScreenWakeLock();
-      getFastMhdOcrWorker().catch(() => {});
-      getZXingMultiFormatReader().catch(() => {});
-
-      setTimeout(() => {
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.play().catch(() => {});
-        }
-      }, 150);
-
-      let nativeDetector = null;
-      if (typeof window !== 'undefined' && 'BarcodeDetector' in window) {
+      const session = readAuthSession();
+      const rawState = localStorage.getItem('richter_touchwall_v6');
+      if (rawState) {
         try {
-          let formatsToUse = ALL_DESIRED_BARCODE_FORMATS;
-          if (typeof window.BarcodeDetector.getSupportedFormats === 'function') {
-            const supported = await window.BarcodeDetector.getSupportedFormats();
-            if (Array.isArray(supported) && supported.length > 0) {
-              formatsToUse = supported;
-              setActiveFormatCount(supported.length);
-            }
-          }
-          nativeDetector = new window.BarcodeDetector({ formats: formatsToUse });
-        } catch (e) {
-          try { nativeDetector = new window.BarcodeDetector(); } catch (err2) {}
-        }
+          const parsed = JSON.parse(rawState);
+          if (parsed.familyName) setFamilyName(parsed.familyName);
+          if (Array.isArray(parsed.members) && parsed.members.length >= 2) setMembers(parsed.members);
+          if (Array.isArray(parsed.mealPlan)) setMealPlan(parsed.mealPlan);
+          if (Array.isArray(parsed.familyNotes)) setFamilyNotes(parsed.familyNotes);
+          if (parsed.schoolData && typeof parsed.schoolData === 'object') setSchoolData(parsed.schoolData);
+          if (Array.isArray(parsed.familyTasks)) setFamilyTasks(parsed.familyTasks);
+          if (Array.isArray(parsed.pantryItems)) setPantryItems(parsed.pantryItems);
+          if (Array.isArray(parsed.pantryTrash)) setPantryTrash(parsed.pantryTrash);
+          if (parsed.skillBoardData) preservedWallStateRef.current.skillBoardData = parsed.skillBoardData;
+          if (parsed.customLogoUrl) preservedWallStateRef.current.customLogoUrl = parsed.customLogoUrl;
+          if (parsed.currentTheme) setCurrentTheme(parsed.currentTheme);
+          if (parsed.todoistConfig) setTodoistConfig(prev => ({ ...prev, ...parsed.todoistConfig }));
+        } catch (e) {}
       }
 
-      let frameTick = 0;
-      scanLoopRef.current = setInterval(async () => {
-        if (!videoRef.current || videoRef.current.readyState < 2) return;
-        frameTick++;
+      const savedEv = localStorage.getItem('richter_touchwall_events_cache');
+      if (savedEv) {
+        try {
+          const parsedEv = JSON.parse(savedEv);
+          if (Array.isArray(parsedEv)) setEvents(parsedEv);
+        } catch (e) {}
+      }
 
-        if (nativeDetector) {
-          try {
-            const barcodes = await nativeDetector.detect(videoRef.current);
-            if (barcodes && barcodes.length > 0) {
-              const merged = mergeMultipleBarcodesFromFrame(barcodes);
-              if (merged && !merged.allPureMarketingUrls) {
-                const signature = merged.lookupCodes.join('_') || merged.primaryRaw;
-                const now = Date.now();
-                if (signature && (signature !== lastScannedCodeRef.current || now - lastScanTimeRef.current > 7000)) {
-                  lastScannedCodeRef.current = signature;
-                  lastScanTimeRef.current = now;
-                  processMergedScanResult(merged);
-                  return;
-                }
-              }
-            }
-          } catch (err) {}
+      if (session.active && session.accountId) {
+        setAccountId(session.accountId);
+        setAuthKey(session.authKey);
+        setIsAuthenticated(true);
+        if (session.accountId !== 'local') {
+          setTimeout(() => syncAllNow(false, session.accountId, session.authKey), 300);
         }
+      }
+    } catch (e) {}
+    setIsCheckingAuth(false);
+  }, []);
 
-        if (frameTick % 2 === 0 && zxingReaderRef.current) {
-          try {
-            const vid = videoRef.current;
-            const canvas = document.createElement('canvas');
-            canvas.width = 640;
-            canvas.height = 360;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(vid, 0, 0, canvas.width, canvas.height);
+  useEffect(() => {
+    if (!isAuthenticated || !accountId || accountId === 'local') return;
+    const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        syncAllNow(false);
+      }
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [isAuthenticated, accountId, authKey]);
 
-            const luminanceSource = new window.ZXing.HTMLCanvasElementLuminanceSource(canvas);
-            const binaryBitmap = new window.ZXing.BinaryBitmap(new window.ZXing.HybridBinarizer(luminanceSource));
-            const zxingResult = zxingReaderRef.current.decodeBitmap(binaryBitmap);
-            if (zxingResult && zxingResult.getText()) {
-              const rawVal = String(zxingResult.getText()).trim();
-              const merged = mergeMultipleBarcodesFromFrame([{ rawValue: rawVal, format: '2D/Multi' }]);
-              const now = Date.now();
-              if (merged && !merged.allPureMarketingUrls && (rawVal !== lastScannedCodeRef.current || now - lastScanTimeRef.current > 7000)) {
-                lastScannedCodeRef.current = rawVal;
-                lastScanTimeRef.current = now;
-                processMergedScanResult(merged);
-              }
-            }
-          } catch (zErr) {}
-        }
-      }, 360);
-    } catch (err) {
-      showToast('Kamera-Zugriff', 'Bitte erlaube den Kamera-Zugriff im Browser.', '⚠️');
-    }
+  const handleSelectPersonFilter = (personId) => {
+    setSelectedPerson(personId);
+    try { localStorage.setItem('richter_tw_pocket_person', personId); } catch (e) {}
   };
 
-  const handleReceiptPhotoUpload = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setIsScanningReceipt(true);
-    showToast('Analysiere Kassenbon...', 'Texterkennung liest & optimiert deine Einkäufe...', '🧾');
+  const handleAddSingleToCart = (nameVal, barcodeVal, qtyVal, locVal, catVal, expVal, imgVal, gfVal = 'auto') => {
+    const now = Date.now();
+    const cleanName = simplifyProductName(nameVal);
+    const resolvedCat = catVal || detectSmartCategory(cleanName);
+    const resolvedLoc = locVal || detectSmartLocation(cleanName, resolvedCat);
+    const newCartEntry = {
+      id: 'cart_' + now + '_' + Math.floor(Math.random() * 1000),
+      name: cleanName,
+      barcode: barcodeVal || '',
+      quantity: qtyVal || '1x',
+      location: resolvedLoc,
+      category: resolvedCat,
+      glutenFree: gfVal,
+      expiryDate: expVal,
+      imageUrl: imgVal || '',
+      scannedAt: now
+    };
+    const nextCart = [newCartEntry, ...safeCart];
+    updateCartAndPersist(nextCart);
+    playMobileBeep('scan');
+    showToast('Im Einkaufswagen 🛒', newCartEntry.name + ' (MHD: ' + expVal + ')', getFoodEmoji(newCartEntry.name));
+  };
 
-    try {
-      if (typeof window !== 'undefined' && !window.Tesseract) {
-        await new Promise((resolve, reject) => {
-          const s = document.createElement('script');
-          s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
-          s.onload = resolve;
-          s.onerror = reject;
-          document.head.appendChild(s);
-        });
-      }
+  const handleAddBatchToCart = (selectedList) => {
+    const now = Date.now();
+    const total = selectedList.length;
+    const newCartEntries = selectedList.map((it, idx) => {
+      const cleanName = simplifyProductName(it.name);
+      const resolvedCat = detectSmartCategory(cleanName, it.category);
+      return {
+        id: 'cart_' + now + '_' + idx + '_' + Math.floor(Math.random() * 1000),
+        name: cleanName,
+        barcode: '',
+        quantity: it.quantity || '1x',
+        location: it.location || detectSmartLocation(cleanName, resolvedCat),
+        category: resolvedCat,
+        glutenFree: it.glutenFree || (isProductGlutenFree(cleanName, resolvedCat) ? 'yes' : 'auto'),
+        expiryDate: it.expiryDate,
+        imageUrl: '',
+        scannedAt: now + (total - idx)
+      };
+    });
+    const nextCart = [...newCartEntries, ...safeCart];
+    updateCartAndPersist(nextCart);
+    playMobileBeep('scan');
+    showToast('Im Einkaufswagen 🛒', newCartEntries.length + ' Bon-Artikel abgelegt.', '🧾');
+  };
 
-      const result = await window.Tesseract.recognize(file, 'deu');
-      const lines = String(result?.data?.text || '')
-        .split(/\r?\n/)
-        .map(l => l.replace(/[0-9]+[,.][0-9]{2}\s*[AB]?$/g, '').trim())
-        .filter(l =>
-          l.length >= 3 &&
-          !/summe|gesamt|kartenzahlung|steuer|mwst|datum|uhrzeit|vielen dank|filiale|bon|eur|bar|rückgeld/i.test(l)
+  const handleRemoveCartItem = (cartId) => {
+    const nextCart = safeCart.filter(it => it.id !== cartId);
+    updateCartAndPersist(nextCart);
+  };
+
+  const handleTransferSingleCartItemToStock = async (cartItem) => {
+    if (!cartItem) return;
+    const now = Date.now();
+    lastLocalEditRef.current = now;
+    const cleanName = simplifyProductName(cartItem.name);
+    const resolvedCat = cartItem.category || detectSmartCategory(cleanName);
+    const newStockItem = {
+      id: 'p_' + now + '_' + Math.floor(Math.random() * 1000),
+      name: cleanName,
+      barcode: cartItem.barcode || '',
+      quantity: cartItem.quantity || '1x',
+      location: cartItem.location || detectSmartLocation(cleanName, resolvedCat),
+      category: resolvedCat,
+      glutenFree: cartItem.glutenFree || 'auto',
+      expiryDate: cartItem.expiryDate,
+      imageUrl: cartItem.imageUrl || '',
+      addedAt: todayStr,
+      addedTimestamp: now,
+      updatedAt: now,
+      fromMobile: true
+    };
+    const nextStock = [newStockItem, ...safeStock];
+    const nextCart = safeCart.filter(x => x.id !== cartItem.id);
+    setPantryItems(nextStock);
+    updateCartAndPersist(nextCart);
+    await saveStateToCloud({ pantryItems: nextStock });
+    showToast('In Bestand gebucht!', newStockItem.name, getFoodEmoji(newStockItem.name));
+  };
+
+  const handleTransferAllCartToStock = async () => {
+    if (safeCart.length === 0) return;
+    const now = Date.now();
+    lastLocalEditRef.current = now;
+    const sorted = [...safeCart].sort((a, b) => Number(b.scannedAt || 0) - Number(a.scannedAt || 0));
+    const total = sorted.length;
+
+    const newStockEntries = sorted.map((cItem, idx) => {
+      const stamp = now + (total - idx);
+      const cleanName = simplifyProductName(cItem.name);
+      const resolvedCat = cItem.category || detectSmartCategory(cleanName);
+      return {
+        id: 'p_' + stamp + '_' + Math.floor(Math.random() * 1000),
+        name: cleanName,
+        barcode: cItem.barcode || '',
+        quantity: cItem.quantity || '1x',
+        location: cItem.location || detectSmartLocation(cleanName, resolvedCat),
+        category: resolvedCat,
+        glutenFree: cItem.glutenFree || 'auto',
+        expiryDate: cItem.expiryDate,
+        imageUrl: cItem.imageUrl || '',
+        addedAt: todayStr,
+        addedTimestamp: stamp,
+        updatedAt: stamp,
+        fromMobile: true
+      };
+    });
+
+    const nextStock = [...newStockEntries, ...safeStock];
+    setPantryItems(nextStock);
+    updateCartAndPersist([]);
+    await saveStateToCloud({ pantryItems: nextStock });
+    showToast('Einkaufswagen eingelagert!', newStockEntries.length + ' Produkte sind jetzt im Bestand.', '🥫');
+  };
+
+  // ============================================================================
+  // AUSBUCHEN PER BARCODE-SCAN (NACH >= 2 STUNDEN IM BESTAND) ODER PER BUTTON
+  // ============================================================================
+  const handleCheckoutStockItemByScan = async (item, mode = 'trash') => {
+    if (!item) return;
+    const now = Date.now();
+    lastLocalEditRef.current = now;
+
+    if (mode === 'decrement') {
+      const dec = decrementItemPieceCount(item.quantity);
+      if (dec.remaining > 0) {
+        const nextStock = safeStock.map(x =>
+          x.id === item.id ? { ...x, quantity: dec.nextQtyStr, updatedAt: now, fromMobile: true } : x
         );
-
-      const extracted = lines.slice(0, 15).map((txt, idx) => {
-        const cleanName = simplifyProductName(txt);
-        const freshEst = estimateProduceByName(cleanName);
-        const cat = freshEst ? freshEst.category : detectSmartCategory(cleanName);
-        const loc = freshEst ? freshEst.location : detectSmartLocation(cleanName, cat);
-        const estDays = loc === 'freezer' ? 180 : freshEst ? freshEst.days : 7;
-        return {
-          id: 'rec_' + Date.now() + '_' + idx,
-          name: cleanName,
-          quantity: '1x',
-          location: loc,
-          category: cat,
-          glutenFree: isProductGlutenFree(cleanName, cat) ? 'yes' : 'auto',
-          expiryDate: formatDateStr(addDays(new Date(), estDays)),
-          selected: true
-        };
-      });
-
-      setReceiptItems(extracted);
-      triggerVibration([100, 50, 140]);
-      showToast('Kassenbon gelesen!', extracted.length + ' Positionen erkannt & Namen vereinfacht.', '✅');
-    } catch (err) {
-      showToast('Kassenbon-Hinweis', 'Bitte Foto bei gutem Licht aufnehmen.', '⚠️');
-    } finally {
-      setIsScanningReceipt(false);
+        setPantryItems(nextStock);
+        await saveStateToCloud({ pantryItems: nextStock });
+        showToast('1 Stück entnommen!', item.name + ' → Rest: ' + dec.nextQtyStr, getFoodEmoji(item.name, item.customEmoji));
+        return;
+      }
     }
+
+    syncMetaRef.current.deletedPantryIds[String(item.id)] = now;
+    saveLocalSyncMeta(syncMetaRef.current);
+
+    const nextStock = safeStock.filter(x => x.id !== item.id);
+    const nextTrash = [
+      {
+        ...item,
+        trashedAt: todayStr,
+        trashedTimestamp: now,
+        reason: 'consumed',
+        reasonLabel: '📷 Per Barcode ausgebucht am ' + todayStr,
+        updatedAt: now,
+        fromMobile: true
+      },
+      ...safeTrash
+    ];
+    setPantryItems(nextStock);
+    setPantryTrash(nextTrash);
+    await saveStateToCloud({ pantryItems: nextStock, pantryTrash: nextTrash });
   };
 
-  const handleNameInputChange = (val) => {
-    setScanName(val);
-    const cat = detectSmartCategory(val, scanCategory);
-    const loc = detectSmartLocation(val, cat);
-    setScanLocation(loc);
+  // Direktes Verschieben in den Mülleimer aus dem Bestands-Tab + Nachfrage ob auf Einkaufsliste
+  const handleMoveStockItemToTrashFromPocket = async (item, reasonType = 'wasted', askForShoppingList = true) => {
+    if (!item) return;
+    const now = Date.now();
+    lastLocalEditRef.current = now;
+    syncMetaRef.current.deletedPantryIds[String(item.id)] = now;
+    saveLocalSyncMeta(syncMetaRef.current);
 
-    const matched = estimateProduceByName(val);
-    if (matched) {
-      setScanCategory(matched.category);
-      setEstimatedMhdHint(
-        matched.emoji + ' ' + matched.name + ': Empfohlenes MHD +' + matched.days + ' Tage (' + matched.hint + ')'
-      );
+    const nextStock = safeStock.filter(x => x.id !== item.id);
+    const nextTrash = [
+      {
+        ...item,
+        trashedAt: todayStr,
+        trashedTimestamp: now,
+        reason: reasonType,
+        reasonLabel: reasonType === 'consumed' ? ('🍽️ Verzehrt am ' + todayStr) : ('🗑️ In Mülleimer am ' + todayStr),
+        updatedAt: now,
+        fromMobile: true
+      },
+      ...safeTrash
+    ];
+    setPantryItems(nextStock);
+    setPantryTrash(nextTrash);
+    await saveStateToCloud({ pantryItems: nextStock, pantryTrash: nextTrash });
+
+    if (askForShoppingList) {
+      setRestockPromptItem(item);
     } else {
-      setEstimatedMhdHint('');
+      showToast('In Mülleimer verschoben 🗑️', item.name, '🗑️');
     }
   };
 
-  const handleSimplifyCurrentNameClick = () => {
-    if (!scanName.trim()) return;
-    const simplified = simplifyProductName(scanName);
-    setScanName(simplified);
-    const cat = detectSmartCategory(simplified);
-    const loc = detectSmartLocation(simplified, cat);
-    setScanCategory(cat);
-    setScanLocation(loc);
-    showToast('Name vereinfacht ✨', simplified, getFoodEmoji(simplified));
+  // Aus dem Mülleimer zurück in den aktiven Bestand holen
+  const handleRestoreFromPocketTrash = async (trashItem) => {
+    if (!trashItem) return;
+    const now = Date.now();
+    lastLocalEditRef.current = now;
+    const newExp = formatDateStr(addDays(new Date(), 7));
+
+    if (syncMetaRef.current?.deletedTrashIds) {
+      syncMetaRef.current.deletedTrashIds[String(trashItem.id)] = now;
+      saveLocalSyncMeta(syncMetaRef.current);
+    }
+
+    const restoredStockItem = {
+      ...trashItem,
+      id: 'p_' + now + '_' + Math.floor(Math.random() * 1000),
+      expiryDate: newExp,
+      addedAt: todayStr,
+      addedTimestamp: now,
+      updatedAt: now,
+      fromMobile: true
+    };
+
+    const nextTrash = safeTrash.filter(x => x.id !== trashItem.id);
+    const nextStock = [restoredStockItem, ...safeStock];
+    setPantryTrash(nextTrash);
+    setPantryItems(nextStock);
+    await saveStateToCloud({ pantryItems: nextStock, pantryTrash: nextTrash });
+    showToast('Wiederhergestellt ↩️', trashItem.name + ' ist wieder im Vorrat (MHD +7T).', getFoodEmoji(trashItem.name));
   };
 
-  const triggerAddCurrentScanToCart = (overrideExpiry = '') => {
-    const finalExp = overrideExpiry || scanExpiry || detectedMhdCandidate;
-    const rawName = scanName.trim();
-    if (!rawName || !finalExp) {
-      showToast('Pflichtfelder', 'Bitte Produktname und Ablaufdatum (MHD) wählen.', '⚠️');
+  const handleDeleteSinglePocketTrash = async (trashItem) => {
+    if (!trashItem) return;
+    const now = Date.now();
+    lastLocalEditRef.current = now;
+    if (!syncMetaRef.current.deletedTrashIds) syncMetaRef.current.deletedTrashIds = {};
+    syncMetaRef.current.deletedTrashIds[String(trashItem.id)] = now;
+    saveLocalSyncMeta(syncMetaRef.current);
+
+    const nextTrash = safeTrash.filter(x => x.id !== trashItem.id);
+    setPantryTrash(nextTrash);
+    await saveStateToCloud({ pantryTrash: nextTrash });
+  };
+
+  const handleClearAllPocketTrash = async () => {
+    if (safeTrash.length === 0) return;
+    const now = Date.now();
+    lastLocalEditRef.current = now;
+    if (!syncMetaRef.current.deletedTrashIds) syncMetaRef.current.deletedTrashIds = {};
+    safeTrash.forEach(t => {
+      syncMetaRef.current.deletedTrashIds[String(t.id)] = now;
+    });
+    saveLocalSyncMeta(syncMetaRef.current);
+
+    setPantryTrash([]);
+    await saveStateToCloud({ pantryTrash: [] });
+    showToast('Mülleimer geleert 🗑️', 'Alle Einträge wurden dauerhaft entfernt.', '🗑️');
+  };
+
+  const openEditStockItemModal = (item) => {
+    const initialGf =
+      item.glutenFree === true || item.glutenFree === 'yes'
+        ? 'yes'
+        : item.glutenFree === false || item.glutenFree === 'no'
+        ? 'no'
+        : 'auto';
+
+    setEditStockModal({
+      open: true,
+      id: item.id,
+      name: item.name || '',
+      quantity: item.quantity || '1x',
+      location: item.location || 'fridge',
+      category: detectSmartCategory(item.name, item.category),
+      glutenFree: initialGf,
+      expiryDate: item.expiryDate || todayStr,
+      customEmoji: item.customEmoji || getFoodEmoji(item.name)
+    });
+  };
+
+  const handleSaveEditStockModal = async (e) => {
+    if (e && typeof e.preventDefault === 'function') e.preventDefault();
+    if (!editStockModal.name.trim() || !editStockModal.expiryDate) {
+      showToast('Pflichtfelder', 'Bitte Name und Ablaufdatum (MHD) ausfüllen.', '⚠️');
       return;
     }
-    const finalName = simplifyProductName(rawName);
-    const resolvedCategory = scanCategory === 'auto' ? detectSmartCategory(finalName) : scanCategory;
-    const resolvedGf = scanGlutenFree === 'auto'
-      ? (isProductGlutenFree(finalName, resolvedCategory) ? 'yes' : 'no')
-      : scanGlutenFree;
 
-    if (scannedBarcode) {
-      saveLearnedProductToMemory(scannedBarcode, {
-        name: finalName,
-        quantity: scanQty.trim() || '1x',
-        location: scanLocation,
-        category: resolvedCategory,
-        glutenFree: resolvedGf
-      });
-    }
-
-    onAddSingleToCart(
-      finalName,
-      scannedBarcode,
-      scanQty.trim(),
-      scanLocation,
-      resolvedCategory,
-      finalExp,
-      scanImageUrl,
-      resolvedGf
+    const now = Date.now();
+    lastLocalEditRef.current = now;
+    const nextStock = safeStock.map(it =>
+      it.id === editStockModal.id
+        ? {
+            ...it,
+            name: editStockModal.name.trim(),
+            quantity: editStockModal.quantity.trim() || '1x',
+            location: editStockModal.location,
+            category: editStockModal.category,
+            glutenFree: editStockModal.glutenFree,
+            expiryDate: editStockModal.expiryDate,
+            customEmoji: editStockModal.customEmoji,
+            updatedAt: now,
+            fromMobile: true
+          }
+        : it
     );
-
-    // Zurücksetzen auf Phase 1 (Bereit für das nächste Produkt!)
-    setScanName('');
-    setScannedBarcode('');
-    setLastDetectedFormat('');
-    setScanCategory('auto');
-    setScanGlutenFree('auto');
-    setScanExpiry('');
-    setScanImageUrl('');
-    setDetectedMhdCandidate('');
-    setIsMhdLockedByOcr(false);
-    setScanPhase('barcode');
-    setEstimatedMhdHint('');
-    setLastOcrRawHint('');
-    lastScannedCodeRef.current = '';
+    setPantryItems(nextStock);
+    setEditStockModal({ ...editStockModal, open: false });
+    await saveStateToCloud({ pantryItems: nextStock });
+    showToast('Gespeichert & synchronisiert!', editStockModal.name, editStockModal.customEmoji || '✅');
   };
 
-  const detectedScanCatObj = FOOD_CATEGORIES.find(
-    c => c.id === (scanCategory === 'auto' ? detectSmartCategory(scanName) : scanCategory)
-  ) || FOOD_CATEGORIES[1];
+  const handleDeleteFromEditStockModal = async () => {
+    const target = safeStock.find(x => x.id === editStockModal.id);
+    setEditStockModal({ ...editStockModal, open: false });
+    if (target) {
+      await handleMoveStockItemToTrashFromPocket(target, 'wasted', true);
+    }
+  };
 
-  const isCurrentScanGf = isProductGlutenFree(scanName, detectedScanCatObj.id, scanGlutenFree);
+  const toggleStockItemGlutenFreeDirectly = async (e, item) => {
+    e.stopPropagation();
+    const now = Date.now();
+    lastLocalEditRef.current = now;
+    const currentlyGf = isProductGlutenFree(item);
+    const nextGf = currentlyGf ? 'no' : 'yes';
+    const nextStock = safeStock.map(it =>
+      it.id === item.id ? { ...it, glutenFree: nextGf, updatedAt: now, fromMobile: true } : it
+    );
+    setPantryItems(nextStock);
+    await saveStateToCloud({ pantryItems: nextStock });
+    showToast(
+      nextGf === 'yes' ? '🌾✓ Als Glutenfrei markiert' : '🚫 Als glutenhaltig markiert',
+      item.name,
+      nextGf === 'yes' ? '🌾' : '🥖'
+    );
+  };
 
-  const sortedCart = Array.isArray(cartItems)
-    ? [...cartItems].sort((a, b) => Number(b.scannedAt || 0) - Number(a.scannedAt || 0))
-    : [];
+  const handleSimplifyAllStockNames = async () => {
+    if (safeStock.length === 0) return;
+    const now = Date.now();
+    lastLocalEditRef.current = now;
+    let changedCount = 0;
 
-  return (
-    <div className="space-y-3">
-      {/* 1. KOMPAKTE MODUS-LEISTE + KAMERA-SCHALTER */}
-      <div className="flex items-center gap-1.5">
-        <div className="grid grid-cols-3 gap-1 flex-1 p-1 rounded-2xl bg-black/35 border border-white/10">
-          <button
-            type="button"
-            onClick={() => { setScannerMode('barcode'); setShowProduceDrawer(false); }}
-            className={'py-2.5 px-2 rounded-xl text-xs font-black flex items-center justify-center gap-1 ' + (scannerMode === 'barcode' ? 'tw-active-nav' : 'tw-nav-inactive')}
-          >
-            <ScanLine className="w-4 h-4" />
-            <span>Scanner</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => { setScannerMode('object_ai'); setShowProduceDrawer(true); }}
-            className={'py-2.5 px-2 rounded-xl text-xs font-black flex items-center justify-center gap-1 ' + (scannerMode === 'object_ai' ? 'tw-active-nav' : 'tw-nav-inactive')}
-          >
-            <Apple className="w-4 h-4" />
-            <span>🍎 Frische-KI</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => { stopCameraStream(); setScannerMode('receipt'); }}
-            className={'py-2.5 px-2 rounded-xl text-xs font-black flex items-center justify-center gap-1 ' + (scannerMode === 'receipt' ? 'tw-active-nav' : 'tw-nav-inactive')}
-          >
-            <FileText className="w-4 h-4" />
-            <span>🧾 Bon</span>
-          </button>
-        </div>
+    const nextStock = safeStock.map(it => {
+      const simplified = simplifyProductName(it.name);
+      const smartCat = detectSmartCategory(simplified, it.category);
+      if (simplified !== it.name || smartCat !== it.category) {
+        changedCount++;
+        return {
+          ...it,
+          name: simplified,
+          category: smartCat,
+          updatedAt: now,
+          fromMobile: true
+        };
+      }
+      return it;
+    });
 
-        {scannerMode !== 'receipt' && (
-          !cameraActive ? (
-            <button
-              type="button"
-              onClick={startLiveBarcodeCamera}
-              className="tw-active-nav px-4 py-3 rounded-2xl text-xs font-black flex items-center gap-1.5 shrink-0 shadow-lg"
-            >
-              <Camera className="w-4 h-4" /> Kamera
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={stopCameraStream}
-              className="px-3.5 py-3 rounded-2xl bg-rose-600 text-white text-xs font-black shrink-0 shadow-lg"
-            >
-              ✕ Aus
-            </button>
-          )
-        )}
+    setPantryItems(nextStock);
+    setShowStockMenu(false);
+    await saveStateToCloud({ pantryItems: nextStock });
+    showToast(
+      'Namen optimiert ✨',
+      changedCount > 0 ? (changedCount + ' Produktnamen vereinfacht & synchronisiert.') : 'Alle Produktnamen sind bereits optimal kurz.',
+      '✨'
+    );
+  };
+
+  const handleConsumeFromPocket = async (item) => {
+    const now = Date.now();
+    lastLocalEditRef.current = now;
+    const dec = decrementItemPieceCount(item.quantity);
+
+    if (dec.remaining > 0) {
+      const nextStock = safeStock.map(x =>
+        x.id === item.id ? { ...x, quantity: dec.nextQtyStr, updatedAt: now, fromMobile: true } : x
+      );
+      setPantryItems(nextStock);
+      await saveStateToCloud({ pantryItems: nextStock });
+      showToast('1 Stück verzehrt!', item.name + ' → Rest: ' + dec.nextQtyStr, getFoodEmoji(item.name, item.customEmoji));
+      return;
+    }
+
+    await handleMoveStockItemToTrashFromPocket(item, 'consumed', true);
+  };
+
+  const handleCreateMobileEvent = async ({ title, date, time, member }) => {
+    lastLocalEditRef.current = Date.now();
+    const newEv = {
+      id: String(Date.now()),
+      title,
+      date,
+      time,
+      member,
+      notifyTime: '30m',
+      notifyChannel: 'wall_push',
+      notifyUsers: [member],
+      fromGoogle: true,
+      fromMobile: true
+    };
+    registerPendingCalendarOp(pendingCalendarOpsRef, 'create', newEv);
+    setEvents(prev => [...(Array.isArray(prev) ? prev : []), newEv]);
+    showToast('Termin gespeichert', newEv.title, '📅');
+
+    if (accountId && accountId !== 'local') {
+      try {
+        const res = await callCloudBackend({ action: 'createEvent', event: newEv });
+        if (res?.result?.events) {
+          setEvents(mergeCalendarEventsSafe(res.result.events, pendingCalendarOpsRef, syncMetaRef.current));
+        }
+      } catch (err) {}
+    }
+  };
+
+  const handleDeleteMobileEvent = async (ev) => {
+    lastLocalEditRef.current = Date.now();
+    registerPendingCalendarOp(pendingCalendarOpsRef, 'delete', ev);
+    syncMetaRef.current.deletedEventIds[String(ev.id)] = Date.now();
+    saveLocalSyncMeta(syncMetaRef.current);
+
+    setEvents(prev => (Array.isArray(prev) ? prev : []).filter(item => String(item.id) !== String(ev.id)));
+    showToast('Termin gelöscht', ev.title, '🗑️');
+    if (accountId && accountId !== 'local') {
+      try {
+        await callCloudBackend({
+          action: 'deleteEvent',
+          eventId: String(ev.id),
+          member: ev.member,
+          title: ev.title,
+          date: ev.date
+        });
+      } catch (err) {}
+    }
+  };
+
+  const handleAddQuickTask = async (cleanTitle, targetMemberId) => {
+    const now = Date.now();
+    lastLocalEditRef.current = now;
+    const norm = getTaskNormKey({ member: targetMemberId, title: cleanTitle });
+    const titleKey = getTaskTitleKey({ title: cleanTitle });
+
+    if (syncMetaRef.current?.deletedTaskIds) {
+      delete syncMetaRef.current.deletedTaskIds['task_del_' + norm];
+      delete syncMetaRef.current.deletedTaskIds['task_del_title_' + titleKey];
+      delete syncMetaRef.current.deletedTaskIds['task_done_' + norm];
+      delete syncMetaRef.current.deletedTaskIds['task_done_title_' + titleKey];
+      saveLocalSyncMeta(syncMetaRef.current);
+    }
+
+    const memberObj = safeMembers.find(m => m.id === targetMemberId) || safeMembers[1];
+    const projId = memberObj?.todoistProjectId || todoistConfig?.tasksProjectId || '';
+
+    let todoistId = null;
+    if (todoistConfig?.apiToken && projId) {
+      try {
+        const created = await createTodoistTaskItem(
+          todoistConfig.apiToken,
+          projId,
+          cleanTitle,
+          memberObj,
+          todayStr,
+          '18:00',
+          3,
+          '',
+          '15m',
+          todoistConfig.collaborators,
+          true
+        );
+        if (created?.id) todoistId = String(created.id);
+      } catch (err) {}
+    }
+
+    const newTask = {
+      id: now,
+      todoistId,
+      projectId: projId,
+      member: targetMemberId,
+      title: cleanTitle,
+      priority: 3,
+      due: 'Heute bis 18:00 Uhr',
+      dueDate: todayStr,
+      dueTime: '18:00',
+      notifyTime: '15m',
+      done: false,
+      doneAt: 0,
+      fromMobile: true
+    };
+    const nextTasks = [newTask, ...safeTasks.filter(t => getTaskTitleKey(t) !== titleKey)];
+    setFamilyTasks(nextTasks);
+    await saveStateToCloud({ familyTasks: nextTasks });
+    showToast('Aufgabe & Push gesendet!', cleanTitle + ' → ' + memberObj.name, '✅');
+  };
+
+  const handleToggleMobileTask = async (task) => {
+    const now = Date.now();
+    lastLocalEditRef.current = now;
+    const nextDone = !task.done;
+    const norm = getTaskNormKey(task);
+    const titleKey = getTaskTitleKey(task);
+    const idKey = String(task.id || '');
+    const tdKey = task.todoistId ? String(task.todoistId) : '';
+
+    if (!syncMetaRef.current.deletedTaskIds) syncMetaRef.current.deletedTaskIds = {};
+    if (nextDone) {
+      syncMetaRef.current.deletedTaskIds['task_done_' + norm] = now;
+      syncMetaRef.current.deletedTaskIds['task_done_title_' + titleKey] = now;
+      if (idKey) syncMetaRef.current.deletedTaskIds['task_done_id_' + idKey] = now;
+      if (tdKey) syncMetaRef.current.deletedTaskIds['task_done_td_' + tdKey] = now;
+    } else {
+      delete syncMetaRef.current.deletedTaskIds['task_done_' + norm];
+      delete syncMetaRef.current.deletedTaskIds['task_done_title_' + titleKey];
+      delete syncMetaRef.current.deletedTaskIds['task_del_' + norm];
+      delete syncMetaRef.current.deletedTaskIds['task_del_title_' + titleKey];
+      if (idKey) {
+        delete syncMetaRef.current.deletedTaskIds['task_done_id_' + idKey];
+        delete syncMetaRef.current.deletedTaskIds[idKey];
+      }
+      if (tdKey) {
+        delete syncMetaRef.current.deletedTaskIds['task_done_td_' + tdKey];
+        delete syncMetaRef.current.deletedTaskIds[tdKey];
+      }
+    }
+    saveLocalSyncMeta(syncMetaRef.current);
+
+    const nextTasks = safeTasks.map(t =>
+      t.id === task.id
+        ? { ...t, done: nextDone, doneAt: nextDone ? now : 0, fromMobile: true }
+        : t
+    );
+    setFamilyTasks(nextTasks);
+
+    if (task.todoistId && todoistConfig?.apiToken) {
+      try { await closeOrReopenTodoistTask(todoistConfig.apiToken, task.todoistId, nextDone); } catch (e) {}
+    }
+    await saveStateToCloud({ familyTasks: nextTasks });
+  };
+
+  const markTasksPermanentlyRemoved = async (taskList) => {
+    const now = Date.now();
+    if (!syncMetaRef.current.deletedTaskIds) syncMetaRef.current.deletedTaskIds = {};
+
+    for (const t of taskList) {
+      const norm = getTaskNormKey(t);
+      const titleKey = getTaskTitleKey(t);
+      const idKey = String(t.id || '');
+      const tdKey = t.todoistId ? String(t.todoistId) : '';
+
+      syncMetaRef.current.deletedTaskIds['task_del_' + norm] = now;
+      syncMetaRef.current.deletedTaskIds['task_del_title_' + titleKey] = now;
+      delete syncMetaRef.current.deletedTaskIds['task_done_' + norm];
+      delete syncMetaRef.current.deletedTaskIds['task_done_title_' + titleKey];
+      if (idKey) {
+        syncMetaRef.current.deletedTaskIds[idKey] = now;
+        delete syncMetaRef.current.deletedTaskIds['task_done_id_' + idKey];
+      }
+      if (tdKey) {
+        syncMetaRef.current.deletedTaskIds[tdKey] = now;
+        delete syncMetaRef.current.deletedTaskIds['task_done_td_' + tdKey];
+        if (todoistConfig?.apiToken) {
+          try {
+            if (typeof deleteTodoistTask === 'function') {
+              await deleteTodoistTask(todoistConfig.apiToken, tdKey);
+            } else {
+              await closeOrReopenTodoistTask(todoistConfig.apiToken, tdKey, true);
+            }
+          } catch (e) {}
+        }
+      }
+    }
+    saveLocalSyncMeta(syncMetaRef.current);
+  };
+
+  const handleDeleteMobileTask = async (task) => {
+    if (!task) return;
+    lastLocalEditRef.current = Date.now();
+    await markTasksPermanentlyRemoved([task]);
+    const nextTasks = safeTasks.filter(t => t.id !== task.id && getTaskTitleKey(t) !== getTaskTitleKey(task));
+    setFamilyTasks(nextTasks);
+    await saveStateToCloud({ familyTasks: nextTasks });
+    showToast('Aufgabe gelöscht', task.title, '🗑️');
+  };
+
+  const handleClearDoneMobileTasks = async (doneList) => {
+    if (!Array.isArray(doneList) || doneList.length === 0) return;
+    lastLocalEditRef.current = Date.now();
+    await markTasksPermanentlyRemoved(doneList);
+    const doneIds = new Set(doneList.map(t => t.id));
+    const nextTasks = safeTasks.filter(t => !doneIds.has(t.id));
+    setFamilyTasks(nextTasks);
+    await saveStateToCloud({ familyTasks: nextTasks });
+    showToast('Erledigte Aufgaben geleert!', doneList.length + ' Aufgaben dauerhaft entfernt.', '🗑️');
+  };
+
+  const handleAddQuickShopItem = async (clean) => {
+    const now = Date.now();
+    lastLocalEditRef.current = now;
+    const norm = getShopNormKey(clean);
+    if (syncMetaRef.current?.deletedTaskIds) {
+      delete syncMetaRef.current.deletedTaskIds['shop_del_' + norm];
+      delete syncMetaRef.current.deletedTaskIds['shop_done_' + norm];
+      saveLocalSyncMeta(syncMetaRef.current);
+    }
+
+    const firstNote = safeNotes[0] || { id: 1, title: '🛒 Einkaufsliste', items: [] };
+    const projId = firstNote.todoistProjectId || todoistConfig?.shoppingProjectId || '';
+
+    if (knownShoppingTextsRef.current) {
+      knownShoppingTextsRef.current.add(norm);
+    }
+
+    let todoistId = null;
+    if (todoistConfig?.apiToken && projId) {
+      try {
+        const created = await createTodoistTaskItem(
+          todoistConfig.apiToken,
+          projId,
+          clean,
+          null,
+          '',
+          '',
+          1,
+          '',
+          'none',
+          todoistConfig.collaborators,
+          true
+        );
+        if (created?.id) todoistId = String(created.id);
+      } catch (err) {}
+    }
+
+    const nextNotes = safeNotes.map((n, idx) => idx === 0 ? {
+      ...n,
+      items: [
+        { text: clean, done: false, doneAt: 0, addedAtTs: now, todoistId, fromMobile: true },
+        ...(Array.isArray(n.items) ? n.items : []).filter(it => getShopNormKey(it.text) !== norm)
+      ]
+    } : n);
+    setFamilyNotes(nextNotes);
+    triggerShoppingPhoneNotification([clean]);
+    await saveStateToCloud({ familyNotes: nextNotes });
+  };
+
+  const handleToggleShopItem = async (itemIdx) => {
+    const now = Date.now();
+    lastLocalEditRef.current = now;
+    const firstNote = safeNotes[0];
+    const item = firstNote?.items?.[itemIdx];
+    if (!item) return;
+
+    const nextDone = !item.done;
+    const norm = getShopNormKey(item.text);
+
+    if (!syncMetaRef.current.deletedTaskIds) syncMetaRef.current.deletedTaskIds = {};
+    if (nextDone) {
+      syncMetaRef.current.deletedTaskIds['shop_done_' + norm] = now;
+    } else {
+      delete syncMetaRef.current.deletedTaskIds['shop_done_' + norm];
+      delete syncMetaRef.current.deletedTaskIds['shop_del_' + norm];
+      if (item.todoistId) delete syncMetaRef.current.deletedTaskIds[String(item.todoistId)];
+    }
+    saveLocalSyncMeta(syncMetaRef.current);
+
+    const nextNotes = safeNotes.map((n, idx) => idx === 0 ? {
+      ...n,
+      items: (Array.isArray(n.items) ? n.items : []).map((it, i) =>
+        i === itemIdx ? { ...it, done: nextDone, doneAt: nextDone ? now : 0, fromMobile: true } : it
+      )
+    } : n);
+    setFamilyNotes(nextNotes);
+
+    if (item.todoistId && todoistConfig?.apiToken) {
+      try { await closeOrReopenTodoistTask(todoistConfig.apiToken, item.todoistId, nextDone); } catch (e) {}
+    }
+    await saveStateToCloud({ familyNotes: nextNotes });
+  };
+
+  const markShopItemsPermanentlyRemoved = async (itemsList) => {
+    const now = Date.now();
+    if (!syncMetaRef.current.deletedTaskIds) syncMetaRef.current.deletedTaskIds = {};
+
+    for (const it of itemsList) {
+      const norm = getShopNormKey(it.text);
+      syncMetaRef.current.deletedTaskIds['shop_del_' + norm] = now;
+      delete syncMetaRef.current.deletedTaskIds['shop_done_' + norm];
+      if (it.todoistId) {
+        syncMetaRef.current.deletedTaskIds[String(it.todoistId)] = now;
+        if (todoistConfig?.apiToken) {
+          try {
+            if (typeof deleteTodoistTask === 'function') {
+              await deleteTodoistTask(todoistConfig.apiToken, it.todoistId);
+            } else {
+              await closeOrReopenTodoistTask(todoistConfig.apiToken, it.todoistId, true);
+            }
+          } catch (e) {}
+        }
+      }
+    }
+    saveLocalSyncMeta(syncMetaRef.current);
+  };
+
+  const handleMoveBoughtItemToPantry = async (shopItem, mhdDays = 7) => {
+    const now = Date.now();
+    lastLocalEditRef.current = now;
+    await markShopItemsPermanentlyRemoved([shopItem]);
+
+    const cleanName = simplifyProductName(shopItem.text);
+    const resolvedCat = detectSmartCategory(cleanName);
+    const resolvedLoc = detectSmartLocation(cleanName, resolvedCat);
+    const expStr = formatDateStr(addDays(new Date(), resolvedLoc === 'freezer' ? 180 : mhdDays));
+
+    const newItem = {
+      id: 'p_' + now + '_' + Math.floor(Math.random() * 1000),
+      name: cleanName,
+      quantity: '1x',
+      location: resolvedLoc,
+      category: resolvedCat,
+      glutenFree: isProductGlutenFree(cleanName, resolvedCat) ? 'yes' : 'auto',
+      expiryDate: expStr,
+      addedAt: todayStr,
+      addedTimestamp: now,
+      updatedAt: now,
+      fromMobile: true
+    };
+    const nextStock = [newItem, ...safeStock];
+    const nextNotes = safeNotes.map((n, idx) => idx === 0 ? {
+      ...n,
+      items: (Array.isArray(n.items) ? n.items : []).filter(it => getShopNormKey(it.text) !== getShopNormKey(shopItem.text))
+    } : n);
+    setPantryItems(nextStock);
+    setFamilyNotes(nextNotes);
+    await saveStateToCloud({ pantryItems: nextStock, familyNotes: nextNotes });
+    showToast('In Bestand gebucht!', cleanName + ' (MHD: +' + mhdDays + 'T)', getFoodEmoji(cleanName));
+  };
+
+  const handleMoveAllBoughtToPantry = async (boughtList, mhdDays = 7) => {
+    if (!Array.isArray(boughtList) || boughtList.length === 0) return;
+    const now = Date.now();
+    lastLocalEditRef.current = now;
+    await markShopItemsPermanentlyRemoved(boughtList);
+
+    const expStr = formatDateStr(addDays(new Date(), mhdDays));
+    const total = boughtList.length;
+
+    const newItems = boughtList.map((it, idx) => {
+      const stamp = now + (total - idx);
+      const cleanName = simplifyProductName(it.text);
+      const resolvedCat = detectSmartCategory(cleanName);
+      const resolvedLoc = detectSmartLocation(cleanName, resolvedCat);
+      return {
+        id: 'p_' + stamp + '_' + Math.floor(Math.random() * 1000),
+        name: cleanName,
+        quantity: '1x',
+        location: resolvedLoc,
+        category: resolvedCat,
+        glutenFree: isProductGlutenFree(cleanName, resolvedCat) ? 'yes' : 'auto',
+        expiryDate: expStr,
+        addedAt: todayStr,
+        addedTimestamp: stamp,
+        updatedAt: stamp,
+        fromMobile: true
+      };
+    });
+    const nextStock = [...newItems, ...safeStock];
+    const nextNotes = safeNotes.map((n, idx) => idx === 0 ? {
+      ...n,
+      items: (Array.isArray(n.items) ? n.items : []).filter(it => !it.done)
+    } : n);
+    setPantryItems(nextStock);
+    setFamilyNotes(nextNotes);
+    await saveStateToCloud({ pantryItems: nextStock, familyNotes: nextNotes });
+    showToast('Einkauf eingelagert!', newItems.length + ' Artikel in Bestand übernommen.', '📦');
+  };
+
+  const handleClearDoneShopItems = async (doneList) => {
+    if (!Array.isArray(doneList) || doneList.length === 0) return;
+    lastLocalEditRef.current = Date.now();
+    await markShopItemsPermanentlyRemoved(doneList);
+
+    const nextNotes = safeNotes.map((n, idx) => idx === 0 ? {
+      ...n,
+      items: (Array.isArray(n.items) ? n.items : []).filter(it => !it.done)
+    } : n);
+    setFamilyNotes(nextNotes);
+    await saveStateToCloud({ familyNotes: nextNotes });
+    showToast('Erledigte geleert!', doneList.length + ' erledigte Einkäufe entfernt.', '🗑️');
+  };
+
+  const handlePocketLogin = async (e) => {
+    e.preventDefault();
+    setLoginError('');
+    const cleanUser = formUsername.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
+    const cleanPass = formPassword.trim();
+    if (!cleanUser || !cleanPass) return;
+
+    setIsLoggingIn(true);
+    try {
+      const res = await callCloudBackend({
+        action: 'loginAccount',
+        accountId: cleanUser,
+        authKey: cleanPass
+      });
+      if (!res || res.ok === false) {
+        setLoginError(res?.error || 'Login fehlgeschlagen.');
+        setIsLoggingIn(false);
+        return;
+      }
+      setAccountId(cleanUser);
+      setAuthKey(cleanPass);
+      applyRemoteBundle(res, false);
+      const title = res?.state?.familyName || ('Familie ' + cleanUser);
+      setFamilyName(title);
+      writeAuthSession(cleanUser, cleanPass, title);
+      setIsAuthenticated(true);
+    } catch (err) {
+      setLoginError('Verbindungsfehler.');
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  if (isCheckingAuth) {
+    return (
+      <div className="h-screen w-screen bg-[#111418] text-white flex items-center justify-center p-6">
+        <div className="text-sm font-extrabold opacity-75 animate-pulse">📱 Lade Touchwall Pocket...</div>
       </div>
+    );
+  }
 
-      {scannerMode !== 'receipt' ? (
-        <div className={'p-3.5 rounded-3xl border space-y-3 shadow-lg ' + themeStyles.card}>
-          {/* LIVE-KAMERA-SUCHER MIT 2-PHASEN-ANZEIGE (1. BARCODE -> 2. WEITER NACH MHD SUCHEN) */}
-          {cameraActive && (
-            <div className="space-y-2">
-              <div
-                onClick={() => scannerMode === 'object_ai' ? recognizeProduceFromCamera() : captureMhdFromLiveCamera(false)}
-                className={
-                  'relative rounded-2xl overflow-hidden border-2 bg-black aspect-[16/10] cursor-pointer transition-colors ' +
-                  (scanPhase === 'mhd_locked'
-                    ? 'border-emerald-400 shadow-[0_0_20px_rgba(16,185,129,0.5)]'
-                    : scanPhase === 'hunting_mhd'
-                    ? 'border-amber-400 shadow-[0_0_20px_rgba(245,158,11,0.45)]'
-                    : 'border-sky-400')
-                }
-              >
-                <video
-                  ref={videoRef}
-                  style={zoomActive ? { transform: 'scale(1.85)', transformOrigin: 'center center' } : undefined}
-                  className="w-full h-full object-cover transition-transform duration-200"
-                  playsInline
-                  muted
-                />
+  if (!isAuthenticated) {
+    return (
+      <div className="h-screen w-screen bg-[#111418] text-slate-100 flex flex-col justify-center p-5 select-none">
+        <div className="w-full max-w-md mx-auto rounded-3xl border border-slate-700/80 bg-[#1b2028] p-6 shadow-2xl space-y-5">
+          <div className="flex items-center gap-3.5">
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-sky-500 to-indigo-600 flex items-center justify-center shadow-md shrink-0">
+              <Smartphone className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <span className="px-2.5 py-0.5 rounded-full bg-sky-500/20 text-sky-300 text-[10px] font-extrabold">
+                📱 Touchwall Pocket • Android App & Scanner
+              </span>
+              <h1 className="text-xl font-black mt-0.5">Handy-Anmeldung</h1>
+            </div>
+          </div>
 
-                {/* OBERE STATUS-LEISTE IM KAMERABILD */}
-                <div className="absolute top-2 left-2 right-2 flex items-center justify-between gap-2 z-10">
-                  <span
-                    className={
-                      'text-[11px] font-black px-2.5 py-1 rounded-xl border truncate ' +
-                      (scanPhase === 'mhd_locked'
-                        ? 'bg-emerald-950/90 text-emerald-300 border-emerald-400'
-                        : scanPhase === 'hunting_mhd'
-                        ? 'bg-amber-950/90 text-amber-200 border-amber-400 animate-pulse'
-                        : 'bg-black/80 text-sky-300 border-sky-400/40')
-                    }
-                  >
-                    {isLookingUpProduct || isReadingFullLabel
-                      ? '⏳ Erkenne Produkt...'
-                      : scanPhase === 'mhd_locked'
-                      ? ('🎉 MHD erfasst: ' + detectedMhdCandidate.slice(8, 10) + '.' + detectedMhdCandidate.slice(5, 7) + '.' + detectedMhdCandidate.slice(0, 4))
-                      : scanPhase === 'hunting_mhd'
-                      ? ('🎯 Schritt 2: Halte jetzt das MHD in den Rahmen!')
-                      : ('📷 Schritt 1: Barcode / QR oder MHD zeigen (' + activeFormatCount + ' Typen)')}
-                  </span>
-
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); toggleCameraZoom(); }}
-                      className={'px-2.5 py-1 rounded-xl text-[11px] font-black flex items-center gap-1 border ' +
-                        (zoomActive ? 'bg-sky-500 text-white border-white' : 'bg-black/75 text-white border-white/20')}
-                    >
-                      <ZoomIn className="w-3.5 h-3.5" /> 2x
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); toggleCameraTorch(); }}
-                      className={'px-2.5 py-1 rounded-xl text-[11px] font-black flex items-center gap-1 border ' +
-                        (torchOn ? 'bg-amber-400 text-slate-950 border-white' : 'bg-black/75 text-white border-white/20')}
-                    >
-                      <Zap className="w-3.5 h-3.5" /> Licht
-                    </button>
-                  </div>
-                </div>
-
-                {/* ZIELRAHMEN IN DER MITTE */}
-                <div
-                  className={
-                    'absolute inset-x-5 top-[22%] bottom-[22%] border-2 rounded-xl pointer-events-none shadow-[0_0_0_9999px_rgba(0,0,0,0.35)] flex flex-col justify-center ' +
-                    (scanPhase === 'mhd_locked' ? 'border-emerald-400' : 'border-amber-400')
-                  }
-                >
-                  <div className="w-full h-0.5 bg-emerald-400/90 shadow-[0_0_10px_#10b981] animate-pulse" />
-                </div>
-
-                {/* UNTERES STATUS-BADGE IM KAMERABILD (ZEIGT BEREITS ERKANNTES PRODUKT WÄHREND DER MHD-SUCHE) */}
-                {scanName && (
-                  <div className="absolute bottom-2 left-2 right-2 bg-black/85 border border-amber-400/60 rounded-xl px-3 py-1.5 flex items-center justify-between gap-2 z-10">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="text-lg shrink-0">{getFoodEmoji(scanName)}</span>
-                      <span className="text-xs font-black text-white truncate">{scanName}</span>
-                    </div>
-                    <span className="text-[10px] font-black text-amber-300 shrink-0">
-                      {isMhdLockedByOcr ? '✅ MHD OK' : '⏳ Suche MHD...'}
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              {/* 4 SCHNELL-BUTTONS UNTER DER KAMERA (MHD JETZT LESEN / ETIKETT / OBST-KI / AUTO-WAGEN) */}
-              <div className="grid grid-cols-4 gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsMhdLockedByOcr(false);
-                    captureMhdFromLiveCamera(false);
-                  }}
-                  disabled={isReadingMhd}
-                  className="tw-active-nav py-2.5 px-2 rounded-xl text-[11px] font-black flex items-center justify-center gap-1 shadow-md"
-                >
-                  <ScanLine className={'w-3.5 h-3.5 shrink-0 ' + (isReadingMhd ? 'animate-spin' : '')} />
-                  <span>{isReadingMhd ? 'Lese...' : '📅 MHD'}</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => captureProductLabelFromLiveCamera(false)}
-                  disabled={isReadingFullLabel}
-                  className="py-2.5 px-2 rounded-xl bg-sky-600 text-white text-[11px] font-black flex items-center justify-center gap-1 shadow-md"
-                >
-                  <Tag className={'w-3.5 h-3.5 shrink-0 ' + (isReadingFullLabel ? 'animate-spin' : '')} />
-                  <span>🏷️ Etikett</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={recognizeProduceFromCamera}
-                  disabled={isDetectingObject}
-                  className="py-2.5 px-2 rounded-xl bg-emerald-600 text-white text-[11px] font-black flex items-center justify-center gap-1 shadow-md"
-                >
-                  <Sparkles className={'w-3.5 h-3.5 shrink-0 ' + (isDetectingObject ? 'animate-spin' : '')} />
-                  <span>🍎 KI</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setAutoAddWhenBothScanned(prev => !prev)}
-                  title="Legt Produkte automatisch in den Einkaufswagen, sobald Barcode UND MHD erfasst wurden"
-                  className={'py-2.5 px-2 rounded-xl text-[10px] font-black flex items-center justify-center gap-1 border ' +
-                    (autoAddWhenBothScanned
-                      ? 'bg-amber-500 text-slate-950 border-amber-300 shadow-md'
-                      : 'tw-nav-inactive text-slate-300')}
-                >
-                  <span>⚡ Auto</span>
-                </button>
-              </div>
-
-              {/* GRÜNE BESTÄTIGUNGS-BOX WENN DAS MHD ERKANNT WURDE */}
-              {detectedMhdCandidate && (
-                <div className="p-3 rounded-2xl bg-emerald-500/20 border-2 border-emerald-400 flex items-center justify-between gap-2 shadow-lg">
-                  <div>
-                    <div className="text-xs font-black uppercase text-emerald-300">
-                      ✅ MHD erkannt & bestätigt:
-                    </div>
-                    <div className="text-base font-black text-white">
-                      📅 {detectedMhdCandidate.slice(8, 10)}.{detectedMhdCandidate.slice(5, 7)}.{detectedMhdCandidate.slice(0, 4)}
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setDetectedMhdCandidate('');
-                        setScanExpiry('');
-                        setIsMhdLockedByOcr(false);
-                        setScanPhase('hunting_mhd');
-                      }}
-                      className="px-2.5 py-2 rounded-xl bg-black/40 text-xs font-black text-rose-300"
-                    >
-                      Neu suchen
-                    </button>
-                    {scanName.trim() && (
-                      <button
-                        type="button"
-                        onClick={() => triggerAddCurrentScanToCart(detectedMhdCandidate)}
-                        className="tw-active-nav px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-md"
-                      >
-                        <ShoppingCart className="w-4 h-4" />
-                        <span>In Wagen</span>
-                      </button>
-                    )}
-                  </div>
-                </div>
-              )}
+          {loginError && (
+            <div className="p-3 rounded-2xl bg-rose-500/20 border border-rose-400/50 text-rose-200 text-xs font-extrabold">
+              ⚠️ {loginError}
             </div>
           )}
 
-          {/* EINKLAPPBARES FRISCHE-DROPDOWN */}
-          <div className="rounded-2xl bg-emerald-500/10 border border-emerald-400/30 overflow-hidden">
+          <form onSubmit={handlePocketLogin} className="space-y-3.5">
+            <input
+              type="text"
+              required
+              value={formUsername}
+              onChange={(e) => setFormUsername(e.target.value)}
+              placeholder="Familien-Benutzername"
+              className="w-full px-4 py-3.5 rounded-2xl bg-[#0e1116] border border-slate-700 text-sm font-bold text-white"
+            />
+            <input
+              type="password"
+              required
+              value={formPassword}
+              onChange={(e) => setFormPassword(e.target.value)}
+              placeholder="Passwort / PIN"
+              className="w-full px-4 py-3.5 rounded-2xl bg-[#0e1116] border border-slate-700 text-sm font-bold text-white"
+            />
             <button
-              type="button"
-              onClick={() => setShowProduceDrawer(prev => !prev)}
-              className="w-full px-3.5 py-2.5 flex items-center justify-between text-left text-xs font-black text-emerald-300"
+              type="submit"
+              disabled={isLoggingIn}
+              className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-sky-500 to-indigo-600 text-white font-black text-sm shadow-lg"
             >
-              <span>🥒🍎🥩 Schnellwahl: Frisches Obst, Gemüse & Fleisch (Auto-MHD)</span>
-              {showProduceDrawer ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+              {isLoggingIn ? 'Verbinde...' : '🔓 Auf dem Handy anmelden'}
             </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
 
-            {showProduceDrawer && (
-              <div className="px-2.5 pb-2.5 pt-1 border-t border-emerald-400/20 space-y-2">
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 max-h-48 overflow-y-auto pr-0.5">
-                  {FRESH_PRODUCE_MHD_DB.map(prod => (
+  const filteredEvents = safeEvents.filter(ev =>
+    selectedPerson === 'all' || ev.member === selectedPerson || ev.member === 'all'
+  );
+  const filteredTasks = safeTasks.filter(t => selectedPerson === 'all' || t.member === selectedPerson);
+  const openTasks = filteredTasks.filter(t => !t.done);
+  const doneTasks = filteredTasks.filter(t => t.done);
+  const shopItems = Array.isArray(safeNotes[0]?.items) ? safeNotes[0].items : [];
+  const openShop = shopItems.map((it, idx) => ({ ...it, origIdx: idx })).filter(it => !it.done);
+  const doneShop = shopItems.map((it, idx) => ({ ...it, origIdx: idx })).filter(it => it.done);
+
+  const activePersonObj = safeMembers.find(m => m.id === selectedPerson);
+
+  return (
+    <div
+      style={{
+        '--tw-btn-from': themeStyles.btnFrom || '#0ea5e9',
+        '--tw-btn-to': themeStyles.btnTo || '#4f46e5',
+        '--tw-btn-border': themeStyles.btnBorder || '#38bdf8',
+        '--tw-btn-glow': themeStyles.btnGlow || 'rgba(56, 189, 248, 0.5)',
+        '--tw-btn-rest-base': themeStyles.dark ? '#1e222d' : '#e2e8f0',
+        '--tw-btn-rest-text': themeStyles.dark ? '#e2e8f0' : '#1e293b'
+      }}
+      className={'h-[100dvh] w-screen overflow-hidden flex flex-col select-none ' + themeStyles.outer}
+    >
+      <style>{pocketStyles}</style>
+
+      <main
+        className={
+          'flex-1 overflow-x-hidden ' +
+          (activeTab === 'agenda'
+            ? 'overflow-hidden flex flex-col p-0 '
+            : 'overflow-y-auto px-2.5 pt-2.5 pb-5 ') +
+          themeStyles.viewport
+        }
+      >
+        {activeTab === 'agenda' ? (
+          <PocketAgenda
+            safeMembers={safeMembers}
+            filteredEvents={filteredEvents}
+            selectedPerson={selectedPerson}
+            onSelectPerson={handleSelectPersonFilter}
+            todayStr={todayStr}
+            themeStyles={themeStyles}
+            getMemberStyles={getMemberStyles}
+            renderAvatar={renderAvatar}
+            onCreateEvent={handleCreateMobileEvent}
+            onDeleteEvent={handleDeleteMobileEvent}
+          />
+        ) : (
+          <div className="max-w-lg w-full mx-auto space-y-3">
+            {activeTab === 'tasks' && (
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
+                <button
+                  onClick={() => handleSelectPersonFilter('all')}
+                  className={'px-3.5 py-2 rounded-2xl text-xs font-black shrink-0 ' + (selectedPerson === 'all' ? 'tw-active-nav' : 'tw-nav-inactive')}
+                >
+                  👨‍👩‍👧‍👦 Alle
+                </button>
+                {safeMembers.filter(m => m.id !== 'all').map(m => {
+                  const isSel = selectedPerson === m.id;
+                  return (
                     <button
-                      key={prod.id}
-                      type="button"
-                      onClick={() => applyFreshProduceSelection(prod, true)}
-                      className="px-2.5 py-2 rounded-xl bg-black/40 border border-white/10 hover:border-emerald-400 flex items-center gap-2 text-left"
+                      key={m.id}
+                      onClick={() => handleSelectPersonFilter(m.id)}
+                      className={'pr-3.5 pl-2 py-1.5 rounded-2xl flex items-center gap-1.5 text-xs font-black shrink-0 ' + (isSel ? 'tw-active-nav' : 'tw-nav-inactive')}
                     >
-                      <span className="text-2xl shrink-0">{prod.emoji}</span>
-                      <div className="min-w-0 leading-tight">
-                        <div className="text-xs font-extrabold text-white truncate">{prod.name.split(' ')[0]}</div>
-                        <div className="text-[10px] font-black text-emerald-400">+{prod.days} Tage</div>
-                      </div>
+                      {renderAvatar(m, 'w-5 h-5', 'text-[10px]')}
+                      <span>{m.name.split(' ')[0]}</span>
                     </button>
-                  ))}
+                  );
+                })}
+              </div>
+            )}
+
+            {activeTab === 'tasks' && (
+              <PocketTasks
+                safeMembers={safeMembers}
+                openTasks={openTasks}
+                doneTasks={doneTasks}
+                selectedPerson={selectedPerson}
+                todoistConfig={todoistConfig}
+                themeStyles={themeStyles}
+                onAddQuickTask={handleAddQuickTask}
+                onToggleTask={handleToggleMobileTask}
+                onDeleteTask={handleDeleteMobileTask}
+                onClearDoneTasks={handleClearDoneMobileTasks}
+                showToast={showToast}
+              />
+            )}
+
+            {activeTab === 'scanner' && (
+              <PocketScanner
+                cartItems={safeCart}
+                stockItems={safeStock}
+                todayStr={todayStr}
+                isSyncing={isSyncing}
+                themeStyles={themeStyles}
+                onAddSingleToCart={handleAddSingleToCart}
+                onAddBatchToCart={handleAddBatchToCart}
+                onRemoveCartItem={handleRemoveCartItem}
+                onTransferSingleCartItemToStock={handleTransferSingleCartItemToStock}
+                onTransferAllCartToStock={handleTransferAllCartToStock}
+                onCheckoutStockItemByScan={handleCheckoutStockItemByScan}
+                onAddShopItem={handleAddQuickShopItem}
+                showToast={showToast}
+              />
+            )}
+
+            {activeTab === 'shopping' && (
+              <PocketShopping
+                openShop={openShop}
+                doneShop={doneShop}
+                cartItems={safeCart}
+                notifPermission={notifPermission}
+                themeStyles={themeStyles}
+                onRequestPushPermission={requestShoppingPushPermission}
+                onAddShopItem={handleAddQuickShopItem}
+                onToggleShopItem={handleToggleShopItem}
+                onRemoveCartItem={handleRemoveCartItem}
+                onTransferSingleCartItemToStock={handleTransferSingleCartItemToStock}
+                onTransferAllCartToStock={handleTransferAllCartToStock}
+                onMoveBoughtItemToPantry={handleMoveBoughtItemToPantry}
+                onMoveAllBoughtToPantry={handleMoveAllBoughtToPantry}
+                onClearDoneShopItems={handleClearDoneShopItems}
+              />
+            )}
+
+            {/* ============================================================================
+                BESTAND INKL. NEUEM MÜLLEIMER-REITER & DIREKTEM MÜLLEIMER-BUTTON
+               ============================================================================ */}
+            {activeTab === 'stock' && (
+              <div className="space-y-3">
+                {/* OBERER UMSCHALTER: VORRAT vs. MÜLLEIMER */}
+                <div className="grid grid-cols-2 gap-1.5 p-1 rounded-2xl bg-black/35 border border-white/10">
+                  <button
+                    type="button"
+                    onClick={() => setStockSubView('stock')}
+                    className={'py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 ' +
+                      (stockSubView === 'stock' ? 'tw-active-nav' : 'tw-nav-inactive')}
+                  >
+                    <Package className="w-4 h-4" />
+                    <span>🥫 Vorrat ({safeStock.length})</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setStockSubView('trash')}
+                    className={'py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 ' +
+                      (stockSubView === 'trash' ? 'tw-active-nav' : 'tw-nav-inactive')}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    <span>🗑️ Mülleimer ({safeTrash.length})</span>
+                  </button>
                 </div>
+
+                {stockSubView === 'stock' ? (
+                  <>
+                    {(mhdAlertGroups.finalToday.length > 0 || mhdAlertGroups.warnTwoDays.length > 0) && (
+                      <div className="p-3.5 rounded-3xl border-2 border-rose-500/80 bg-rose-950/35 space-y-2.5 shadow-lg">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-black uppercase text-rose-300 flex items-center gap-1.5">
+                            <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                            <span>🔔 MHD-Ablauf-Warnung</span>
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => triggerMhdExpiryPushWarnings(true)}
+                            className="px-2.5 py-1.5 rounded-xl bg-rose-500/30 border border-rose-400/50 text-rose-100 text-xs font-black flex items-center gap-1"
+                          >
+                            <BellRing className="w-3.5 h-3.5" />
+                            <span>Push senden</span>
+                          </button>
+                        </div>
+
+                        {mhdAlertGroups.finalToday.length > 0 && (
+                          <div className="p-3 rounded-2xl bg-rose-500/25 border border-rose-400/60 space-y-1.5">
+                            <div className="text-xs font-black text-rose-200">
+                              🚨 LETZTE WARNUNG – Läuft HEUTE ab (morgen im Mülleimer):
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              {mhdAlertGroups.finalToday.map(it => (
+                                <button
+                                  key={it.id}
+                                  type="button"
+                                  onClick={() => openEditStockItemModal(it)}
+                                  className="px-3 py-1.5 rounded-xl bg-black/50 border border-rose-300/40 text-sm font-black text-white flex items-center gap-2"
+                                >
+                                  <span className="text-lg">{getFoodEmoji(it.name, it.customEmoji)}</span>
+                                  <span>{it.name}</span>
+                                  <span className="text-rose-300 font-black">({it.quantity})</span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {mhdAlertGroups.warnTwoDays.length > 0 && (
+                          <div className="p-3 rounded-2xl bg-amber-500/20 border border-amber-400/50 space-y-1.5">
+                            <div className="text-xs font-black text-amber-200">
+                              ⚠️ Vorwarnung – Läuft in 1–2 Tagen ab:
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              {mhdAlertGroups.warnTwoDays.map(it => (
+                                <button
+                                  key={it.id}
+                                  type="button"
+                                  onClick={() => openEditStockItemModal(it)}
+                                  className="px-3 py-1.5 rounded-xl bg-black/45 border border-amber-300/40 text-sm font-black text-white flex items-center gap-2"
+                                >
+                                  <span className="text-lg">{getFoodEmoji(it.name, it.customEmoji)}</span>
+                                  <span>{it.name}</span>
+                                  <span className="text-amber-300 font-black">
+                                    ({it.daysLeft === 1 ? 'morgen' : 'in 2 T.'})
+                                  </span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    <div className={'p-3.5 rounded-3xl border space-y-2.5 shadow-md ' + themeStyles.card}>
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <h2 className="font-black text-lg flex items-center gap-1.5">
+                            <span>🥫 Vorrat ({sortedStockForTab.length})</span>
+                          </h2>
+                          <p className="text-xs opacity-75 font-bold">
+                            {stockSortMode === 'newest'
+                              ? '🕒 Zuletzt gescannt oben'
+                              : stockSortMode === 'expiry'
+                              ? '📅 Nach Ablaufdatum (MHD)'
+                              : stockSortMode === 'glutenfree'
+                              ? '🌾✓ Glutenfrei zuerst'
+                              : '🔤 Alphabetisch (A–Z)'}
+                          </p>
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setStockOnlyGlutenFree(prev => !prev)}
+                            className={'px-3 py-2 rounded-xl text-xs font-black flex items-center gap-1 border ' +
+                              (stockOnlyGlutenFree
+                                ? 'bg-emerald-500 text-slate-950 border-emerald-300 shadow-md'
+                                : 'bg-emerald-500/15 text-emerald-300 border-emerald-400/40')}
+                          >
+                            <span>🌾✓ GF ({totalGlutenFreeInStock})</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setShowStockMenu(prev => !prev)}
+                            className={'px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 ' +
+                              (showStockMenu ? 'tw-active-nav' : 'tw-glow-btn')}
+                          >
+                            {showStockMenu ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
+                            <span>Filter</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="relative">
+                        <Search className="w-4 h-4 text-sky-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                        <input
+                          type="text"
+                          value={stockSearchQuery}
+                          onChange={(e) => setStockSearchQuery(e.target.value)}
+                          placeholder="Produkt, Marke oder Kategorie suchen..."
+                          className={'w-full h-12 pl-10 pr-9 rounded-2xl border text-sm font-extrabold ' + themeStyles.input}
+                        />
+                        {stockSearchQuery && (
+                          <button
+                            type="button"
+                            onClick={() => setStockSearchQuery('')}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-white/10 flex items-center justify-center text-xs font-black"
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
+
+                      {showStockMenu && (
+                        <div className={'p-3 rounded-2xl border space-y-3 ' + themeStyles.subtle}>
+                          <div className="space-y-1.5">
+                            <span className="text-[11px] font-black uppercase text-sky-400 block">
+                              ↕️ Sortierung wählen:
+                            </span>
+                            <div className="grid grid-cols-2 gap-1.5">
+                              {[
+                                { id: 'newest',     label: '🕒 Neueste oben' },
+                                { id: 'expiry',     label: '📅 Nach MHD' },
+                                { id: 'glutenfree', label: '🌾✓ Glutenfrei oben' },
+                                { id: 'az',         label: '🔤 Name (A–Z)' }
+                              ].map(sOpt => (
+                                <button
+                                  key={sOpt.id}
+                                  type="button"
+                                  onClick={() => setStockSortMode(sOpt.id)}
+                                  className={'py-2.5 px-3 rounded-xl text-xs font-extrabold text-left ' +
+                                    (stockSortMode === sOpt.id ? 'tw-active-nav' : 'tw-nav-inactive')}
+                                >
+                                  {sOpt.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="text-[11px] font-black uppercase text-emerald-400 block mb-1">
+                                🏠 Lagerort:
+                              </label>
+                              <select
+                                value={stockLocationFilter}
+                                onChange={(e) => setStockLocationFilter(e.target.value)}
+                                className={'w-full h-11 px-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+                              >
+                                <option value="all" className="bg-slate-800 text-white">🏠 Alle Orte ({safeStock.length})</option>
+                                {STORAGE_PILLS.map(loc => (
+                                  <option key={loc.id} value={loc.id} className="bg-slate-800 text-white">
+                                    {loc.label} ({safeStock.filter(x => x.location === loc.id).length})
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+
+                            <div>
+                              <label className="text-[11px] font-black uppercase text-purple-300 block mb-1">
+                                🍱 Kategorie:
+                              </label>
+                              <select
+                                value={stockCategoryFilter}
+                                onChange={(e) => setStockCategoryFilter(e.target.value)}
+                                className={'w-full h-11 px-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+                              >
+                                <option value="all" className="bg-slate-800 text-white">🍱 Alle Kategorien</option>
+                                {FOOD_CATEGORIES.map(cat => (
+                                  <option key={cat.id} value={cat.id} className="bg-slate-800 text-white">
+                                    {cat.icon} {cat.title.split(',')[0]}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <button
+                              type="button"
+                              onClick={handleSimplifyAllStockNames}
+                              className="tw-glow-btn w-full py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5"
+                            >
+                              <Wand2 className="w-4 h-4 text-sky-300" />
+                              <span>✨ Alle Namen kürzen</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => triggerMhdExpiryPushWarnings(true)}
+                              className="tw-glow-btn w-full py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5"
+                            >
+                              <BellRing className="w-4 h-4 text-amber-300" />
+                              <span>🔔 MHD-Push jetzt prüfen</span>
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="flex items-center gap-1.5 overflow-x-auto pt-0.5">
+                        <button
+                          type="button"
+                          onClick={() => setStockLocationFilter('all')}
+                          className={'px-3.5 py-2 rounded-xl text-xs font-extrabold shrink-0 ' +
+                            (stockLocationFilter === 'all' ? 'tw-active-nav' : 'tw-nav-inactive')}
+                        >
+                          🏠 Alle ({safeStock.length})
+                        </button>
+                        {STORAGE_PILLS.map(loc => {
+                          const count = safeStock.filter(x => x.location === loc.id).length;
+                          return (
+                            <button
+                              key={loc.id}
+                              type="button"
+                              onClick={() => setStockLocationFilter(loc.id)}
+                              className={'px-3.5 py-2 rounded-xl text-xs font-extrabold shrink-0 ' +
+                                (stockLocationFilter === loc.id ? 'tw-active-nav' : 'tw-nav-inactive')}
+                            >
+                              {loc.label} ({count})
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* PRODUKT-KACHELN INKL. DIREKTEM MÜLLEIMER-BUTTON */}
+                    <div className="space-y-3">
+                      {sortedStockForTab.length === 0 ? (
+                        <div className={'p-8 rounded-3xl border text-center space-y-2 ' + themeStyles.card}>
+                          <div className="text-3xl">🥫</div>
+                          <div className="text-sm font-extrabold opacity-70">
+                            Keine Produkte für diese Suche oder Filterung gefunden.
+                          </div>
+                        </div>
+                      ) : (
+                        sortedStockForTab.map((item, idx) => {
+                          const catObj = FOOD_CATEGORIES.find(c => c.id === item.resolvedCategory) || FOOD_CATEGORIES[1];
+                          const locObj = STORAGE_PILLS.find(l => l.id === item.location) || STORAGE_PILLS[0];
+                          const decPreview = decrementItemPieceCount(item.quantity);
+                          const daysLeft = getDaysUntilMhd(item.expiryDate, todayStr);
+                          const isFinalDayZero = daysLeft <= 0;
+                          const isWarnTwoDays = daysLeft === 1 || daysLeft === 2;
+                          const isWarnWeek = daysLeft > 2 && daysLeft <= 7;
+                          const isNewestTop = stockSortMode === 'newest' && idx === 0 && !stockSearchQuery;
+                          const isGf = Boolean(item.resolvedGlutenFree);
+                          const emojiIcon = getFoodEmoji(item.name, item.customEmoji);
+
+                          const daysLabel = daysLeft <= 0
+                            ? '🚨 HEUTE!'
+                            : daysLeft === 1
+                            ? '⚠️ Morgen'
+                            : daysLeft === 2
+                            ? '⚠️ 2 Tage'
+                            : (daysLeft + ' Tage');
+
+                          return (
+                            <div
+                              key={item.id}
+                              onClick={() => openEditStockItemModal(item)}
+                              className={'p-4 rounded-3xl border flex flex-col gap-3.5 cursor-pointer shadow-md transition-all ' +
+                                themeStyles.card + ' ' +
+                                (isFinalDayZero
+                                  ? 'border-rose-500 border-2 bg-rose-950/35'
+                                  : isWarnTwoDays
+                                  ? 'border-rose-400/80 bg-rose-950/20'
+                                  : isWarnWeek
+                                  ? 'border-amber-400/80 bg-amber-950/20'
+                                  : isNewestTop
+                                  ? 'border-sky-400/80 bg-sky-500/10'
+                                  : '')}
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="flex items-start gap-3.5 min-w-0 flex-1">
+                                  <span className="w-14 h-14 rounded-2xl bg-black/40 border border-white/15 flex items-center justify-center text-3xl shrink-0 shadow-inner">
+                                    {emojiIcon}
+                                  </span>
+
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                                      {isNewestTop && (
+                                        <span className="px-2 py-0.5 rounded-md bg-sky-500 text-white text-[10px] font-black shrink-0">
+                                          NEU
+                                        </span>
+                                      )}
+                                      <button
+                                        type="button"
+                                        onClick={(e) => toggleStockItemGlutenFreeDirectly(e, item)}
+                                        className={'px-2 py-0.5 rounded-md text-[10px] font-black shrink-0 ' +
+                                          (isGf
+                                            ? 'bg-emerald-500/25 border border-emerald-400/50 text-emerald-300'
+                                            : 'bg-white/5 border border-white/10 text-slate-400')}
+                                      >
+                                        {isGf ? '🌾✓ GF' : '🌾?'}
+                                      </button>
+                                      <span className="text-xs font-extrabold opacity-80 truncate">
+                                        {catObj.icon} {catObj.title.split(',')[0]}
+                                      </span>
+                                    </div>
+
+                                    <h3 className="font-black text-base sm:text-lg leading-snug break-words">
+                                      {item.name}
+                                    </h3>
+                                  </div>
+                                </div>
+
+                                <div
+                                  className={'px-3 py-2 rounded-2xl border text-right shrink-0 ' +
+                                    (isFinalDayZero
+                                      ? 'bg-rose-500/35 border-rose-300 text-rose-100'
+                                      : isWarnTwoDays
+                                      ? 'bg-rose-500/25 border-rose-400 text-rose-100'
+                                      : isWarnWeek
+                                      ? 'bg-amber-500/30 border-amber-400 text-amber-100'
+                                      : 'bg-black/35 border-white/15')}
+                                >
+                                  <div className="text-sm font-black">
+                                    {item.expiryDate.slice(8, 10)}.{item.expiryDate.slice(5, 7)}.{item.expiryDate.slice(2, 4)}
+                                  </div>
+                                  <div className={'text-xs font-black mt-0.5 ' + (isFinalDayZero || isWarnTwoDays ? 'text-rose-300' : isWarnWeek ? 'text-amber-300' : 'text-emerald-400')}>
+                                    {daysLabel}
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center justify-between gap-2 pt-2.5 border-t border-white/10">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="px-3 py-1.5 rounded-xl bg-black/45 border border-amber-400/40 text-sm font-black text-amber-300">
+                                    📦 {item.quantity}
+                                  </span>
+                                  <span className="px-3 py-1.5 rounded-xl bg-black/35 border border-white/10 text-xs sm:text-sm font-extrabold">
+                                    {locObj.label}
+                                  </span>
+                                </div>
+
+                                <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                                  <button
+                                    type="button"
+                                    onClick={() => openEditStockItemModal(item)}
+                                    title="Bearbeiten"
+                                    className="tw-nav-inactive p-2.5 rounded-xl text-sky-300"
+                                  >
+                                    <Pencil className="w-4 h-4" />
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => handleAddQuickShopItem(item.name)}
+                                    title="Auf die Einkaufsliste setzen"
+                                    className="p-2.5 rounded-xl bg-amber-500/20 border border-amber-400/40 text-amber-300"
+                                  >
+                                    <ShoppingCart className="w-4 h-4" />
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => handleMoveStockItemToTrashFromPocket(item, 'wasted', true)}
+                                    title="Direkt in den Mülleimer verschieben"
+                                    className="tw-nav-inactive p-2.5 rounded-xl text-rose-400"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => handleConsumeFromPocket(item)}
+                                    className="tw-glow-btn px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-black flex items-center gap-1"
+                                  >
+                                    <CheckCircle2 className="w-4 h-4 text-emerald-300" />
+                                    <span>{decPreview.remaining > 0 ? '-1' : 'Weg'}</span>
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  /* ============================================================================
+                      MÜLLEIMER-ANSICHT IM REITER "BESTAND" (INKL. GELBEM EINKAUFSWAGEN & RESTORE)
+                     ============================================================================ */
+                  <div className="space-y-3">
+                    <div className={'p-4 rounded-3xl border space-y-2.5 shadow-md ' + themeStyles.card}>
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <h2 className="font-black text-lg flex items-center gap-1.5">
+                            <span>🗑️ Mülleimer ({safeTrash.length})</span>
+                          </h2>
+                          <p className="text-xs font-bold text-emerald-300">
+                            🌱 Quote: {trashStats.score}% ({trashStats.consumed} verzehrt / {trashStats.wasted} weggeworfen)
+                          </p>
+                        </div>
+
+                        {safeTrash.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={handleClearAllPocketTrash}
+                            className="px-3.5 py-2.5 rounded-2xl bg-rose-600 text-white text-xs font-black flex items-center gap-1.5 shadow-md"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                            <span>Alle leeren</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {safeTrash.length === 0 ? (
+                      <div className={'p-8 rounded-3xl border text-center space-y-2 ' + themeStyles.card}>
+                        <div className="text-3xl">🌱</div>
+                        <div className="text-sm font-extrabold opacity-75">
+                          Der Mülleimer ist leer!
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-2.5">
+                        {safeTrash.map(tItem => {
+                          const isWasted = tItem.reason === 'expired' || tItem.reason === 'wasted';
+                          return (
+                            <div
+                              key={tItem.id}
+                              className={'p-4 rounded-3xl border flex flex-col gap-3 shadow-sm ' +
+                                themeStyles.card + ' ' +
+                                (isWasted ? 'border-rose-500/60' : 'border-emerald-500/40')}
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="flex items-start gap-3 min-w-0 flex-1">
+                                  <span className="w-13 h-13 rounded-2xl bg-black/40 border border-white/15 flex items-center justify-center text-3xl shrink-0">
+                                    {getFoodEmoji(tItem.name, tItem.customEmoji)}
+                                  </span>
+                                  <div className="min-w-0 flex-1">
+                                    <span
+                                      className={'inline-block px-2 py-0.5 rounded-md text-[10px] font-black mb-1 ' +
+                                        (isWasted ? 'bg-rose-500/25 text-rose-300' : 'bg-emerald-500/25 text-emerald-300')}
+                                    >
+                                      {tItem.reasonLabel || '🍽️ Verbraucht'}
+                                    </span>
+                                    <h3 className="font-black text-base sm:text-lg leading-snug break-words">
+                                      {tItem.name}
+                                    </h3>
+                                    <div className="text-xs opacity-75 font-bold mt-0.5">
+                                      {tItem.quantity} • MHD war: {tItem.expiryDate}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteSinglePocketTrash(tItem)}
+                                  className="tw-nav-inactive w-8 h-8 rounded-xl text-rose-400 font-black flex items-center justify-center shrink-0"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+
+                              <div className="flex items-center gap-2 pt-2 border-t border-white/10">
+                                <button
+                                  type="button"
+                                  onClick={() => handleAddQuickShopItem(tItem.name)}
+                                  className="flex-1 py-2.5 px-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs sm:text-sm font-black flex items-center justify-center gap-1.5 shadow-md"
+                                >
+                                  <ShoppingCart className="w-4 h-4 stroke-[2.5]" />
+                                  <span>Zur Einkaufsliste</span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleRestoreFromPocketTrash(tItem)}
+                                  title="Zurück in den Vorrats-Bestand legen"
+                                  className="tw-nav-inactive px-3.5 py-2.5 rounded-xl text-xs font-black flex items-center gap-1.5"
+                                >
+                                  <RotateCcw className="w-4 h-4 text-sky-300" />
+                                  <span>Zurück</span>
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
+        )}
+      </main>
 
-          {estimatedMhdHint && (
-            <div className="px-3 py-2 rounded-xl bg-emerald-500/15 border border-emerald-400/35 text-xs font-extrabold text-emerald-200">
-              {estimatedMhdHint}
-            </div>
-          )}
-
-          {/* EINGABE-FORMULAR MIT GROSSEM ICON & GROSSER SCHRIFT */}
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              triggerAddCurrentScanToCart();
-            }}
-            className="space-y-2.5"
+      {/* ============================================================================
+          PORTAL-MODAL: NACHFRAGE BEIM VERBRAUCHEN ("AUF EINKAUFSLISTE? JA / NEIN")
+         ============================================================================ */}
+      {restockPromptItem && typeof document !== 'undefined' && createPortal(
+        <div
+          onClick={() => setRestockPromptItem(null)}
+          className="fixed inset-0 w-screen h-screen z-[9999] bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 select-none"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className={'w-full max-w-md rounded-3xl border-2 border-amber-400 p-6 shadow-2xl space-y-5 text-center my-auto ' + themeStyles.modal}
           >
-            <div className="flex items-center gap-2">
-              <span className="w-14 h-14 rounded-2xl bg-black/35 border border-white/15 flex items-center justify-center text-3xl shrink-0 shadow-inner">
-                {getFoodEmoji(scanName)}
-              </span>
+            <div className="w-16 h-16 rounded-3xl bg-amber-500/20 border-2 border-amber-400/60 flex items-center justify-center text-4xl mx-auto shadow-inner">
+              {getFoodEmoji(restockPromptItem.name, restockPromptItem.customEmoji)}
+            </div>
 
-              <div className="relative flex-1 min-w-0">
-                <input
-                  type="text"
-                  required
-                  value={scanName}
-                  onChange={(e) => handleNameInputChange(e.target.value)}
-                  placeholder="Produktname (z.B. Vollmilch / Schwarzwaldmilch)..."
-                  className={'w-full h-14 pl-3.5 pr-16 rounded-2xl border text-base font-black ' + themeStyles.input}
-                />
-                {scanName.trim().length > 3 && (
-                  <button
-                    type="button"
-                    onClick={handleSimplifyCurrentNameClick}
-                    className="absolute right-1.5 top-2 bottom-2 px-2.5 rounded-xl bg-sky-500/25 border border-sky-400/40 text-sky-200 text-[11px] font-black flex items-center gap-1"
-                  >
-                    <Wand2 className="w-3.5 h-3.5" />
-                    <span>Kürzen</span>
-                  </button>
-                )}
+            <div className="space-y-1.5">
+              <div className="text-xs font-black uppercase tracking-wider text-emerald-400">
+                🗑️ Im Mülleimer abgelegt
               </div>
+              <h3 className="text-xl font-black leading-snug">
+                {restockPromptItem.name}
+              </h3>
+              <p className="text-sm font-bold opacity-85 pt-1">
+                Soll dieses Produkt wieder auf die Einkaufsliste aufgenommen werden?
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const name = restockPromptItem.name;
+                  setRestockPromptItem(null);
+                  showToast('Ausgebucht 🗑️', '„' + name + '“ liegt jetzt im Mülleimer.', '🗑️');
+                }}
+                className="tw-nav-inactive py-3.5 px-4 rounded-2xl text-sm font-black"
+              >
+                Nein
+              </button>
 
               <button
                 type="button"
-                onClick={() => setScanGlutenFree(prev => (isCurrentScanGf ? 'no' : 'yes'))}
-                className={'h-14 px-3 rounded-2xl text-xs font-black shrink-0 border flex flex-col items-center justify-center leading-tight ' +
-                  (isCurrentScanGf
-                    ? 'bg-emerald-500/25 border-emerald-400/60 text-emerald-300'
-                    : 'bg-black/25 border-white/10 text-slate-400')}
+                onClick={() => {
+                  const name = restockPromptItem.name;
+                  handleAddQuickShopItem(name);
+                  setRestockPromptItem(null);
+                }}
+                className="py-3.5 px-4 rounded-2xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-sm font-black flex items-center justify-center gap-2 shadow-lg"
               >
-                <span>🌾✓</span>
-                <span>{isCurrentScanGf ? 'GF' : 'Normal'}</span>
+                <ShoppingCart className="w-4 h-4 stroke-[2.5]" />
+                <span>Ja, Einkaufsliste</span>
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* INTELLIGENTES 1-HAND-SCHNELL-COCKPIT */}
+      {quickCockpitOpen && (
+        <div
+          onClick={() => setQuickCockpitOpen(false)}
+          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-end justify-center p-3"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className={'w-full max-w-md rounded-3xl border-2 p-4 shadow-2xl space-y-4 mb-14 ' + themeStyles.modal}
+          >
+            <div className="flex items-center justify-between gap-2 border-b border-white/10 pb-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <span className="px-2.5 py-1 rounded-xl bg-sky-500 text-white text-xs font-black">HR POCKET</span>
+                <div className="min-w-0">
+                  <div className="font-black text-sm truncate">{familyName}</div>
+                  <div className="text-[11px] font-bold text-emerald-400 flex items-center gap-1">
+                    {!isOnline ? (
+                      <><WifiOff className="w-3 h-3 text-amber-400" /> Offline-Puffer</>
+                    ) : (
+                      <><Cloud className="w-3 h-3" /> Cloud: {accountId || 'lokal'}</>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setQuickCockpitOpen(false)}
+                className="tw-nav-inactive w-9 h-9 rounded-full flex items-center justify-center"
+              >
+                <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="grid grid-cols-12 gap-1.5 items-center">
-              <div className="col-span-4 flex items-center bg-black/25 p-1 rounded-2xl border border-white/10 h-12">
+            <div className="space-y-2">
+              <span className="text-[11px] font-black uppercase text-sky-400 block">
+                👤 Personen-Filter (für Kalender & Aufgaben):
+              </span>
+              <div className="grid grid-cols-3 gap-2">
                 <button
                   type="button"
-                  onClick={() => setScanQty(stepMobileQty(scanQty, -1))}
-                  className="tw-nav-inactive w-9 h-full rounded-xl font-black text-base flex items-center justify-center shrink-0"
+                  onClick={() => { handleSelectPersonFilter('all'); setQuickCockpitOpen(false); }}
+                  className={'py-2.5 px-3 rounded-2xl text-xs font-black flex items-center justify-center gap-1.5 ' +
+                    (selectedPerson === 'all' ? 'tw-active-nav' : 'tw-nav-inactive')}
                 >
-                  -
+                  <span>👨‍👩‍👧‍👦 Alle</span>
                 </button>
-                <input
-                  type="text"
-                  value={scanQty}
-                  onChange={(e) => setScanQty(e.target.value)}
-                  className="w-full bg-transparent text-center text-sm font-black focus:outline-none"
-                />
-                <button
-                  type="button"
-                  onClick={() => setScanQty(stepMobileQty(scanQty, 1))}
-                  className="tw-glow-btn w-9 h-full rounded-xl font-black text-base flex items-center justify-center shrink-0"
-                >
-                  +
-                </button>
+                {safeMembers.filter(m => m.id !== 'all').map(m => {
+                  const isSel = selectedPerson === m.id;
+                  return (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => { handleSelectPersonFilter(m.id); setQuickCockpitOpen(false); }}
+                      className={'py-2 px-2.5 rounded-2xl flex items-center gap-2 text-xs font-black ' +
+                        (isSel ? 'tw-active-nav' : 'tw-nav-inactive')}
+                    >
+                      {renderAvatar(m, 'w-6 h-6', 'text-[10px]')}
+                      <span className="truncate">{m.name.split(' ')[0]}</span>
+                    </button>
+                  );
+                })}
               </div>
-
-              <select
-                value={scanLocation}
-                onChange={(e) => setScanLocation(e.target.value)}
-                className={'col-span-4 h-12 px-2.5 rounded-2xl border text-xs sm:text-sm font-extrabold ' + themeStyles.input}
-              >
-                {STORAGE_PILLS.map(loc => (
-                  <option key={loc.id} value={loc.id} className="bg-slate-800 text-white">
-                    {loc.label}
-                  </option>
-                ))}
-              </select>
-
-              <select
-                value={scanCategory}
-                onChange={(e) => setScanCategory(e.target.value)}
-                className={'col-span-4 h-12 px-2.5 rounded-2xl border text-xs sm:text-sm font-extrabold ' + themeStyles.input}
-              >
-                <option value="auto" className="bg-slate-800 text-amber-300">
-                  ✨ {detectedScanCatObj.icon} {detectedScanCatObj.title.split(',')[0]}
-                </option>
-                {FOOD_CATEGORIES.map(cat => (
-                  <option key={cat.id} value={cat.id} className="bg-slate-800 text-white">
-                    {cat.icon} {cat.title}
-                  </option>
-                ))}
-              </select>
             </div>
 
-            <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-400/40 space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-black uppercase text-amber-300">
-                  📅 Ablaufdatum (MHD)
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => { syncAllNow(true); setQuickCockpitOpen(false); }}
+                className="tw-glow-btn py-3 px-3 rounded-2xl text-xs font-black flex items-center justify-center gap-2"
+              >
+                <RefreshCw className={'w-4 h-4 text-sky-300 ' + (isSyncing ? 'animate-spin' : '')} />
+                <span>Jetzt synchronisieren</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { requestShoppingPushPermission(); setQuickCockpitOpen(false); }}
+                className={'py-3 px-3 rounded-2xl text-xs font-black flex items-center justify-center gap-2 ' +
+                  (notifPermission === 'granted'
+                    ? 'bg-emerald-500/25 text-emerald-300 border border-emerald-400/40'
+                    : 'tw-glow-btn')}
+              >
+                <BellRing className="w-4 h-4" />
+                <span>{notifPermission === 'granted' ? 'Push aktiv ✓' : 'Push aktivieren'}</span>
+              </button>
+
+              <a
+                href="/"
+                className="tw-nav-inactive py-3 px-3 rounded-2xl text-xs font-black flex items-center justify-center gap-2 no-underline text-white"
+              >
+                <span>🖥️ Große Touchwall</span>
+              </a>
+
+              <button
+                type="button"
+                onClick={() => {
+                  localStorage.removeItem('richter_tw_auth_active');
+                  setIsAuthenticated(false);
+                  setQuickCockpitOpen(false);
+                }}
+                className="tw-nav-inactive py-3 px-3 rounded-2xl text-xs font-black text-rose-400 flex items-center justify-center gap-2"
+              >
+                <LogOut className="w-4 h-4" />
+                <span>Abmelden</span>
+              </button>
+            </div>
+
+            {installPromptEvent && (
+              <button
+                type="button"
+                onClick={handleInstallAndroidApp}
+                className="tw-active-nav w-full py-3 rounded-2xl text-xs font-black flex items-center justify-center gap-2"
+              >
+                <Download className="w-4 h-4" />
+                <span>📲 Als Android-App installieren</span>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* VOLLWERTIGES BEARBEITEN-MODAL FÜR DEN BESTAND */}
+      {editStockModal.open && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-3 overflow-y-auto">
+          <form
+            onSubmit={handleSaveEditStockModal}
+            className={'w-full max-w-md rounded-3xl border-2 p-4 sm:p-5 shadow-2xl space-y-3.5 my-auto ' + themeStyles.modal}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-3">
+                <span className="w-12 h-12 rounded-2xl bg-black/35 border border-white/15 flex items-center justify-center text-3xl shrink-0">
+                  {editStockModal.customEmoji || getFoodEmoji(editStockModal.name)}
                 </span>
-                <div className="flex items-center gap-1">
+                <div>
+                  <h3 className="text-base font-black">✏️ Produkt bearbeiten</h3>
+                  <p className="text-[11px] opacity-75 font-semibold">
+                    Synchronisiert sofort mit der großen Touchwall
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditStockModal({ ...editStockModal, open: false })}
+                className="tw-nav-inactive w-9 h-9 rounded-full flex items-center justify-center"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-[11px] font-black uppercase text-sky-400">
+                  Produktname
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const simplified = simplifyProductName(editStockModal.name);
+                    setEditStockModal({
+                      ...editStockModal,
+                      name: simplified,
+                      category: detectSmartCategory(simplified, editStockModal.category)
+                    });
+                  }}
+                  className="px-2 py-0.5 rounded-lg bg-sky-500/20 border border-sky-400/40 text-sky-300 text-[10px] font-black flex items-center gap-1"
+                >
+                  <Wand2 className="w-3 h-3" />
+                  <span>✨ Name auf „Produkt / Marke“ kürzen</span>
+                </button>
+              </div>
+              <input
+                type="text"
+                required
+                value={editStockModal.name}
+                onChange={(e) => setEditStockModal({ ...editStockModal, name: e.target.value })}
+                className={'w-full px-3.5 py-2.5 rounded-xl border text-base font-extrabold ' + themeStyles.input}
+              />
+            </div>
+
+            <div className="grid grid-cols-12 gap-2">
+              <div className="col-span-5">
+                <label className="block text-[10px] font-black uppercase text-amber-400 mb-1">
+                  Menge / Stück
+                </label>
+                <div className="flex items-center bg-black/25 p-1 rounded-xl border border-white/10 h-11">
+                  <button
+                    type="button"
+                    onClick={() => setEditStockModal({ ...editStockModal, quantity: stepMobileQty(editStockModal.quantity, -1) })}
+                    className="tw-nav-inactive w-8 h-full rounded-lg font-black text-sm flex items-center justify-center shrink-0"
+                  >
+                    -
+                  </button>
+                  <input
+                    type="text"
+                    value={editStockModal.quantity}
+                    onChange={(e) => setEditStockModal({ ...editStockModal, quantity: e.target.value })}
+                    className="w-full bg-transparent text-center text-xs font-black focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setEditStockModal({ ...editStockModal, quantity: stepMobileQty(editStockModal.quantity, 1) })}
+                    className="tw-glow-btn w-8 h-full rounded-lg font-black text-sm flex items-center justify-center shrink-0"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+
+              <div className="col-span-7">
+                <label className="block text-[10px] font-black uppercase text-emerald-400 mb-1">
+                  🌾 Glutenfrei-Status
+                </label>
+                <select
+                  value={editStockModal.glutenFree}
+                  onChange={(e) => setEditStockModal({ ...editStockModal, glutenFree: e.target.value })}
+                  className={'w-full h-11 px-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+                >
+                  <option value="auto" className="bg-slate-800 text-sky-300">
+                    ✨ Auto ({isProductGlutenFree(editStockModal.name, editStockModal.category, 'auto') ? 'Glutenfrei ✓' : 'Normal'})
+                  </option>
+                  <option value="yes" className="bg-slate-800 text-emerald-300">🌾✓ Ja, garantiert glutenfrei</option>
+                  <option value="no" className="bg-slate-800 text-rose-300">🚫 Nein, enthält Gluten</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-12 gap-2">
+              <div className="col-span-7">
+                <label className="block text-[10px] font-black uppercase text-purple-300 mb-1">
+                  Lebensmittel-Kategorie
+                </label>
+                <select
+                  value={editStockModal.category}
+                  onChange={(e) => setEditStockModal({ ...editStockModal, category: e.target.value })}
+                  className={'w-full h-11 px-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+                >
+                  {FOOD_CATEGORIES.map(cat => (
+                    <option key={cat.id} value={cat.id} className="bg-slate-800 text-white">
+                      {cat.icon} {cat.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="col-span-5">
+                <label className="block text-[10px] font-black uppercase text-emerald-400 mb-1">
+                  Lagerort
+                </label>
+                <select
+                  value={editStockModal.location}
+                  onChange={(e) => setEditStockModal({ ...editStockModal, location: e.target.value })}
+                  className={'w-full h-11 px-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+                >
+                  {STORAGE_PILLS.map(loc => (
+                    <option key={loc.id} value={loc.id} className="bg-slate-800 text-white">
+                      {loc.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className={'p-3 rounded-2xl border space-y-2 ' + themeStyles.subtle}>
+              <div className="flex items-center justify-between flex-wrap gap-1">
+                <label className="text-[11px] font-black uppercase text-amber-400">
+                  📅 Ablaufdatum (MHD)
+                </label>
+                <div className="flex flex-wrap gap-1">
                   {[
-                    { l: '+4T', d: 4 },
+                    { l: '+3T', d: 3 },
                     { l: '+1W', d: 7 },
                     { l: '+2W', d: 14 },
-                    { l: '+6M (TK)', d: 180 }
+                    { l: '+1M', d: 30 },
+                    { l: '+6M', d: 180 }
                   ].map(b => (
                     <button
                       key={b.d}
                       type="button"
-                      onClick={() => {
-                        const d = formatDateStr(addDays(new Date(), b.d));
-                        setScanExpiry(d);
-                        setDetectedMhdCandidate(d);
-                        setIsMhdLockedByOcr(true);
-                        setScanPhase('mhd_locked');
-                        triggerVibration(50);
-                      }}
-                      className="tw-glow-btn px-2.5 py-1 rounded-lg text-[11px] font-black"
+                      onClick={() => setEditStockModal({ ...editStockModal, expiryDate: formatDateStr(addDays(new Date(), b.d)) })}
+                      className="tw-glow-btn px-2 py-0.5 rounded-lg text-[10px] font-black"
                     >
                       {b.l}
                     </button>
                   ))}
                 </div>
               </div>
+              <input
+                type="date"
+                required
+                value={editStockModal.expiryDate}
+                onChange={(e) => setEditStockModal({ ...editStockModal, expiryDate: e.target.value })}
+                className={'w-full px-3 py-2 rounded-xl border text-xs font-black ' + themeStyles.input}
+              />
+            </div>
 
-              <div className="grid grid-cols-12 gap-2">
-                <select
-                  value=""
-                  onChange={(e) => {
-                    const days = Number(e.target.value);
-                    if (!days) return;
-                    const d = formatDateStr(addDays(new Date(), days));
-                    setScanExpiry(d);
-                    setDetectedMhdCandidate(d);
-                    setIsMhdLockedByOcr(true);
-                    setScanPhase('mhd_locked');
-                  }}
-                  className={'col-span-5 h-11 px-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+            <div className={'p-2.5 rounded-2xl border space-y-1.5 ' + themeStyles.subtle}>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-black uppercase">🎨 Emoji anpassen</span>
+                <button
+                  type="button"
+                  onClick={() => setEditStockModal({ ...editStockModal, customEmoji: getFoodEmoji(editStockModal.name) })}
+                  className="text-[10px] font-extrabold text-sky-400"
                 >
-                  <option value="" className="bg-slate-800 text-amber-300">⏳ MHD-Zeitraum...</option>
-                  <option value="3" className="bg-slate-800 text-white">+3 Tage (Frisch)</option>
-                  <option value="5" className="bg-slate-800 text-white">+5 Tage</option>
-                  <option value="7" className="bg-slate-800 text-white">+1 Woche</option>
-                  <option value="10" className="bg-slate-800 text-white">+10 Tage</option>
-                  <option value="14" className="bg-slate-800 text-white">+2 Wochen</option>
-                  <option value="30" className="bg-slate-800 text-white">+1 Monat</option>
-                  <option value="90" className="bg-slate-800 text-white">+3 Monate</option>
-                  <option value="180" className="bg-slate-800 text-white">+6 Monate (TK)</option>
-                  <option value="365" className="bg-slate-800 text-white">+1 Jahr (Vorrat)</option>
-                </select>
-
-                <input
-                  type="date"
-                  required
-                  min={todayStr}
-                  value={scanExpiry}
-                  onChange={(e) => {
-                    setScanExpiry(e.target.value);
-                    setDetectedMhdCandidate(e.target.value);
-                    setIsMhdLockedByOcr(true);
-                    setScanPhase('mhd_locked');
-                  }}
-                  className={'col-span-7 h-11 px-3 rounded-xl border text-sm font-black ' + themeStyles.input}
-                />
+                  🔄 Automatisch
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-1 max-h-20 overflow-y-auto p-0.5">
+                {FOOD_EMOJI_PICKER.map(em => (
+                  <button
+                    key={em}
+                    type="button"
+                    onClick={() => setEditStockModal({ ...editStockModal, customEmoji: em })}
+                    className={'w-8 h-8 rounded-xl border text-base flex items-center justify-center ' +
+                      (editStockModal.customEmoji === em ? 'ring-2 ring-sky-400 bg-sky-500/25' : 'bg-black/25 border-white/10')}
+                  >
+                    {em}
+                  </button>
+                ))}
               </div>
             </div>
 
-            <button
-              type="submit"
-              disabled={!scanName.trim() || (!scanExpiry && !detectedMhdCandidate)}
-              className={'w-full min-h-[54px] py-3.5 rounded-2xl font-black text-base shadow-xl flex items-center justify-center gap-2 ' +
-                (!scanName.trim() || (!scanExpiry && !detectedMhdCandidate) ? 'bg-slate-700 text-slate-400 opacity-50' : 'tw-active-nav')}
-            >
-              <ShoppingCart className="w-5 h-5" />
-              <span>
-                {(scanExpiry || detectedMhdCandidate)
-                  ? ('🛒 In Einkaufswagen (' + (scanExpiry || detectedMhdCandidate).slice(8, 10) + '.' + (scanExpiry || detectedMhdCandidate).slice(5, 7) + '.)')
-                  : '⚠️ Erst Ablaufdatum (MHD) scannen oder wählen'}
-              </span>
-            </button>
-          </form>
-        </div>
-      ) : (
-        /* KASSENBON-SCANNER */
-        <div className={'p-4 rounded-3xl border space-y-3.5 shadow-md ' + themeStyles.card}>
-          <h2 className="font-black text-lg">🧾 Kassenbon abfotografieren</h2>
-          <label className="tw-active-nav w-full min-h-[54px] py-3.5 rounded-2xl font-black text-sm flex items-center justify-center gap-2 cursor-pointer shadow-lg">
-            <Camera className="w-5 h-5" />
-            <span>{isScanningReceipt ? '⏳ Lese & vereinfache Bon...' : '📸 Kassenbon jetzt fotografieren'}</span>
-            <input
-              type="file"
-              accept="image/*"
-              capture="environment"
-              className="hidden"
-              onChange={handleReceiptPhotoUpload}
-            />
-          </label>
-
-          {receiptItems.length > 0 && (
-            <div className="space-y-2.5 pt-1">
-              {receiptItems.map((rit, idx) => (
-                <div key={rit.id} className={'p-3.5 rounded-2xl border space-y-2.5 ' + themeStyles.subtle}>
-                  <div className="flex items-center gap-2.5">
-                    <input
-                      type="checkbox"
-                      checked={rit.selected}
-                      onChange={() => {
-                        const next = [...receiptItems];
-                        next[idx].selected = !next[idx].selected;
-                        setReceiptItems(next);
-                      }}
-                      className="w-6 h-6 accent-emerald-500 rounded"
-                    />
-                    <span className="text-2xl">{getFoodEmoji(rit.name)}</span>
-                    <input
-                      type="text"
-                      value={rit.name}
-                      onChange={(e) => {
-                        const next = [...receiptItems];
-                        next[idx].name = e.target.value;
-                        setReceiptItems(next);
-                      }}
-                      className="flex-1 bg-transparent text-base font-black focus:outline-none"
-                    />
-                  </div>
-
-                  <div className="flex flex-wrap items-center justify-between gap-2 pl-8">
-                    <select
-                      value={rit.location}
-                      onChange={(e) => {
-                        const next = [...receiptItems];
-                        next[idx].location = e.target.value;
-                        setReceiptItems(next);
-                      }}
-                      className={'px-2.5 py-1.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
-                    >
-                      {STORAGE_PILLS.map(l => (
-                        <option key={l.id} value={l.id} className="bg-slate-800 text-white">{l.label}</option>
-                      ))}
-                    </select>
-
-                    <input
-                      type="date"
-                      required
-                      value={rit.expiryDate}
-                      onChange={(e) => {
-                        const next = [...receiptItems];
-                        next[idx].expiryDate = e.target.value;
-                        setReceiptItems(next);
-                      }}
-                      className={'px-3 py-1.5 rounded-xl border text-xs font-black ' + themeStyles.input}
-                    />
-                  </div>
-                </div>
-              ))}
-
+            <div className="flex items-center justify-between gap-2 pt-2 border-t border-white/10">
               <button
                 type="button"
-                onClick={() => {
-                  const selected = receiptItems.filter(it => it.selected && it.name.trim() && it.expiryDate);
-                  if (selected.length === 0) return;
-                  onAddBatchToCart(selected);
-                  setReceiptItems([]);
-                }}
-                className="tw-active-nav w-full min-h-[52px] py-3.5 rounded-2xl font-black text-sm flex items-center justify-center gap-2 shadow-lg"
+                onClick={handleDeleteFromEditStockModal}
+                className="px-3.5 py-2.5 rounded-2xl bg-rose-600 text-white text-xs font-black flex items-center gap-1"
               >
-                <ShoppingCart className="w-5 h-5" />
-                <span>🛒 Markierte Bon-Artikel in den Einkaufswagen</span>
+                <Trash2 className="w-4 h-4" />
+                <span>In Mülleimer</span>
               </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditStockModal({ ...editStockModal, open: false })}
+                  className="tw-nav-inactive px-3.5 py-2.5 rounded-2xl text-xs font-bold"
+                >
+                  Abbrechen
+                </button>
+                <button
+                  type="submit"
+                  className="tw-active-nav px-4 py-2.5 rounded-2xl text-xs font-black flex items-center gap-1.5 shadow-lg"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>Speichern</span>
+                </button>
+              </div>
             </div>
-          )}
+          </form>
         </div>
       )}
 
-      {/* ============================================================================
-          EINKAUFSWAGEN UNTER DEM SCANNER MIT GROSSEN PRODUKT-TEXTEN & GROSSEN ICONS
-         ============================================================================ */}
-      <div className={'p-3.5 rounded-3xl border space-y-3 ' + themeStyles.card}>
-        <div className="flex items-center justify-between gap-2">
-          <div>
-            <span className="font-black text-sm uppercase text-amber-400 flex items-center gap-1.5">
-              <ShoppingCart className="w-4 h-4" />
-              <span>🛒 Einkaufswagen ({sortedCart.length})</span>
-            </span>
-            <p className="text-[11px] opacity-75 font-semibold">
-              Zuletzt gescanntes Produkt steht ganz oben
-            </p>
-          </div>
-
-          {sortedCart.length > 0 && (
+      {/* UNTERE NAVIGATION */}
+      <nav className={'shrink-0 z-40 border-t px-1.5 py-1.5 flex items-center justify-around gap-1 shadow-2xl ' + themeStyles.header}>
+        {[
+          { id: 'agenda',   label: 'Kalender', icon: Calendar,     badge: filteredEvents.filter(e => e.date === todayStr).length },
+          { id: 'tasks',    label: 'Aufgaben', icon: CheckSquare,  badge: openTasks.length },
+          { id: 'scanner',  label: 'Scanner',  icon: Camera,       badge: safeCart.length },
+          { id: 'shopping', label: 'Einkauf',  icon: ShoppingCart, badge: openShop.length + safeCart.length },
+          {
+            id: 'stock',
+            label: 'Bestand',
+            icon: Package,
+            badge: mhdAlertGroups.finalToday.length + mhdAlertGroups.warnTwoDays.length > 0
+              ? (mhdAlertGroups.finalToday.length + mhdAlertGroups.warnTwoDays.length)
+              : safeStock.length,
+            urgent: mhdAlertGroups.finalToday.length > 0
+          }
+        ].map(tab => {
+          const Icon = tab.icon;
+          const active = activeTab === tab.id;
+          return (
             <button
-              type="button"
-              disabled={isSyncing}
-              onClick={onTransferAllCartToStock}
-              className="tw-active-nav px-4 py-2.5 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-md"
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={'relative flex-1 py-2 rounded-2xl flex flex-col items-center gap-0.5 text-[10px] font-extrabold ' + (active ? 'tw-active-nav' : 'tw-nav-inactive opacity-85')}
             >
-              <PackagePlus className="w-4 h-4" />
-              <span>Alle in Bestand ({sortedCart.length})</span>
-            </button>
-          )}
-        </div>
-
-        {sortedCart.length === 0 ? (
-          <div className="py-5 text-center text-sm opacity-55 font-bold">
-            🛒 Dein Einkaufswagen ist noch leer.
-          </div>
-        ) : (
-          <div className="space-y-2.5">
-            {sortedCart.map((cItem, idx) => {
-              const locObj = STORAGE_PILLS.find(l => l.id === cItem.location) || STORAGE_PILLS[0];
-              const isGf = isProductGlutenFree(cItem);
-              return (
-                <div
-                  key={cItem.id}
-                  className={'p-3.5 rounded-2xl border flex items-center justify-between gap-3 ' +
-                    (idx === 0 ? 'border-amber-400/80 bg-amber-500/10' : themeStyles.subtle)}
+              <Icon className="w-4 h-4 sm:w-5 sm:h-5" />
+              <span>{tab.label}</span>
+              {tab.badge > 0 && (
+                <span className={'absolute top-1 right-1 px-1.5 py-0.2 rounded-full text-[9px] font-black ' +
+                  (tab.urgent ? 'bg-rose-500 text-white animate-pulse' : 'bg-amber-500 text-slate-950')}
                 >
-                  <div className="flex items-center gap-3 min-w-0 flex-1">
-                    {/* GROSSES PRODUKT-ICON (w-13 h-13 text-3xl) */}
-                    <span className="w-13 h-13 rounded-2xl bg-black/35 border border-white/10 flex items-center justify-center text-3xl shrink-0">
-                      {getFoodEmoji(cItem.name)}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
-                        {idx === 0 && (
-                          <span className="px-2 py-0.5 rounded bg-amber-500 text-slate-950 text-[10px] font-black shrink-0">
-                            NEU
-                          </span>
-                        )}
-                        {isGf && (
-                          <span className="px-2 py-0.5 rounded bg-emerald-500/25 border border-emerald-400/50 text-emerald-300 text-[10px] font-black shrink-0">
-                            🌾✓ GF
-                          </span>
-                        )}
-                      </div>
-                      {/* GROSSER PRODUKT-TEXT (text-base font-black) */}
-                      <div className="font-black text-base leading-snug break-words">
-                        {cItem.name}
-                      </div>
-                      <div className="text-xs text-amber-300 font-extrabold mt-0.5">
-                        {cItem.quantity} • {locObj.label} • MHD: {cItem.expiryDate.slice(8, 10)}.{cItem.expiryDate.slice(5, 7)}.{cItem.expiryDate.slice(2, 4)}
-                      </div>
-                    </div>
-                  </div>
+                  {tab.badge}
+                </span>
+              )}
+            </button>
+          );
+        })}
 
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => onTransferSingleCartItemToStock(cItem)}
-                      className="tw-glow-btn px-3 py-2.5 rounded-xl text-xs font-black flex items-center gap-1"
-                    >
-                      <Check className="w-4 h-4 text-emerald-300" />
-                      <span>Bestand</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onRemoveCartItem(cItem.id)}
-                      className="tw-nav-inactive p-2.5 rounded-xl text-rose-400"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
+        <button
+          type="button"
+          onClick={() => setQuickCockpitOpen(prev => !prev)}
+          className={'relative px-2.5 py-1.5 rounded-2xl flex flex-col items-center justify-center gap-0.5 text-[10px] font-extrabold shrink-0 ' +
+            (quickCockpitOpen ? 'tw-active-nav' : 'tw-glow-btn')}
+        >
+          {activePersonObj && selectedPerson !== 'all' ? (
+            renderAvatar(activePersonObj, 'w-5 h-5', 'text-[9px]')
+          ) : (
+            <SlidersHorizontal className={'w-4 h-4 ' + (isSyncing ? 'animate-spin text-sky-300' : '')} />
+          )}
+          <span>{activePersonObj && selectedPerson !== 'all' ? activePersonObj.name.split(' ')[0].slice(0, 5) : 'Menü'}</span>
+          {!isOnline && (
+            <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-amber-400" />
+          )}
+        </button>
+      </nav>
+
+      {toast && (
+        <div className="fixed bottom-20 left-4 right-4 z-50 px-4 py-3 rounded-2xl bg-slate-900/95 border border-sky-400 text-white shadow-2xl flex items-center gap-3">
+          <span className="text-2xl">{toast.icon}</span>
+          <div>
+            <div className="text-[10px] font-black uppercase text-amber-400">{toast.title}</div>
+            <div className="text-xs sm:text-sm font-bold">{toast.msg}</div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
