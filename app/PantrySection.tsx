@@ -7,7 +7,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   Package, Trash2, Plus, CheckCircle2,
   ShoppingCart, RotateCcw, ChefHat, Pencil, Check, X,
-  Table as TableIcon, LayoutGrid, ArrowUpDown, Wand2,
+  Table as TableIcon, LayoutGrid, Wand2,
   AlertTriangle, BellRing, Search, SlidersHorizontal, ChevronDown
 } from 'lucide-react';
 import * as Cfg from './touchwallConfig';
@@ -63,9 +63,6 @@ const KNOWN_BRAND_PREFIXES = [
   'Rinti', 'Wolfsblut', 'Josera', 'Belcando', 'Animonda', 'Premiere', 'Pedigree'
 ];
 
-// ============================================================================
-// INTELLIGENTE NAMENS-OPTIMIERUNG ("Pfifferlinge TK / Bayer.")
-// ============================================================================
 export function shortenBrandString(rawBrand) {
   if (!rawBrand) return '';
   let b = String(rawBrand).split(',')[0].trim();
@@ -319,6 +316,16 @@ export function getDaysUntil(expiryDateStr, todayStr) {
   return Math.round((exp.getTime() - tod.getTime()) / 86400000);
 }
 
+// ============================================================================
+// PUNKT 2: STRIKTES ABSCHALTEN DER HOVER- & KLICK-SKALIERUNG IN DER SPEISEKAMMER
+// ============================================================================
+const PANTRY_NO_SCALE_STYLES = [
+  '.tw-pantry-no-scale, .tw-pantry-no-scale *, .tw-pantry-no-scale *:hover, .tw-pantry-no-scale *:active {',
+  '  transform: none !important;',
+  '  scale: 1 !important;',
+  '}'
+].join('\n');
+
 export default function PantrySection({
   pantryItems,
   setPantryItems,
@@ -339,10 +346,13 @@ export default function PantrySection({
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Intelligente Popover-Menüs statt mehrerer Leisten
+  // Intelligente Popover-Menüs (schließen automatisch bei onMouseLeave!)
   const [showControlMenu, setShowControlMenu] = useState(false);
   const [showMhdAlertPopover, setShowMhdAlertPopover] = useState(false);
   const [showAddFormModal, setShowAddFormModal] = useState(false);
+
+  // Punkt 3: Dialog "Wieder auf die Einkaufsliste setzen? (Ja / Nein)" nach Verbrauch
+  const [restockPromptItem, setRestockPromptItem] = useState(null);
 
   // Formular: Neues Produkt
   const [itemName, setItemName] = useState('');
@@ -660,7 +670,10 @@ export default function PantrySection({
     showToast('Änderungen gespeichert!', editModal.name + ' wurde aktualisiert.', editModal.customEmoji || '✅');
   };
 
-  const MoveItemToTrash = (item, reasonType) => {
+  // ============================================================================
+  // PUNKT 3: BEIM VERBRAUCHEN IN DEN MÜLLEIMER VERSCHIEBEN + JA/NEIN-EINKAUFSABFRAGE
+  // ============================================================================
+  const MoveItemToTrash = (item, reasonType, askForShoppingList = false) => {
     const now = Date.now();
     setPantryItems(prev => (Array.isArray(prev) ? prev : []).filter(x => x.id !== item.id));
     const trashEntry = {
@@ -671,7 +684,16 @@ export default function PantrySection({
       reasonLabel: reasonType === 'consumed' ? '🍽️ Komplett verzehrt am ' + todayStr : '🗑️ Weggeworfen am ' + todayStr
     };
     setPantryTrash(prev => [trashEntry, ...(Array.isArray(prev) ? prev : [])]);
-    showToast(reasonType === 'consumed' ? 'Komplett verzehrt!' : 'Produkt gelöscht', item.name, reasonType === 'consumed' ? '🍽️' : '🗑️');
+
+    if (askForShoppingList) {
+      setRestockPromptItem(item);
+    } else {
+      showToast(
+        reasonType === 'consumed' ? 'Komplett verzehrt!' : 'Produkt gelöscht',
+        item.name,
+        reasonType === 'consumed' ? '🍽️' : '🗑️'
+      );
+    }
   };
 
   const handleDeleteFromEditModal = () => {
@@ -680,8 +702,8 @@ export default function PantrySection({
       setEditModal({ ...editModal, open: false });
       return;
     }
-    MoveItemToTrash(target, 'wasted');
     setEditModal({ ...editModal, open: false });
+    MoveItemToTrash(target, 'wasted', true);
   };
 
   const handleConsumeClick = (item) => {
@@ -692,7 +714,8 @@ export default function PantrySection({
       ));
       showToast('1 Stück verzehrt!', '„' + item.name + '“ → Restbestand: ' + result.nextQtyStr, getFoodEmoji(item.name, item.customEmoji));
     } else {
-      MoveItemToTrash(item, 'consumed');
+      // Komplett verbraucht -> In Mülleimer verschieben & Ja/Nein-Abfrage für Einkaufsliste öffnen!
+      MoveItemToTrash(item, 'consumed', true);
     }
   };
 
@@ -793,9 +816,6 @@ export default function PantrySection({
     return { consumed, wasted, total, score };
   }, [safeTrash]);
 
-  // ============================================================================
-  // PUNKT 2: GROSSE PRODUKTTEXTE & GROSSE ICONS OHNE GLOW-EFFEKT (NUR ORANGE/ROT)
-  // ============================================================================
   const renderCategoryGroupCard = (group) => {
     const hasOverallNewest = latestOverallItem && group.items.some(it => it.id === latestOverallItem.id);
 
@@ -828,9 +848,9 @@ export default function PantrySection({
         </div>
 
         {viewMode === 'table' ? (
-          /* KOMPAKTE LISTENANSICHT MIT GROSSEN ICONS & GROSSER SCHRIFT (OHNE GLOW) */
+          /* LISTENANSICHT OHNE HOVER-SKALIERUNG */
           <div className="p-2 space-y-1.5">
-            {group.items.map((item, idx) => {
+            {group.items.map((item) => {
               const daysLeft = getDaysUntil(item.expiryDate, todayStr);
               const locObj = STORAGE_LOCATIONS.find(l => l.id === item.location) || STORAGE_LOCATIONS[4];
               const isUrgentRed = daysLeft <= 2;
@@ -840,7 +860,6 @@ export default function PantrySection({
               const isLatestOverall = latestOverallItem && item.id === latestOverallItem.id;
               const isGf = Boolean(item.resolvedGlutenFree);
 
-              // Ruhige, klare Einfärbung in Rot oder Orange OHNE Glow-Effekt!
               const rowColorClass = isUrgentRed
                 ? 'bg-rose-500/25 border-2 border-rose-500 text-rose-50'
                 : isWarningOrange
@@ -857,7 +876,6 @@ export default function PantrySection({
                   onClick={() => openEditProductModal(item)}
                   className={'flex items-center justify-between gap-3 px-3 py-2 rounded-2xl cursor-pointer transition-colors hover:bg-white/5 ' + rowColorClass}
                 >
-                  {/* LINKS: GROSSES PRODUKT-ICON + GROSSER PRODUKTNAME */}
                   <div className="flex items-center gap-3 min-w-0 flex-1">
                     <span className="w-11 h-11 rounded-2xl bg-black/40 border border-white/15 flex items-center justify-center text-2xl shrink-0">
                       {emojiIcon}
@@ -891,7 +909,6 @@ export default function PantrySection({
                     </div>
                   </div>
 
-                  {/* MITTE: MENGE & MHD-DATUM */}
                   <div className="flex items-center gap-2 shrink-0">
                     <span className="px-2.5 py-1 rounded-xl bg-black/45 border border-amber-400/40 text-xs sm:text-sm font-black text-amber-300">
                       {item.quantity}
@@ -911,7 +928,6 @@ export default function PantrySection({
                     </div>
                   </div>
 
-                  {/* RECHTS: AKTIONEN */}
                   <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
                     <button
                       type="button"
@@ -936,7 +952,8 @@ export default function PantrySection({
                         addShoppingItem(item.name);
                         showToast('Auf Einkaufsliste', item.name + ' wurde zur Einkaufsliste hinzugefügt.', '🛒');
                       }}
-                      className="tw-nav-inactive p-2 rounded-xl text-amber-300 cursor-pointer"
+                      title="Auf die Einkaufsliste setzen"
+                      className="p-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/35 border border-amber-400/50 text-amber-300 cursor-pointer"
                     >
                       <ShoppingCart className="w-3.5 h-3.5" />
                     </button>
@@ -946,7 +963,7 @@ export default function PantrySection({
             })}
           </div>
         ) : (
-          /* KACHEL-ANSICHT MIT DEUTLICH GRÖSSEREN ICONS & GRÖSSEREM PRODUKTTEXT (OHNE GLOW) */
+          /* KACHEL-ANSICHT OHNE HOVER-SKALIERUNG */
           <div className="p-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
             {group.items.map((item) => {
               const daysLeft = getDaysUntil(item.expiryDate, todayStr);
@@ -958,7 +975,6 @@ export default function PantrySection({
               const isLatestOverall = latestOverallItem && item.id === latestOverallItem.id;
               const isGf = Boolean(item.resolvedGlutenFree);
 
-              // Klare Einfärbung Orange / Rot OHNE Glow-Effekt
               const cardColorClass = isUrgentRed
                 ? 'bg-rose-500/25 border-2 border-rose-500 text-rose-50'
                 : isWarningOrange
@@ -974,7 +990,6 @@ export default function PantrySection({
                   className={'p-3.5 rounded-2xl flex flex-col justify-between gap-3 cursor-pointer transition-colors hover:bg-white/5 ' + cardColorClass}
                 >
                   <div className="flex items-start gap-3">
-                    {/* GROSSES PRODUKT-ICON (w-13 h-13 text-3xl) */}
                     <span className="w-13 h-13 rounded-2xl bg-black/40 border border-white/15 flex items-center justify-center text-3xl shrink-0 shadow-inner">
                       {emojiIcon}
                     </span>
@@ -999,7 +1014,6 @@ export default function PantrySection({
                         </div>
                       </div>
 
-                      {/* GROSSER PRODUKTNAME (text-base font-black) */}
                       <h4 title={item.name} className="font-black text-base leading-snug line-clamp-2 break-words">
                         {item.name}
                       </h4>
@@ -1033,6 +1047,17 @@ export default function PantrySection({
                       >
                         <Pencil className="w-3.5 h-3.5" />
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          addShoppingItem(item.name);
+                          showToast('Auf Einkaufsliste', item.name + ' wurde zur Einkaufsliste hinzugefügt.', '🛒');
+                        }}
+                        title="Auf die Einkaufsliste setzen"
+                        className="p-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/35 border border-amber-400/50 text-amber-300 cursor-pointer"
+                      >
+                        <ShoppingCart className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -1045,12 +1070,14 @@ export default function PantrySection({
   };
 
   return (
-    <div className="p-3 sm:p-4 flex flex-col gap-3 overflow-x-hidden">
+    <div className="tw-pantry-no-scale p-3 sm:p-4 min-h-[calc(100vh-130px)] flex flex-col gap-3">
+      <style>{PANTRY_NO_SCALE_STYLES}</style>
+
       {/* ============================================================================
-          PUNKT 1: EINE EINZIGE INTELLIGENTE HAUPTLEISTE MIT DIREKT-SUCHE & MENÜS
+          EINE EINZIGE HAUPTLEISTE MIT AUTO-CLOSE MENÜS (KEIN ABSCHNEIDEN MEHR!)
          ============================================================================ */}
-      <div className={'relative z-30 px-3.5 py-2.5 rounded-2xl border shadow-md flex flex-wrap items-center justify-between gap-2 ' + themeStyles.card}>
-        {/* LINKS: SUB-TABS (BESTAND / REZEPTE / MÜLLEIMER) + KOMPAKTES MHD-WARN-POPOVER */}
+      <div className={'relative z-40 px-3.5 py-2.5 rounded-2xl border shadow-md flex flex-wrap items-center justify-between gap-2 ' + themeStyles.card}>
+        {/* LINKS: SUB-TABS + KOMPAKTES MHD-WARN-POPOVER */}
         <div className="flex items-center gap-1.5 flex-wrap">
           <button
             type="button"
@@ -1079,9 +1106,11 @@ export default function PantrySection({
             <span>🗑️ ({safeTrash.length})</span>
           </button>
 
-          {/* KOMPAKTES MHD-WARN-BADGE IN DER LEISTE STATT EIGENER RIESIGER ZEILE */}
           {mhdWarningGroups.totalAlerts > 0 && (
-            <div className="relative">
+            <div
+              className="relative"
+              onMouseLeave={() => setShowMhdAlertPopover(false)}
+            >
               <button
                 type="button"
                 onClick={() => {
@@ -1105,77 +1134,79 @@ export default function PantrySection({
               </button>
 
               {showMhdAlertPopover && (
-                <div className={'absolute left-0 top-full mt-2 w-80 sm:w-96 rounded-3xl border-2 border-rose-500 p-4 shadow-2xl space-y-3 z-50 ' + themeStyles.modal}>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-black uppercase text-rose-400">
-                      🔔 Kritische MHD-Produkte
-                    </span>
+                <div className="absolute left-0 top-full pt-2 w-80 sm:w-96 z-50">
+                  <div className={'rounded-3xl border-2 border-rose-500 p-4 shadow-2xl space-y-3 ' + themeStyles.modal}>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-black uppercase text-rose-400">
+                        🔔 Kritische MHD-Produkte
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setShowMhdAlertPopover(false)}
+                        className="text-xs font-black opacity-70 hover:opacity-100 cursor-pointer"
+                      >
+                        ✕
+                      </button>
+                    </div>
+
+                    {mhdWarningGroups.finalToday.length > 0 && (
+                      <div className="p-2.5 rounded-2xl bg-rose-500/25 border border-rose-500 space-y-1.5">
+                        <div className="text-[11px] font-black text-rose-200">
+                          🚨 Läuft HEUTE ab (morgen im Mülleimer):
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {mhdWarningGroups.finalToday.map(it => (
+                            <button
+                              key={it.id}
+                              type="button"
+                              onClick={() => {
+                                setShowMhdAlertPopover(false);
+                                openEditProductModal(it);
+                              }}
+                              className="px-2.5 py-1 rounded-xl bg-black/50 border border-rose-400/50 text-xs font-black text-white cursor-pointer"
+                            >
+                              {getFoodEmoji(it.name, it.customEmoji)} {it.name} ({it.quantity})
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {mhdWarningGroups.warnTwoDays.length > 0 && (
+                      <div className="p-2.5 rounded-2xl bg-amber-500/20 border border-amber-500 space-y-1.5">
+                        <div className="text-[11px] font-black text-amber-200">
+                          ⚠️ Noch 1–2 Tage haltbar:
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {mhdWarningGroups.warnTwoDays.map(it => (
+                            <button
+                              key={it.id}
+                              type="button"
+                              onClick={() => {
+                                setShowMhdAlertPopover(false);
+                                openEditProductModal(it);
+                              }}
+                              className="px-2.5 py-1 rounded-xl bg-black/45 border border-amber-400/50 text-xs font-black text-white cursor-pointer"
+                            >
+                              {getFoodEmoji(it.name, it.customEmoji)} {it.name} ({it.daysLeft === 1 ? 'morgen' : 'in 2 T.'})
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     <button
                       type="button"
-                      onClick={() => setShowMhdAlertPopover(false)}
-                      className="text-xs font-black opacity-70 hover:opacity-100"
+                      onClick={() => {
+                        triggerMhdWarningsAndTodoistPush(true);
+                        setShowMhdAlertPopover(false);
+                      }}
+                      className="tw-glow-btn w-full py-2.5 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer"
                     >
-                      ✕
+                      <BellRing className="w-4 h-4 text-amber-300" />
+                      <span>📲 Push & Todoist-Warnung jetzt senden</span>
                     </button>
                   </div>
-
-                  {mhdWarningGroups.finalToday.length > 0 && (
-                    <div className="p-2.5 rounded-2xl bg-rose-500/25 border border-rose-500 space-y-1.5">
-                      <div className="text-[11px] font-black text-rose-200">
-                        🚨 Läuft HEUTE ab (morgen im Mülleimer):
-                      </div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {mhdWarningGroups.finalToday.map(it => (
-                          <button
-                            key={it.id}
-                            type="button"
-                            onClick={() => {
-                              setShowMhdAlertPopover(false);
-                              openEditProductModal(it);
-                            }}
-                            className="px-2.5 py-1 rounded-xl bg-black/50 border border-rose-400/50 text-xs font-black text-white"
-                          >
-                            {getFoodEmoji(it.name, it.customEmoji)} {it.name} ({it.quantity})
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {mhdWarningGroups.warnTwoDays.length > 0 && (
-                    <div className="p-2.5 rounded-2xl bg-amber-500/20 border border-amber-500 space-y-1.5">
-                      <div className="text-[11px] font-black text-amber-200">
-                        ⚠️ Noch 1–2 Tage haltbar:
-                      </div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {mhdWarningGroups.warnTwoDays.map(it => (
-                          <button
-                            key={it.id}
-                            type="button"
-                            onClick={() => {
-                              setShowMhdAlertPopover(false);
-                              openEditProductModal(it);
-                            }}
-                            className="px-2.5 py-1 rounded-xl bg-black/45 border border-amber-400/50 text-xs font-black text-white"
-                          >
-                            {getFoodEmoji(it.name, it.customEmoji)} {it.name} ({it.daysLeft === 1 ? 'morgen' : 'in 2 T.'})
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      triggerMhdWarningsAndTodoistPush(true);
-                      setShowMhdAlertPopover(false);
-                    }}
-                    className="tw-glow-btn w-full py-2.5 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer"
-                  >
-                    <BellRing className="w-4 h-4 text-amber-300" />
-                    <span>📲 Push & Todoist-Warnung jetzt senden</span>
-                  </button>
                 </div>
               )}
             </div>
@@ -1233,14 +1264,14 @@ export default function PantrySection({
           </div>
         )}
 
-        {/* RECHTS: INTELLIGENTES FILTER-/ANSICHTS-MENÜ + "+ EINBUCHEN"-BUTTON */}
-        <div className="flex items-center gap-1.5 relative">
+        {/* RECHTS: INTELLIGENTES FILTER-/ANSICHTS-MENÜ (MIT AUTO-CLOSE BEI MOUSE-LEAVE) + "+ EINBUCHEN" */}
+        <div className="flex items-center gap-1.5">
           {activeSubTab === 'stock' && (
             <>
               <button
                 type="button"
                 onClick={() => setOnlyGlutenFree(prev => !prev)}
-                className={'px-3 py-2 rounded-xl text-xs font-black flex items-center gap-1 cursor-pointer transition-all ' +
+                className={'px-3 py-2 rounded-xl text-xs font-black flex items-center gap-1 cursor-pointer transition-colors ' +
                   (onlyGlutenFree
                     ? 'bg-emerald-500 text-slate-950 shadow-md'
                     : 'bg-emerald-500/15 text-emerald-300 border border-emerald-400/40')}
@@ -1248,18 +1279,151 @@ export default function PantrySection({
                 <span>🌾✓ GF ({totalGlutenFreeCount})</span>
               </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setShowControlMenu(prev => !prev);
-                  setShowMhdAlertPopover(false);
-                }}
-                className={'px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer ' +
-                  (showControlMenu ? 'tw-active-nav' : 'tw-glow-btn')}
+              {/* WRAPPER MIT onMouseLeave SCHLIESST DAS MENÜ SOFORT, WENN DIE MAUS ES VERLÄSST */}
+              <div
+                className="relative"
+                onMouseLeave={() => setShowControlMenu(false)}
               >
-                <SlidersHorizontal className="w-4 h-4 text-sky-300" />
-                <span>Ansicht & Menü</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowControlMenu(prev => !prev);
+                    setShowMhdAlertPopover(false);
+                  }}
+                  className={'px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer ' +
+                    (showControlMenu ? 'tw-active-nav' : 'tw-glow-btn')}
+                >
+                  <SlidersHorizontal className="w-4 h-4 text-sky-300" />
+                  <span>Ansicht & Menü</span>
+                </button>
+
+                {showControlMenu && (
+                  <div className="absolute right-0 top-full pt-2 w-80 sm:w-96 z-50">
+                    <div className={'rounded-3xl border-2 p-4 shadow-2xl space-y-3.5 ' + themeStyles.modal}>
+                      <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                        <span className="text-xs font-black uppercase text-sky-400">
+                          ⚙️ Speisekammer-Steuerung
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setShowControlMenu(false)}
+                          className="text-xs font-black opacity-75 hover:opacity-100 cursor-pointer"
+                        >
+                          ✕
+                        </button>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <span className="text-[10px] font-black uppercase opacity-75 block">
+                          🖼️ Darstellung wählen:
+                        </span>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setViewMode('cards')}
+                            className={'py-2 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer ' +
+                              (viewMode === 'cards' ? 'tw-active-nav' : 'tw-nav-inactive')}
+                          >
+                            <LayoutGrid className="w-4 h-4" />
+                            <span>Große Kacheln</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setViewMode('table')}
+                            className={'py-2 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer ' +
+                              (viewMode === 'table' ? 'tw-active-nav' : 'tw-nav-inactive')}
+                          >
+                            <TableIcon className="w-4 h-4" />
+                            <span>Kompakte Liste</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <span className="text-[10px] font-black uppercase opacity-75 block">
+                          ↕️ Sortierung:
+                        </span>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {[
+                            { id: 'newest',     label: '🕒 Neueste oben' },
+                            { id: 'expiry',     label: '📅 Nach MHD' },
+                            { id: 'glutenfree', label: '🌾✓ Glutenfrei oben' },
+                            { id: 'az',         label: '🔤 Name (A–Z)' }
+                          ].map(opt => (
+                            <button
+                              key={opt.id}
+                              type="button"
+                              onClick={() => setSortMode(opt.id)}
+                              className={'py-2 px-2.5 rounded-xl text-xs font-extrabold text-left cursor-pointer ' +
+                                (sortMode === opt.id ? 'tw-active-nav' : 'tw-nav-inactive')}
+                            >
+                              {opt.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-[10px] font-black uppercase opacity-75 block mb-1">
+                          🍱 Lebensmittel-Kategorie:
+                        </label>
+                        <select
+                          value={categoryFilter}
+                          onChange={(e) => setCategoryFilter(e.target.value)}
+                          className={'w-full h-10 px-3 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+                        >
+                          <option value="all" className="bg-slate-800 text-white">🍱 Alle 7 Kategorien ({safeStock.length})</option>
+                          {FOOD_CATEGORIES.map(cat => (
+                            <option key={cat.id} value={cat.id} className="bg-slate-800 text-white">
+                              {cat.icon} {cat.title} ({safeStock.filter(it => detectFoodCategory(it.name, it.category) === cat.id).length})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-2 pt-1 border-t border-white/10">
+                        <button
+                          type="button"
+                          onClick={handleSimplifyAllStockNames}
+                          className="tw-glow-btn w-full py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer"
+                        >
+                          <Wand2 className="w-4 h-4 text-sky-300" />
+                          <span>✨ Alle Produktnamen automatisch kürzen</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            triggerMhdWarningsAndTodoistPush(true);
+                            setShowControlMenu(false);
+                          }}
+                          className="tw-glow-btn w-full py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer"
+                        >
+                          <BellRing className="w-4 h-4 text-amber-300" />
+                          <span>📲 MHD-Push & Todoist-Warnung prüfen</span>
+                        </button>
+                      </div>
+
+                      <div className={'p-2.5 rounded-2xl border text-[11px] font-bold space-y-1 ' + themeStyles.subtle}>
+                        <div className="text-emerald-300">
+                          🌱 Nachhaltigkeits-Quote: {trashStats.score}% ({trashStats.consumed} verzehrt / {trashStats.wasted} abgelaufen)
+                        </div>
+                        {latestOverallItem && (
+                          <div
+                            onClick={() => {
+                              setShowControlMenu(false);
+                              openEditProductModal(latestOverallItem);
+                            }}
+                            className="text-sky-300 truncate cursor-pointer hover:underline"
+                          >
+                            📲 Zuletzt erfasst: {getFoodEmoji(latestOverallItem.name, latestOverallItem.customEmoji)} {latestOverallItem.name}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
             </>
           )}
 
@@ -1271,137 +1435,6 @@ export default function PantrySection({
             <Plus className="w-4 h-4 stroke-[3]" />
             <span>Einbuchen</span>
           </button>
-
-          {/* AUFKLAPPBARES INTELLIGENTES FILTER-, ANSICHTS- & WERKZEUG-MENÜ */}
-          {showControlMenu && (
-            <div className={'absolute right-0 top-full mt-2 w-80 sm:w-96 rounded-3xl border-2 p-4 shadow-2xl space-y-3.5 z-50 ' + themeStyles.modal}>
-              <div className="flex items-center justify-between border-b border-white/10 pb-2">
-                <span className="text-xs font-black uppercase text-sky-400">
-                  ⚙️ Speisekammer-Steuerung
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setShowControlMenu(false)}
-                  className="text-xs font-black opacity-75 hover:opacity-100"
-                >
-                  ✕
-                </button>
-              </div>
-
-              {/* 1. ANSICHTSMODUS: GROSSE KACHELN ODER KOMPAKTE LISTE */}
-              <div className="space-y-1.5">
-                <span className="text-[10px] font-black uppercase opacity-75 block">
-                  🖼️ Darstellung wählen:
-                </span>
-                <div className="grid grid-cols-2 gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => setViewMode('cards')}
-                    className={'py-2 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer ' +
-                      (viewMode === 'cards' ? 'tw-active-nav' : 'tw-nav-inactive')}
-                  >
-                    <LayoutGrid className="w-4 h-4" />
-                    <span>Große Kacheln</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setViewMode('table')}
-                    className={'py-2 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer ' +
-                      (viewMode === 'table' ? 'tw-active-nav' : 'tw-nav-inactive')}
-                  >
-                    <TableIcon className="w-4 h-4" />
-                    <span>Kompakte Liste</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* 2. SORTIERUNG */}
-              <div className="space-y-1.5">
-                <span className="text-[10px] font-black uppercase opacity-75 block">
-                  ↕️ Sortierung:
-                </span>
-                <div className="grid grid-cols-2 gap-1.5">
-                  {[
-                    { id: 'newest',     label: '🕒 Neueste oben' },
-                    { id: 'expiry',     label: '📅 Nach MHD' },
-                    { id: 'glutenfree', label: '🌾✓ Glutenfrei oben' },
-                    { id: 'az',         label: '🔤 Name (A–Z)' }
-                  ].map(opt => (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      onClick={() => setSortMode(opt.id)}
-                      className={'py-2 px-2.5 rounded-xl text-xs font-extrabold text-left cursor-pointer ' +
-                        (sortMode === opt.id ? 'tw-active-nav' : 'tw-nav-inactive')}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* 3. KATEGORIE-WAHL FÜR KLEINERE BILDSCHIRME */}
-              <div>
-                <label className="text-[10px] font-black uppercase opacity-75 block mb-1">
-                  🍱 Lebensmittel-Kategorie:
-                </label>
-                <select
-                  value={categoryFilter}
-                  onChange={(e) => setCategoryFilter(e.target.value)}
-                  className={'w-full h-10 px-3 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
-                >
-                  <option value="all" className="bg-slate-800 text-white">🍱 Alle 7 Kategorien ({safeStock.length})</option>
-                  {FOOD_CATEGORIES.map(cat => (
-                    <option key={cat.id} value={cat.id} className="bg-slate-800 text-white">
-                      {cat.icon} {cat.title} ({safeStock.filter(it => detectFoodCategory(it.name, it.category) === cat.id).length})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* 4. WERKZEUGE (NAMEN KÜRZEN & PUSH-WARNUNG) */}
-              <div className="grid grid-cols-1 gap-2 pt-1 border-t border-white/10">
-                <button
-                  type="button"
-                  onClick={handleSimplifyAllStockNames}
-                  className="tw-glow-btn w-full py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer"
-                >
-                  <Wand2 className="w-4 h-4 text-sky-300" />
-                  <span>✨ Alle Produktnamen automatisch kürzen</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    triggerMhdWarningsAndTodoistPush(true);
-                    setShowControlMenu(false);
-                  }}
-                  className="tw-glow-btn w-full py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer"
-                >
-                  <BellRing className="w-4 h-4 text-amber-300" />
-                  <span>📲 MHD-Push & Todoist-Warnung prüfen</span>
-                </button>
-              </div>
-
-              {/* 5. QUOTE & ZULETZT ERFASST INFO */}
-              <div className={'p-2.5 rounded-2xl border text-[11px] font-bold space-y-1 ' + themeStyles.subtle}>
-                <div className="text-emerald-300">
-                  🌱 Nachhaltigkeits-Quote: {trashStats.score}% ({trashStats.consumed} verzehrt / {trashStats.wasted} abgelaufen)
-                </div>
-                {latestOverallItem && (
-                  <div
-                    onClick={() => {
-                      setShowControlMenu(false);
-                      openEditProductModal(latestOverallItem);
-                    }}
-                    className="text-sky-300 truncate cursor-pointer hover:underline"
-                  >
-                    📲 Zuletzt erfasst: {getFoodEmoji(latestOverallItem.name, latestOverallItem.customEmoji)} {latestOverallItem.name}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
         </div>
       </div>
 
@@ -1443,14 +1476,16 @@ export default function PantrySection({
         />
       )}
 
-      {/* SUB-TAB 3: MÜLLEIMER */}
+      {/* ============================================================================
+          SUB-TAB 3: MÜLLEIMER INKL. GELBEM EINKAUFSWAGEN-BUTTON ZUM NACHKAUFEN
+         ============================================================================ */}
       {activeSubTab === 'trash' && (
         <div className="space-y-3.5">
           <div className={'p-3.5 rounded-3xl border flex flex-wrap items-center justify-between gap-3 ' + themeStyles.card}>
             <div>
               <h3 className="text-base font-extrabold">🗑️ Mülleimer & Verbrauchs-Übersicht</h3>
               <p className={'text-xs font-semibold ' + themeStyles.textMuted}>
-                Übersicht über verzehrte und abgelaufene Lebensmittel für eine nachhaltige Einkaufsplanung.
+                Klicke auf den gelben Einkaufswagen 🛒, um ein verbrauchtes Produkt direkt wieder auf die Einkaufsliste zu setzen.
               </p>
             </div>
             {safeTrash.length > 0 && (
@@ -1467,7 +1502,7 @@ export default function PantrySection({
             )}
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-2.5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
             {safeTrash.length === 0 ? (
               <div className={'col-span-full p-8 rounded-3xl border text-center ' + themeStyles.card}>
                 <div className="text-2xl mb-1">🌱</div>
@@ -1477,9 +1512,14 @@ export default function PantrySection({
               safeTrash.map(tItem => {
                 const isWasted = tItem.reason === 'expired' || tItem.reason === 'wasted';
                 return (
-                  <div key={tItem.id} className={'p-3 rounded-2xl border flex flex-col justify-between gap-2 ' + themeStyles.card + (isWasted ? ' border-rose-500/60' : ' border-emerald-500/40')}>
-                    <div className="flex items-start gap-2.5">
-                      <span className="text-2xl">{getFoodEmoji(tItem.name, tItem.customEmoji)}</span>
+                  <div
+                    key={tItem.id}
+                    className={'p-3.5 rounded-2xl border flex flex-col justify-between gap-3 ' + themeStyles.card + (isWasted ? ' border-rose-500/60' : ' border-emerald-500/40')}
+                  >
+                    <div className="flex items-start gap-3">
+                      <span className="w-11 h-11 rounded-2xl bg-black/35 border border-white/10 flex items-center justify-center text-2xl shrink-0">
+                        {getFoodEmoji(tItem.name, tItem.customEmoji)}
+                      </span>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between gap-1">
                           <span className={'inline-block px-1.5 py-0.5 rounded-md text-[9px] font-black truncate ' + (isWasted ? 'bg-rose-500/25 text-rose-300' : 'bg-emerald-500/25 text-emerald-300')}>
@@ -1493,34 +1533,91 @@ export default function PantrySection({
                             ✕
                           </button>
                         </div>
-                        <h4 className="font-black text-sm mt-1 truncate">{tItem.name}</h4>
-                        <div className="text-xs opacity-70">{tItem.quantity} • MHD: {tItem.expiryDate}</div>
+                        <h4 className="font-black text-base mt-1 leading-snug break-words">{tItem.name}</h4>
+                        <div className="text-xs opacity-70 mt-0.5">{tItem.quantity} • MHD: {tItem.expiryDate}</div>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-1.5 pt-1 border-t border-white/10">
+                    {/* GELBER EINKAUFSWAGEN-BUTTON + ZURÜCK-IN-BESTAND-BUTTON */}
+                    <div className="flex items-center gap-2 pt-2 border-t border-white/10">
                       <button
                         type="button"
                         onClick={() => {
                           addShoppingItem(tItem.name);
-                          showToast('Auf Einkaufsliste', tItem.name + ' wird nachgekauft.', '🛒');
+                          showToast('Auf Einkaufsliste 🛒', '„' + tItem.name + '“ wurde wieder zur Einkaufsliste hinzugefügt!', '🛒');
                         }}
-                        className="tw-glow-btn flex-1 py-1.5 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1 cursor-pointer"
+                        className="flex-1 py-2 px-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
                       >
-                        <ShoppingCart className="w-3.5 h-3.5" /> Nachkaufen
+                        <ShoppingCart className="w-4 h-4 stroke-[2.5]" />
+                        <span>Zur Einkaufsliste</span>
                       </button>
+
                       <button
                         type="button"
                         onClick={() => restoreFromTrash(tItem)}
-                        className="tw-nav-inactive px-2.5 py-1.5 rounded-xl text-xs font-bold cursor-pointer"
+                        title="Zurück in den Vorrats-Bestand legen"
+                        className="tw-nav-inactive p-2 rounded-xl text-xs font-bold cursor-pointer"
                       >
-                        <RotateCcw className="w-3.5 h-3.5" />
+                        <RotateCcw className="w-4 h-4" />
                       </button>
                     </div>
                   </div>
                 );
               })
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================================
+          PUNKT 3: ABFRAGE-MODAL BEIM VERBRAUCHEN ("WIEDER AUF DIE EINKAUFSLISTE? JA / NEIN")
+         ============================================================================ */}
+      {restockPromptItem && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className={'w-full max-w-md rounded-3xl border-2 border-amber-400 p-6 shadow-2xl space-y-5 text-center ' + themeStyles.modal}>
+            <div className="w-16 h-16 rounded-3xl bg-amber-500/20 border-2 border-amber-400/60 flex items-center justify-center text-4xl mx-auto shadow-inner">
+              {getFoodEmoji(restockPromptItem.name, restockPromptItem.customEmoji)}
+            </div>
+
+            <div className="space-y-1.5">
+              <div className="text-xs font-black uppercase tracking-wider text-emerald-400">
+                🍽️ Produkt verbraucht
+              </div>
+              <h3 className="text-xl font-black leading-snug">
+                {restockPromptItem.name}
+              </h3>
+              <p className="text-sm font-bold opacity-85 pt-1">
+                Soll dieses Produkt wieder auf die Einkaufsliste aufgenommen werden?
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const name = restockPromptItem.name;
+                  setRestockPromptItem(null);
+                  showToast('Verbraucht', '„' + name + '“ liegt jetzt im Mülleimer.', '🍽️');
+                }}
+                className="tw-nav-inactive py-3.5 px-4 rounded-2xl text-sm font-black cursor-pointer"
+              >
+                Nein
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const name = restockPromptItem.name;
+                  addShoppingItem(name);
+                  setRestockPromptItem(null);
+                  showToast('Auf Einkaufsliste! 🛒', '„' + name + '“ wurde zur Einkaufsliste hinzugefügt.', '🛒');
+                }}
+                className="py-3.5 px-4 rounded-2xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-sm font-black flex items-center justify-center gap-2 cursor-pointer shadow-lg"
+              >
+                <ShoppingCart className="w-4 h-4 stroke-[2.5]" />
+                <span>Ja, Einkaufsliste</span>
+              </button>
+            </div>
           </div>
         </div>
       )}
