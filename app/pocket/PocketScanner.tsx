@@ -37,13 +37,7 @@ import {
 
 import PocketAgenda from './PocketAgenda';
 import PocketTasks from './PocketTasks';
-import PocketScanner, {
-  FOOD_EMOJI_PICKER,
-  simplifyProductName,
-  detectSmartCategory,
-  detectSmartLocation,
-  isProductGlutenFree
-} from './PocketScanner';
+import PocketScanner from './PocketScanner';
 import PocketShopping from './PocketShopping';
 
 const {
@@ -61,6 +55,218 @@ const {
   closeOrReopenTodoistTask,
   deleteTodoistTask
 } = Cfg;
+
+// ============================================================================
+// DIREKT INTEGRIERTE HILFSFUNKTIONEN (VERHINDERT JEGLICHEN IMPORT-FEHLER!)
+// ============================================================================
+const FOOD_EMOJI_PICKER = [
+  '🌭', '🥩', '🍗', '🥓', '🍔', '🐟', '🥚', '🧀', '🧈', '🥛',
+  '🥣', '🥬', '🥒', '🍅', '🫑', '🥕', '🥔', '🧅', '🥦', '🌽',
+  '🍄', '🥑', '🍊', '🍎', '🍌', '🍓', '🍋', '🍇', '🍝', '🍚',
+  '🥖', '🥐', '🍕', '🌮', '🥫', '🌾', '🍫', '🍪', '🧃', '🐶',
+  '🐾', '🦴', '🐱', '🐴'
+];
+
+const KNOWN_BRAND_PREFIXES = [
+  'Kaufland', 'K-Classic', 'K-Bio', 'K-Favourites', 'K-Purland', 'ja!', 'GUT&GÜNSTIG', 'Gut & Günstig',
+  'EDEKA', 'REWE Beste Wahl', 'REWE Bio', 'REWE', 'Wilhelm Brandenburg', 'Mein Metzgergut', 'Landjunker',
+  'Milbona', 'Milsani', 'Bellarom', 'Kania', 'Combino', 'Alnatura', 'dmBio', 'Schär', 'Dr. Schär', 'Seitz',
+  'Gefro', 'Meggle', 'Philadelphia', 'Thomy', 'Heinz', 'Hengstenberg', 'Pfanni', 'Barilla', 'Dr. Oetker',
+  'Iglo', 'Frosta', 'Landfein', 'Schwarzwaldmilch', 'Weihenstephan', 'Bärenmarke', 'Kerrygold',
+  'Oro di Parma', 'Alnavit', 'Bauckhof', 'Müller', 'Ehrmann', 'Zott', 'Danone', 'Arla', 'Exquisa',
+  'miree', 'Rama', 'Lätta', 'Bonduelle', 'Kühne', 'Knorr', 'Maggi', 'Löwensenf', 'Ernte Krone',
+  'mysmile', 'Die süße Susi', 'Rinti', 'Wolfsblut', 'Josera', 'Belcando', 'Animonda', 'Pedigree'
+];
+
+function shortenBrandString(rawBrand) {
+  if (!rawBrand) return '';
+  let b = String(rawBrand).split(',')[0].trim();
+
+  b = b
+    .replace(/\b(GmbH\s*&\s*Co\.?\s*KG|GmbH\s*&\s*Co\.?\s*OHG|GmbH|AG|KG|OHG|SE|mbH|e\.?\s*G\.?|Inc\.?|Ltd\.?|S\.?p\.?A\.?|S\.?A\.?)\b/gi, '')
+    .replace(/\b(Pilze\s*&\s*Waldfrüchte|Uwe\s+Niklas|Fleischwaren|Heiligenstadt|Warenhandel|Nahrungsmittel|Lebensmittel|Molkerei|Privatmolkerei|Käserei|Fleischwerke|Feinkost|Vertriebs|Handels|Werke|Deutschland|International)\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!b) return '';
+
+  const multiBrandMatch = KNOWN_BRAND_PREFIXES.find(
+    kb => b.toLowerCase() === kb.toLowerCase() || b.toLowerCase().startsWith(kb.toLowerCase() + ' ')
+  );
+  if (multiBrandMatch) return multiBrandMatch;
+
+  const tokens = b.split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return '';
+  if (tokens[0].toLowerCase() === 'dr.' && tokens[1]) {
+    return tokens[0] + ' ' + tokens[1];
+  }
+  return tokens[0].replace(/^[,;-]+|[,;-]+$/g, '');
+}
+
+function simplifyProductName(rawInputName, explicitBrand = '') {
+  let raw = String(rawInputName || '').replace(/\s+/g, ' ').trim();
+  if (!raw) return '';
+
+  let extractedBrand = explicitBrand ? shortenBrandString(explicitBrand) : '';
+  let productPart = raw;
+
+  if (productPart.includes(' / ')) {
+    const parts = productPart.split(' / ');
+    productPart = parts[0].trim();
+    if (!extractedBrand && parts[1]) {
+      extractedBrand = shortenBrandString(parts[1]);
+    }
+  }
+
+  if (explicitBrand) {
+    const cleanExp = String(explicitBrand).split(',')[0].trim();
+    if (cleanExp && productPart.toLowerCase().startsWith(cleanExp.toLowerCase())) {
+      productPart = productPart.slice(cleanExp.length).trim();
+    }
+  }
+
+  const legalSplitRegex = /^(.*?)\b(?:GmbH\s*&\s*Co\.?\s*KG|GmbH\s*&\s*Co\.?\s*OHG|GmbH|AG|KG|OHG|SE|mbH|e\.?\s*G\.?)\.?\s+(.+)$/i;
+  const legalMatch = productPart.match(legalSplitRegex);
+  if (legalMatch) {
+    const companyLeft = legalMatch[1].trim();
+    const itemRight = legalMatch[2].trim();
+    if (itemRight.length >= 2) {
+      if (!extractedBrand) extractedBrand = shortenBrandString(companyLeft);
+      productPart = itemRight;
+    }
+  }
+
+  for (const kb of KNOWN_BRAND_PREFIXES) {
+    const reg = new RegExp('^' + kb.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b\\s*', 'i');
+    if (reg.test(productPart)) {
+      const rest = productPart.replace(reg, '').trim();
+      if (rest.length >= 2) {
+        if (!extractedBrand) extractedBrand = kb;
+        productPart = rest;
+        break;
+      }
+    }
+  }
+
+  productPart = productPart
+    .replace(/\b(tiefgekühlt|tiefgefroren|tiefkühlkost|tiefkühl)\b/gi, 'TK')
+    .replace(/\b(delikatess|das komplette|flow pack de|unter schutzatmosphäre|servierfertig|küchenfertig|erntefrisch|feinste|klassische|fleischwaren|heiligenstadt)\b/gi, '')
+    .replace(/\b\d+(?:[.,]\d+)?\s*(?:g|gr|kg|ml|l)\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .replace(/^[,;.\-/]+|[,;.\-/]+$/g, '')
+    .trim();
+
+  if (!productPart) productPart = raw;
+  productPart = productPart.charAt(0).toUpperCase() + productPart.slice(1);
+
+  if (extractedBrand && !productPart.toLowerCase().includes(extractedBrand.toLowerCase())) {
+    return productPart + ' / ' + extractedBrand;
+  }
+  return productPart;
+}
+
+function detectSmartCategory(nameStr, customCategory = '', offTags = []) {
+  if (customCategory && customCategory !== 'auto' && FOOD_CATEGORIES.some(c => c.id === customCategory)) {
+    return customCategory;
+  }
+  const n = String(nameStr || '').toLowerCase();
+  const tags = Array.isArray(offTags) ? offTags.join(' ').toLowerCase() : '';
+
+  if (/hundefutter|katzenfutter|tierfutter|pferdefutter|futter|leckerli|kauknochen|pansen|rinti|wolfsblut|josera|belcando|animonda|pedigree|whiskas|felix/.test(n)) {
+    return 'sweets_snacks';
+  }
+  if (/pilz|pfifferling|steinpilz|champignon|kräuterseitling|waldfrüchte|beeren|erdbeer|himbeer|heidelbeer|blaubeer|apfel|äpfel|apfelmus|apfelmark|banane|orange|clementine|mandarine|zitrone|limette|melone|ananas|mango|kiwi|traube|birne|avocado|salat|eisberg|feldsalat|mâche|rucola|spinat|gurke|tomate|tomatenmark|oro di parma|paprika|karotte|möhre|zwiebel|knoblauch|brokkoli|blumenkohl|spargel|rotkohl|sauerkraut|mais|erbse|bohne|linse|kichererbse|chili sin carne|gefro/.test(n)) {
+    return 'produce';
+  }
+  if (/butter|kräuterbutter|meggle|margarine|öl|sonnenblumenöl|olivenöl|rapsöl|kokosöl|fett|schmalz|essig|balsamico|hengstenberg|senf|thomy|ketchup|mayo|mayonnaise|remoulade|dressing|burger sauce|heinz|soße|sauce|pesto|brühe|fond/.test(n)) {
+    return 'oils_fats';
+  }
+  if (/wasser|mineralwasser|kaffee|espresso|tee|saft|apfelsaft|orangensaft|schorle|cola|limo|getränk|sirup|kakao|\bbier\b|\bwein\b|energydrink|hafermilch|mandelmilch|oatly|alpro/.test(n)) {
+    return 'drinks';
+  }
+  if (/milch|vollmilch|weidemilch|alpenmilch|schwarzwaldmilch|landfein|joghurt|quark|skyr|käse|frischkäse|philadelphia|scheibenkäse|gouda|mozzarella|parmesan|emmentaler|camembert|feta|hirtenkäse|schlagsahne|kochsahne|sahne|schmand|creme fraiche|crème fraîche|mascarpone|ayran|kefir|pudding/.test(n)) {
+    return 'dairy';
+  }
+  if (/fleisch|schweinefilet|rinderfilet|filet|lende|hackfleisch|rinderhack|rind|schwein|hähnchen|huhn|pute|geflügel|schnitzel|steak|gulasch|wurst|bratwurst|rostbratwurst|leberwurst|würstchen|wiener|lyoner|salami|schinken|speck|bacon|aufschnitt|fisch|lachs|kabeljau|seelachs|thunfisch|fischstäbchen|forelle|garnele|\bei\b|eier/.test(n)) {
+    return 'meat_fish_eggs';
+  }
+  if (/brot|landbrot|mehrkorn|knusperbrot|brötchen|toast|baguette|croissant|knäckebrot|reiswaffel|nudel|spaghetti|pasta|penne|fusilli|rigatoni|tortellini|ravioli|spätzle|reis|rize|spitzenreis|langkorn|basmati|jasmin|milchreis|risotto|getreide|haferflocken|müsli|cornflakes|choco balls|mehl|grieß|stärke|wraps|wrap|tortilla|taco|schär|seitz|kartoffel|kartoffelpüree|pfanni|gnocchi|schupfnudel|pommes|kroketten|knödel/.test(n)) {
+    return 'grains';
+  }
+  if (/schokolade|choco|schoko|nutella|haselnusscreme|konfitüre|marmelade|honig|keks|cookie|gummibär|haribo|chips|flips|eis|bonbon|praline|zuckerware|riegel/.test(n)) {
+    return 'sweets_snacks';
+  }
+
+  if (/fruits|vegetables|mushrooms|plant-based-foods-and-beverages|salads|legumes/.test(tags)) return 'produce';
+  if (/dairies|cheeses|milks|yogurts|creams/.test(tags)) return 'dairy';
+  if (/meats|poultries|fishes|seafood|sausages|eggs/.test(tags)) return 'meat_fish_eggs';
+  if (/cereals|breads|pastas|potatoes|flours|tortillas/.test(tags)) return 'grains';
+  if (/fats|oils|sauces|condiments|vinegars|mustards/.test(tags)) return 'oils_fats';
+  if (/beverages|waters|juices|coffees|teas/.test(tags)) return 'drinks';
+
+  return detectFoodCategory(nameStr);
+}
+
+function detectSmartLocation(nameStr, categoryId = '', offTags = []) {
+  const n = String(nameStr || '').toLowerCase();
+  const tags = Array.isArray(offTags) ? offTags.join(' ').toLowerCase() : '';
+
+  if (/hundefutter|katzenfutter|tierfutter|pferdefutter|futter|leckerli|kauknochen|pansen|trockenfutter|nassfutter|rinti|wolfsblut|josera|belcando|animonda|pedigree|whiskas|felix/.test(n)) {
+    return 'petfood';
+  }
+  if (/\btk\b|tiefkühl|tiefgekühlt|tiefgefroren|gefrier|eiscreme|speiseeis|fischstäbchen|pommes|kroketten|rahmspinat/.test(n) || /frozen/.test(tags)) {
+    return 'freezer';
+  }
+  if (/nudel|spaghetti|pasta|penne|fusilli|rigatoni|reis|rize|basmati|langkorn|mehl|zucker|salz|haferflocken|müsli|cornflakes|choco balls|wraps|wrap|schär|seitz|knusperbrot|knäckebrot|reiswaffel|backpulver|vanillezucker|kaffee|espresso|tee|kakao|schokolade|nutella|honig|konfitüre|keks|cookie|chips|haribo|nüsse|gefro|chili sin carne|kartoffelpüree|pfanni|tomatenmark|pesto|öl|olivenöl|sonnenblumenöl|rapsöl|essig|balsamico|senf|ketchup|mayo|burger sauce|brühe/.test(n)) {
+    return 'cupboard';
+  }
+  if (/konserve|dose|im glas|apfelmus|apfelmark|rotkohl|sauerkraut|spargel|passierte|gehackte tomaten|mais|kichererbsen|bohnen|linsen|kartoffel|zwiebel|knoblauch|haltbare|mineralwasser|saft|schorle|cola|limo|\bbier\b|\bwein\b/.test(n)) {
+    return 'pantry';
+  }
+  const resolvedCat = categoryId || detectSmartCategory(nameStr, '', offTags);
+  if (resolvedCat === 'dairy' || resolvedCat === 'meat_fish_eggs') {
+    return 'fridge';
+  }
+  if (/salat|feldsalat|mâche|eisberg|rucola|spinat|gurke|paprika|brokkoli|karotte|möhre|beere|erdbeer|himbeer|heidelbeer|pilz|pfifferling|champignon|butter|kräuterbutter|frisch/.test(n)) {
+    return 'fridge';
+  }
+  return 'kitchen';
+}
+
+function isProductGlutenFree(itemOrName, customCategory = '', manualFlag = undefined, offAllergens = [], offLabels = []) {
+  const isObj = itemOrName && typeof itemOrName === 'object';
+  const nameStr = isObj ? String(itemOrName.name || '') : String(itemOrName || '');
+  const catId = isObj
+    ? detectSmartCategory(nameStr, itemOrName.category)
+    : detectSmartCategory(nameStr, customCategory);
+  const flag = isObj ? itemOrName.glutenFree : manualFlag;
+
+  if (flag === true || flag === 'yes') return true;
+  if (flag === false || flag === 'no') return false;
+
+  const labelsStr = Array.isArray(offLabels) ? offLabels.join(' ').toLowerCase() : '';
+  const allergensStr = Array.isArray(offAllergens) ? offAllergens.join(' ').toLowerCase() : '';
+
+  if (/no-gluten|gluten-free|glutenfrei/.test(labelsStr)) return true;
+  if (/en:gluten|de:gluten/.test(allergensStr)) return false;
+
+  const n = nameStr.toLowerCase();
+  if (!n.trim()) return false;
+
+  if (/glutenfrei|gluten-free|ohne gluten|frei von|\bgf\b|schär|schaer|bauckhof|alnavit|hammermühle|seitz|schnitzer|reismehl|maismehl|buchweizen|quinoa|hirse|amarant|polenta|maisstärke|speisestärke|kartoffelmehl|reiswaffel|gefro/.test(n)) {
+    return true;
+  }
+  if (/weizen|dinkel|roggen|gerste|grünkern|bulgur|couscous|seitan|paniermehl|paniert|fischstäbchen|nuggets|schnitzel|spätzle|tortellini|ravioli|lasagne|nudel|spaghetti|pasta|penne|fusilli|rigatoni|mehl|grieß|haferflocken|müsli|cornflakes|brot|landbrot|mehrkorn|brötchen|toast|baguette|croissant|knäckebrot|kuchen|waffel|keks|cookie|brezel|pizza|flammkuchen|\bbier\b|malz|gnocchi|schupfnudel/.test(n)) {
+    return false;
+  }
+  if (catId === 'produce' || catId === 'dairy' || catId === 'oils_fats' || catId === 'drinks' || catId === 'meat_fish_eggs') {
+    return true;
+  }
+  if (/reis|rize|spitzenreis|langkorn|basmati|jasmin|milchreis|risotto|kartoffel|kartoffelpüree|pfanni|pommes|kroketten|mais|popcorn/.test(n)) {
+    return true;
+  }
+  return false;
+}
 
 function writeAuthSession(accountId, authKey, familyName) {
   try {
@@ -122,9 +328,6 @@ function getTaskNormKey(task) {
   return String(task.member || 'all').toLowerCase() + '::' + getTaskTitleKey(task);
 }
 
-// ============================================================================
-// 1. STABILER MERGE FÜR DIE EINKAUFSLISTE (CLOUD vs. TODOIST UNTERSCHEIDUNG)
-// ============================================================================
 function reconcileShoppingNotes(localNotes, incomingNotes, syncMeta, source = 'cloud') {
   const baseNotes = Array.isArray(incomingNotes) && incomingNotes.length > 0
     ? incomingNotes
@@ -234,9 +437,6 @@ function reconcileShoppingNotes(localNotes, incomingNotes, syncMeta, source = 'c
   return baseNotes.map((n, idx) => idx === 0 ? { ...n, items: finalFirstItems } : n);
 }
 
-// ============================================================================
-// 2. STABILER MERGE FÜR AUFGABEN / TASKS (CLOUD vs. TODOIST UNTERSCHEIDUNG)
-// ============================================================================
 function reconcileFamilyTasks(localTasks, incomingTasks, syncMeta, source = 'cloud') {
   const localList = Array.isArray(localTasks) ? localTasks : [];
   const incomingList = Array.isArray(incomingTasks) ? incomingTasks : [];
@@ -405,7 +605,6 @@ export default function TouchwallPocketApp() {
   const [stockCategoryFilter, setStockCategoryFilter] = useState('all');
   const [stockOnlyGlutenFree, setStockOnlyGlutenFree] = useState(false);
 
-  // Nachfrage-Dialog nach dem Verbrauchen / Löschen im Bestand ("Auf Einkaufsliste? Ja / Nein")
   const [restockPromptItem, setRestockPromptItem] = useState(null);
 
   const [editStockModal, setEditStockModal] = useState({
@@ -1260,9 +1459,6 @@ export default function TouchwallPocketApp() {
     showToast('Einkaufswagen eingelagert!', newStockEntries.length + ' Produkte sind jetzt im Bestand.', '🥫');
   };
 
-  // ============================================================================
-  // AUSBUCHEN PER BARCODE-SCAN (NACH >= 2 STUNDEN IM BESTAND) ODER PER BUTTON
-  // ============================================================================
   const handleCheckoutStockItemByScan = async (item, mode = 'trash') => {
     if (!item) return;
     const now = Date.now();
@@ -1302,7 +1498,6 @@ export default function TouchwallPocketApp() {
     await saveStateToCloud({ pantryItems: nextStock, pantryTrash: nextTrash });
   };
 
-  // Direktes Verschieben in den Mülleimer aus dem Bestands-Tab + Nachfrage ob auf Einkaufsliste
   const handleMoveStockItemToTrashFromPocket = async (item, reasonType = 'wasted', askForShoppingList = true) => {
     if (!item) return;
     const now = Date.now();
@@ -1334,7 +1529,6 @@ export default function TouchwallPocketApp() {
     }
   };
 
-  // Aus dem Mülleimer zurück in den aktiven Bestand holen
   const handleRestoreFromPocketTrash = async (trashItem) => {
     if (!trashItem) return;
     const now = Date.now();
@@ -2141,12 +2335,8 @@ export default function TouchwallPocketApp() {
               />
             )}
 
-            {/* ============================================================================
-                BESTAND INKL. NEUEM MÜLLEIMER-REITER & DIREKTEM MÜLLEIMER-BUTTON
-               ============================================================================ */}
             {activeTab === 'stock' && (
               <div className="space-y-3">
-                {/* OBERER UMSCHALTER: VORRAT vs. MÜLLEIMER */}
                 <div className="grid grid-cols-2 gap-1.5 p-1 rounded-2xl bg-black/35 border border-white/10">
                   <button
                     type="button"
@@ -2409,7 +2599,6 @@ export default function TouchwallPocketApp() {
                       </div>
                     </div>
 
-                    {/* PRODUKT-KACHELN INKL. DIREKTEM MÜLLEIMER-BUTTON */}
                     <div className="space-y-3">
                       {sortedStockForTab.length === 0 ? (
                         <div className={'p-8 rounded-3xl border text-center space-y-2 ' + themeStyles.card}>
@@ -2563,9 +2752,6 @@ export default function TouchwallPocketApp() {
                     </div>
                   </>
                 ) : (
-                  /* ============================================================================
-                      MÜLLEIMER-ANSICHT IM REITER "BESTAND" (INKL. GELBEM EINKAUFSWAGEN & RESTORE)
-                     ============================================================================ */
                   <div className="space-y-3">
                     <div className={'p-4 rounded-3xl border space-y-2.5 shadow-md ' + themeStyles.card}>
                       <div className="flex items-center justify-between gap-2">
@@ -2672,9 +2858,6 @@ export default function TouchwallPocketApp() {
         )}
       </main>
 
-      {/* ============================================================================
-          PORTAL-MODAL: NACHFRAGE BEIM VERBRAUCHEN ("AUF EINKAUFSLISTE? JA / NEIN")
-         ============================================================================ */}
       {restockPromptItem && typeof document !== 'undefined' && createPortal(
         <div
           onClick={() => setRestockPromptItem(null)}
@@ -2731,7 +2914,6 @@ export default function TouchwallPocketApp() {
         document.body
       )}
 
-      {/* INTELLIGENTES 1-HAND-SCHNELL-COCKPIT */}
       {quickCockpitOpen && (
         <div
           onClick={() => setQuickCockpitOpen(false)}
@@ -2852,7 +3034,6 @@ export default function TouchwallPocketApp() {
         </div>
       )}
 
-      {/* VOLLWERTIGES BEARBEITEN-MODAL FÜR DEN BESTAND */}
       {editStockModal.open && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-3 overflow-y-auto">
           <form
