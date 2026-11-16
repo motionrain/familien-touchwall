@@ -10,10 +10,11 @@ import {
   ShoppingCart, RotateCcw, ChefHat, Pencil, Check, X,
   Table as TableIcon, LayoutGrid, Wand2,
   AlertTriangle, BellRing, Search, SlidersHorizontal,
-  ChevronDown, ArrowUpDown, ArrowUp, ArrowDown, FolderKanban
+  ChevronDown, ArrowUpDown, ArrowUp, ArrowDown, FolderKanban, Tag
 } from 'lucide-react';
 import * as Cfg from './touchwallConfig';
 import PantryRecipes from './PantryRecipes';
+import PantryOffers from './PantryOffers';
 
 const {
   formatDateStr,
@@ -26,13 +27,13 @@ const {
 // ERWEITERTE LAGERORTE (INKL. VORRATSSCHRANK & TIERFUTTER)
 // ============================================================================
 export const STORAGE_LOCATIONS = [
-  { id: 'all',      label: '🏠 Alle Orte',       short: '🏠 Alle' },
-  { id: 'fridge',   label: '🧊 Kühlschrank',     short: '🧊 Kühl.' },
-  { id: 'freezer',  label: '❄️ Gefrierschrank',  short: '❄️ TK' },
-  { id: 'cupboard', label: '🚪 Vorratsschrank',  short: '🚪 Schrank' },
-  { id: 'pantry',   label: '🗄️ Keller / Vorrat', short: '🗄️ Keller' },
-  { id: 'kitchen',  label: '🍎 Küche',           short: '🍎 Küche' },
-  { id: 'petfood',  label: '🐾 Tierfutter',      short: '🐾 Tierfutter' }
+  { id: 'all',      icon: '🏠', name: 'Alle Orte',       label: '🏠 Alle Orte',       short: '🏠 Alle' },
+  { id: 'fridge',   icon: '🧊', name: 'Kühlschrank',     label: '🧊 Kühlschrank',     short: '🧊 Kühl.' },
+  { id: 'freezer',  icon: '❄️', name: 'Gefrierschrank',  label: '❄️ Gefrierschrank',  short: '❄️ TK' },
+  { id: 'cupboard', icon: '🚪', name: 'Vorratsschrank',  label: '🚪 Vorratsschrank',  short: '🚪 Schrank' },
+  { id: 'pantry',   icon: '🗄️', name: 'Keller / Vorrat', label: '🗄️ Keller / Vorrat', short: '🗄️ Keller' },
+  { id: 'kitchen',  icon: '🍎', name: 'Küche',           label: '🍎 Küche',           short: '🍎 Küche' },
+  { id: 'petfood',  icon: '🐾', name: 'Tierfutter',      label: '🐾 Tierfutter',      short: '🐾 Tierfutter' }
 ];
 
 export const FOOD_CATEGORIES = [
@@ -41,7 +42,7 @@ export const FOOD_CATEGORIES = [
   { id: 'grains',         icon: '🌾', title: 'Getreide, Getreideprodukte & Kartoffeln', short: 'Getreide & Nudeln', desc: 'Brot, Nudeln, Reis, Flocken und Kartoffeln.' },
   { id: 'dairy',          icon: '🧀', title: 'Milch und Milchprodukte',                short: 'Milch & Käse',      desc: 'Milch, Joghurt, Quark, Sahne und Käse.' },
   { id: 'meat_fish_eggs', icon: '🥩', title: 'Fleisch, Fisch, Wurst und Eier',         short: 'Fleisch & Fisch',   desc: 'Eiweiß- und Nährstofflieferanten.' },
-  { id: 'oils_fats',      icon: '🧈', title: 'Öle und Fette (inkl. Würzmittel)',       short: 'Öle & Soßen',       desc: 'Öle, Butter, Kräuterbutter, Essig, Senf und Soßen.' },
+  { id: 'oils_fats',      icon: '🧈', title: 'Öle und Fette (inkl. Würzmittel)',       short: 'Öle & Gewürze',     desc: 'Öle, Butter, Kräuterbutter, Essig, Senf, Gewürze und Soßen.' },
   { id: 'sweets_snacks',  icon: '🍫', title: 'Süßwaren, Knabbereien & Tierfutter',     short: 'Snacks & Sonst.',   desc: 'Snacks, Schokolade, Tiernahrung und Sonstiges.' }
 ];
 
@@ -61,7 +62,7 @@ const KNOWN_BRAND_PREFIXES = [
   'Iglo', 'Frosta', 'Landfein', 'Schwarzwaldmilch', 'Weihenstephan', 'Bärenmarke',
   'Kerrygold', 'Oro di Parma', 'Alnavit', 'Bauckhof', 'Müller', 'Ehrmann', 'Zott',
   'Danone', 'Arla', 'Exquisa', 'miree', 'Rama', 'Lätta', 'Bonduelle', 'Kühne',
-  'Knorr', 'Maggi', 'Löwensenf', 'Ernte Krone', 'mysmile', 'Die süße Susi',
+  'Knorr', 'Maggi', 'Ostmann', 'Löwensenf', 'Ernte Krone', 'mysmile', 'Die süße Susi',
   'Rinti', 'Wolfsblut', 'Josera', 'Belcando', 'Animonda', 'Premiere', 'Pedigree'
 ];
 
@@ -158,13 +159,13 @@ export function detectFoodCategory(nameStr, customCategory = '') {
   }
   const n = String(nameStr || '').toLowerCase();
   if (/hundefutter|katzenfutter|tierfutter|pferdefutter|futter|leckerli|kauknochen|pansen|rinti|wolfsblut|josera|belcando|animonda|pedigree|whiskas|felix/.test(n)) return 'sweets_snacks';
-  if (/pilz|pfifferling|steinpilz|champignon|kräuterseitling|waldfrüchte|obst|apfel|äpfel|elstar|apfelmus|banane|clementine|mandarine|orange|susi|beere|erdbeer|himbeer|heidelbeer|traube|birne|zitrone|limette|kiwi|mango|ananas|melone|gemüse|salat|eisberg|mâche|mache|feldsalat|rucola|spinat|gurke|tomate|tomatenmark|passierte|oro di parma|paprika|karotte|möhre|zwiebel|knoblauch|brokkoli|blumenkohl|spargel|stangenspargel|rotkohl|kraut|avocado|mais|erbse|bohne|linse|kichererbse|chili sin carne|gefro/.test(n)) return 'produce';
-  if (/butter|kräuterbutter|meggle|margarine|öl|sonnenblumenöl|olivenöl|rapsöl|kokosöl|fett|schmalz|essig|hengstenberg|senf|thomy|ketchup|mayo|mayonnaise|dressing|burger sauce|heinz|soße|sauce|pesto/.test(n)) return 'oils_fats';
-  if (/wasser|mineralwasser|kaffee|espresso|tee|saft|apfelsaft|orangensaft|schorle|cola|limo|getränk|sirup|kakao|\bbier\b|\bwein\b/.test(n)) return 'drinks';
+  if (/pilz|pfifferling|steinpilz|champignon|kräuterseitling|waldfrüchte|obst|apfel|äpfel|elstar|apfelmus|banane|clementine|mandarine|orange|susi|beere|erdbeer|himbeer|heidelbeer|traube|birne|zitrone|limette|kiwi|mango|ananas|melone|gemüse|buttergemüse|salat|eisberg|mâche|mache|feldsalat|rucola|spinat|gurke|tomate|tomatenmark|passierte|oro di parma|paprika|karotte|möhre|zwiebel|knoblauch|brokkoli|blumenkohl|spargel|stangenspargel|rotkohl|kraut|avocado|mais|erbse|bohne|linse|kichererbse|chili sin carne/.test(n)) return 'produce';
+  if (/butter|kräuterbutter|meggle|margarine|öl|sonnenblumenöl|olivenöl|rapsöl|kokosöl|fett|schmalz|essig|hengstenberg|senf|thomy|ketchup|mayo|mayonnaise|dressing|burger sauce|heinz|soße|sauce|pesto|gewürz|curry|ostmann|maggi|salz|pfeffer|brühe|gefro/.test(n)) return 'oils_fats';
+  if (/wasser|mineralwasser|kaffee|nescafé|nescafe|coffee|caffeciao|espresso|tee|saft|apfelsaft|orangensaft|schorle|cola|limo|getränk|sirup|kakao|\bbier\b|\bwein\b/.test(n)) return 'drinks';
   if (/milch|vollmilch|schwarzwaldmilch|landfein|joghurt|quark|käse|frischkäse|philadelphia|scheibenkäse|gouda|mozzarella|parmesan|emmentaler|camembert|feta|schlagsahne|sahne|schmand|creme fraiche|mascarpone|ayran|kefir/.test(n)) return 'dairy';
-  if (/fleisch|schweinefilet|rinderfilet|filet|lende|hackfleisch|rinderhack|rind|schwein|hähnchen|huhn|pute|geflügel|schnitzel|steak|gulasch|wurst|bratwurst|rostbratwurst|leberwurst|würstchen|wiener|lyoner|salami|schinken|speck|aufschnitt|fisch|lachs|thunfisch|fischstäbchen|forelle|garnele|\bei\b|eier/.test(n)) return 'meat_fish_eggs';
-  if (/brot|landbrot|mehrkorn|knusperbrot|brötchen|toast|baguette|croissant|nudel|spaghetti|pasta|penne|rigatoni|tortellini|ravioli|spätzle|reis|rize|spitzenreis|langkorn|basmati|jasmin|milchreis|getreide|haferflocken|müsli|cornflakes|choco balls|mehl|grieß|stärke|wraps|wrap|tortilla|taco|schär|seitz|kartoffel|kartoffelpüree|pfanni|gnocchi|schupfnudel|pommes|knödel/.test(n)) return 'grains';
-  if (/schokolade|choco|schoko|nutella|keks|cookie|gummibär|chips|flips|eis|bonbon|praline|zuckerware/.test(n)) return 'sweets_snacks';
+  if (/fleisch|schweinefilet|schweinestrang|rinderfilet|filet|lende|hackfleisch|rinderhack|rind|schwein|hähnchen|huhn|pute|geflügel|schnitzel|steak|gulasch|wurst|bratwurst|rostbratwurst|leberwurst|würstchen|wiener|lyoner|salami|schinken|speck|bacon|aufschnitt|fisch|lachs|thunfisch|fischstäbchen|forelle|garnele|\bei\b|eier/.test(n)) return 'meat_fish_eggs';
+  if (/brot|landbrot|mehrkorn|knusperbrot|brötchen|toast|baguette|croissant|nudel|spaghetti|pasta|penne|rigatoni|tortellini|ravioli|spätzle|reis|rize|spitzenreis|langkorn|basmati|jasmin|milchreis|getreide|haferflocken|müsli|cornflakes|choco balls|mehl|grieß|stärke|wraps|wrap|tortilla|taco|schär|seitz|kartoffel|kartoffelpüree|pfanni|gnocchi|schupfnudel|pommes|potatoe|knödel/.test(n)) return 'grains';
+  if (/schokolade|choco|schoko|milka|kuhflecken|nutella|keks|cookie|gummibär|chips|pfiff|flips|eis|bonbon|praline|zuckerware/.test(n)) return 'sweets_snacks';
   return 'sweets_snacks';
 }
 
@@ -173,10 +174,10 @@ export function detectSmartLocation(nameStr, categoryId = '') {
   if (/hundefutter|katzenfutter|tierfutter|pferdefutter|futter|leckerli|kauknochen|pansen|trockenfutter|nassfutter|rinti|wolfsblut|josera|belcando|animonda|pedigree|whiskas|felix/.test(n)) {
     return 'petfood';
   }
-  if (/\btk\b|tiefkühl|tiefgekühlt|tiefgefroren|gefrier|eiscreme|speiseeis|fischstäbchen|pommes/.test(n)) {
+  if (/\btk\b|tiefkühl|tiefgekühlt|tiefgefroren|gefrier|eiscreme|speiseeis|fischstäbchen|pommes|potatoe|buttergemüse/.test(n)) {
     return 'freezer';
   }
-  if (/nudel|spaghetti|pasta|penne|rigatoni|reis|rize|basmati|langkorn|mehl|zucker|salz|haferflocken|müsli|cornflakes|choco balls|wraps|wrap|schär|seitz|knusperbrot|backpulver|vanillezucker|kaffee|tee|kakao|schokolade|keks|cookie|chips|nüsse|gefro|chili sin carne|kartoffelpüree|pfanni|tomatenmark|pesto|öl|olivenöl|sonnenblumenöl|essig|senf|ketchup|mayo|burger sauce/.test(n)) {
+  if (/nudel|spaghetti|pasta|penne|rigatoni|reis|rize|basmati|langkorn|mehl|zucker|salz|gewürz|curry|ostmann|maggi|haferflocken|müsli|cornflakes|choco balls|wraps|wrap|schär|seitz|knusperbrot|backpulver|vanillezucker|kaffee|nescafé|nescafe|coffee|caffeciao|tee|kakao|schokolade|milka|kuhflecken|keks|cookie|chips|pfiff|nüsse|gefro|chili sin carne|kartoffelpüree|pfanni|tomatenmark|pesto|öl|olivenöl|sonnenblumenöl|essig|senf|ketchup|mayo|burger sauce/.test(n)) {
     return 'cupboard';
   }
   if (/konserve|dose|im glas|apfelmus|rotkohl|spargel|stangenspargel|passierte|kartoffel|zwiebel|knoblauch|wasser|mineralwasser|saft|apfelsaft|orangensaft|schorle|cola|limo|\bbier\b|\bwein\b|vorrat|haltbare/.test(n)) {
@@ -216,7 +217,7 @@ export function isProductGlutenFree(itemOrName, customCategory = '', manualFlag 
     return true;
   }
 
-  if (/reis|rize|spitzenreis|langkorn|basmati|jasmin|milchreis|risotto|kartoffel|kartoffelpüree|pfanni|pommes|kroketten|mais|popcorn/.test(n)) {
+  if (/reis|rize|spitzenreis|langkorn|basmati|jasmin|milchreis|risotto|kartoffel|kartoffelpüree|pfanni|pommes|potatoe|kroketten|mais|popcorn|chips/.test(n)) {
     return true;
   }
 
@@ -230,8 +231,8 @@ export function getFoodEmoji(nameStr, customEmoji = '') {
   if (/katzenfutter|katze|whiskas|felix/.test(n)) return '🐱';
   if (/pferdefutter|pony|hafer|heu/.test(n)) return '🐴';
   if (/hunde|tierfutter|futter|leckerli|pansen|rinti|wolfsblut|josera|belcando|animonda|pedigree/.test(n)) return '🐶';
-  if (/butter|kräuterbutter|meggle|margarine/.test(n)) return '🧈';
-  if (/bratwurst|rostbratwurst|leberwurst|wurst|würstchen|wiener|lyoner|aufschnitt|schinken|salami|speck/.test(n)) return '🌭';
+  if (/butter|kräuterbutter|meggle|margarine/.test(n) && !/buttergemüse/.test(n)) return '🧈';
+  if (/bratwurst|rostbratwurst|leberwurst|wurst|würstchen|wiener|lyoner|aufschnitt|schinken|salami|speck|bacon/.test(n)) return '🌭';
   if (/burger|cheeseburger/.test(n)) return '🍔';
   if (/clementine|mandarine|orange|apfelsine|susi/.test(n)) return '🍊';
   if (/apfel|äpfel|elstar|boskoop|pink lady|rotkohl|apfelmus/.test(n)) return '🍎';
@@ -243,14 +244,14 @@ export function getFoodEmoji(nameStr, customEmoji = '') {
   if (/tomate|passierte|tomatenmark|oro di parma/.test(n)) return '🍅';
   if (/paprika|chili/.test(n)) return '🫑';
   if (/karotte|möhre/.test(n)) return '🥕';
-  if (/kartoffel|kartoffelpüree|pfanni|pommes|gnocchi|schupfnudel/.test(n)) return '🥔';
+  if (/kartoffel|kartoffelpüree|pfanni|pommes|potatoe|gnocchi|schupfnudel/.test(n)) return '🥔';
   if (/zwiebel|knoblauch/.test(n)) return '🧅';
-  if (/brokkoli|blumenkohl|spargel/.test(n)) return '🥦';
+  if (/brokkoli|blumenkohl|spargel|buttergemüse/.test(n)) return '🥦';
   if (/mais|knusperbrot/.test(n)) return '🌽';
   if (/pilz|pfifferling|steinpilz|champignon/.test(n)) return '🍄';
   if (/avocado/.test(n)) return '🥑';
   if (/käse|frischkäse|philadelphia|scheibenkäse|gouda|mozzarella|parmesan|emmentaler|camembert|feta/.test(n)) return '🧀';
-  if (/milch|vollmilch|schwarzwaldmilch|landfein|hafermilch|kakao/.test(n)) return '🥛';
+  if (/milch|vollmilch|schwarzwaldmilch|landfein|hafermilch|kakao/.test(n) && !/milka/.test(n)) return '🥛';
   if (/schlagsahne|sahne|joghurt|quark|pudding|schmand|creme/.test(n)) return '🥣';
   if (/\bei\b|eier/.test(n)) return '🥚';
   if (/hähnchen|huhn|pute|geflügel|nuggets/.test(n)) return '🍗';
@@ -261,10 +262,11 @@ export function getFoodEmoji(nameStr, customEmoji = '') {
   if (/brot|landbrot|mehrkorn|brötchen|toast|baguette|croissant/.test(n)) return '🥖';
   if (/pizza|flammkuchen/.test(n)) return '🍕';
   if (/wrap|taco|tortilla|schär/.test(n)) return '🌮';
-  if (/senf|thomy|heinz|ketchup|mayo|soße|sauce|dressing|pesto|öl|sonnenblumenöl|essig|hengstenberg/.test(n)) return '🥫';
+  if (/senf|thomy|heinz|ketchup|mayo|soße|sauce|dressing|pesto|öl|sonnenblumenöl|essig|hengstenberg|maggi|gewürz|curry|ostmann/.test(n)) return '🥫';
   if (/mehl|zucker|salz|haferflocken|müsli|cornflakes/.test(n)) return '🌾';
-  if (/schokolade|choco|schoko|nutella|keks|gummibär|chips|eis/.test(n)) return '🍫';
-  if (/wasser|saft|cola|limo|bier|wein|kaffee|tee/.test(n)) return '🧃';
+  if (/schokolade|choco|schoko|milka|kuhflecken|nutella|keks|gummibär|chips|pfiff|eis/.test(n)) return '🍫';
+  if (/kaffee|nescafé|nescafe|coffee|caffeciao|espresso/.test(n)) return '☕';
+  if (/wasser|saft|cola|limo|bier|wein|tee/.test(n)) return '🧃';
   return '🥫';
 }
 
@@ -344,10 +346,27 @@ export function getDaysUntil(expiryDateStr, todayStr) {
   return Math.round((exp.getTime() - tod.getTime()) / 86400000);
 }
 
+// ============================================================================
+// PUNKT 1 FIX: ERZWINGT DUNKLE, KONTRASTREICHE DROPDOWNS IN DER EXCEL-TABELLE
+// (Verhindert weiße Schrift auf weißem Hintergrund bei Kategorie & Lagerort!)
+// ============================================================================
 const PANTRY_NO_SCALE_STYLES = [
   '.tw-pantry-no-scale, .tw-pantry-no-scale *, .tw-pantry-no-scale *:hover, .tw-pantry-no-scale *:active {',
   '  transform: none !important;',
   '  scale: none !important;',
+  '}',
+  '.tw-excel-select {',
+  '  background-color: #111827 !important;',
+  '  color: #f8fafc !important;',
+  '  border: 1px solid rgba(255, 255, 255, 0.22) !important;',
+  '  font-weight: 800 !important;',
+  '  font-size: 13px !important;',
+  '}',
+  '.tw-excel-select option {',
+  '  background-color: #0f172a !important;',
+  '  color: #f8fafc !important;',
+  '  font-weight: 800 !important;',
+  '  font-size: 13px !important;',
   '}'
 ].join('\n');
 
@@ -363,14 +382,14 @@ export default function PantrySection({
   themeStyles,
   showToast
 }) {
+  // 'stock' | 'recipes' | 'offers' | 'trash'
   const [activeSubTab, setActiveSubTab] = useState('stock');
+  const [offersInitialSearch, setOffersInitialSearch] = useState('');
 
-  // PUNKT 1: LISTENANSICHT (EXCEL-TABELLE) ALS HAUPTANSICHT!
-  // 'table' = Excel-Gesamttabelle | 'grouped' = Kategorien-Listen | 'cards' = Große Kacheln
+  // 'table' = Excel-Gesamttabelle (Standard!) | 'grouped' = Kategorien-Listen | 'cards' = Große Kacheln
   const [viewMode, setViewMode] = useState('table');
 
-  // Excel-Spalten-Sortierung (Klick auf Spaltenkopf sortiert auf-/absteigend)
-  const [sortField, setSortField] = useState('newest'); // 'newest' | 'name' | 'category' | 'location' | 'glutenfree' | 'quantity' | 'expiry'
+  const [sortField, setSortField] = useState('newest');
   const [sortDir, setSortDir] = useState('asc');
 
   const [onlyGlutenFree, setOnlyGlutenFree] = useState(false);
@@ -403,7 +422,6 @@ export default function PantrySection({
     customEmoji: ''
   });
 
-  // Sortier-Handler beim Klick auf einen Excel-Spaltenkopf
   const handleExcelHeaderSort = (field) => {
     if (sortField === field) {
       setSortDir(prev => (prev === 'asc' ? 'desc' : 'asc'));
@@ -422,7 +440,6 @@ export default function PantrySection({
       : <ArrowDown className="w-3.5 h-3.5 text-sky-400 shrink-0" />;
   };
 
-  // Rendert Modals per Portal immer exakt mittig auf dem Bildschirm
   const renderCenteredScreenModal = (modalContent) => {
     const wrapper = (
       <div
@@ -681,7 +698,6 @@ export default function PantrySection({
     );
   };
 
-  // Inline-Änderung für Glutenfrei direkt in der Excel-Zelle
   const toggleItemGlutenFreeDirectly = (e, item) => {
     e.stopPropagation();
     const currentlyGf = isProductGlutenFree(item);
@@ -696,16 +712,14 @@ export default function PantrySection({
     );
   };
 
-  // Inline-Änderung für Lagerort direkt in der Excel-Zelle
   const handleInlineLocationChange = (item, newLocationId) => {
     setPantryItems(prev => (Array.isArray(prev) ? prev : []).map(it =>
       it.id === item.id ? { ...it, location: newLocationId, updatedAt: Date.now() } : it
     ));
     const locObj = STORAGE_LOCATIONS.find(l => l.id === newLocationId);
-    showToast('Lagerort geändert', item.name + ' → ' + (locObj?.label || newLocationId), '🏠');
+    showToast('Lagerort geändert', item.name + ' → ' + (locObj?.label || newLocationId), locObj?.icon || '🏠');
   };
 
-  // Inline-Änderung für Kategorie direkt in der Excel-Zelle
   const handleInlineCategoryChange = (item, newCategoryId) => {
     setPantryItems(prev => (Array.isArray(prev) ? prev : []).map(it =>
       it.id === item.id ? { ...it, category: newCategoryId, updatedAt: Date.now() } : it
@@ -714,7 +728,6 @@ export default function PantrySection({
     showToast('Kategorie geändert', item.name + ' → ' + (catObj?.short || newCategoryId), catObj?.icon || '🍱');
   };
 
-  // Inline +1 Mengenerhöhung direkt in der Excel-Zelle
   const handleIncrementClick = (item) => {
     const nextQty = incrementItemPieceCount(item.quantity);
     setPantryItems(prev => (Array.isArray(prev) ? prev : []).map(it =>
@@ -837,6 +850,12 @@ export default function PantrySection({
     showToast('Wiederhergestellt', trashItem.name + ' ist wieder im Bestand (ganz oben).', '↩️');
   };
 
+  const openOffersForProduct = (productName) => {
+    const cleanCore = String(productName || '').split('/')[0].trim();
+    setOffersInitialSearch(cleanCore);
+    setActiveSubTab('offers');
+  };
+
   const latestOverallItem = useMemo(() => {
     if (safeStock.length === 0) return null;
     let best = safeStock[0];
@@ -848,9 +867,6 @@ export default function PantrySection({
     return best;
   }, [safeStock]);
 
-  // ============================================================================
-  // EXCEL-SORTIER- & FILTER-ENGINE (UNTERSTÜTZT ALLE SPALTEN AUF- & ABSTEIGEND)
-  // ============================================================================
   const filteredStock = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     const dirMultiplier = sortDir === 'asc' ? 1 : -1;
@@ -895,7 +911,6 @@ export default function PantrySection({
           const cmp = String(a.expiryDate || '9999').localeCompare(String(b.expiryDate || '9999'));
           return cmp * dirMultiplier;
         }
-        // Standard 'newest' (Zuletzt erfasst)
         return (a.resolvedAddedTs - b.resolvedAddedTs) * (sortDir === 'asc' ? -1 : 1);
       });
   }, [safeStock, locationFilter, categoryFilter, onlyGlutenFree, searchQuery, sortField, sortDir]);
@@ -936,12 +951,11 @@ export default function PantrySection({
   }, [safeTrash]);
 
   // ============================================================================
-  // HAUPTANSICHT 1: ÜBERSICHTLICHE EXCEL-GESAMTTABELLE MIT SORTIERBAREN SPALTEN
+  // HAUPTANSICHT 1: EXCEL-TABELLE MIT GROSSEN KATEGORIE-/ORT-ICONS & LESBARER SCHRIFT
   // ============================================================================
   const renderExcelMasterTable = () => {
     return (
       <div className={'rounded-3xl border-2 overflow-hidden shadow-lg ' + themeStyles.card + ' ' + themeStyles.divider}>
-        {/* EXCEL-KOPFZEILE MIT STATUS & SCHNELL-SORTIERUNG */}
         <div className={'px-4 py-2.5 border-b flex flex-wrap items-center justify-between gap-2 ' + themeStyles.banner + ' ' + themeStyles.divider}>
           <div className="flex items-center gap-2.5 flex-wrap">
             <span className="px-2.5 py-1 rounded-lg bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 text-xs font-black flex items-center gap-1.5">
@@ -973,12 +987,11 @@ export default function PantrySection({
           </div>
         </div>
 
-        {/* EXCEL-DATENTABELLE */}
         <div className="overflow-x-auto">
-          <table className="w-full border-collapse min-w-[980px] text-left">
+          <table className="w-full border-collapse min-w-[1040px] text-left">
             <thead>
               <tr className={'border-b-2 text-[11px] font-black uppercase tracking-wider select-none ' + themeStyles.banner + ' ' + themeStyles.divider}>
-                <th className="py-3 px-2.5 w-12 text-center border-r border-white/10 opacity-60">#</th>
+                <th className="py-3 px-2.5 w-11 text-center border-r border-white/10 opacity-60">#</th>
 
                 <th
                   onClick={() => handleExcelHeaderSort('name')}
@@ -992,7 +1005,7 @@ export default function PantrySection({
 
                 <th
                   onClick={() => handleExcelHeaderSort('category')}
-                  className="py-3 px-3 w-48 border-r border-white/10 cursor-pointer hover:bg-white/5 transition-colors"
+                  className="py-3 px-3 w-56 border-r border-white/10 cursor-pointer hover:bg-white/5 transition-colors"
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span>🍱 Kategorie</span>
@@ -1002,7 +1015,7 @@ export default function PantrySection({
 
                 <th
                   onClick={() => handleExcelHeaderSort('location')}
-                  className="py-3 px-3 w-40 border-r border-white/10 cursor-pointer hover:bg-white/5 transition-colors"
+                  className="py-3 px-3 w-52 border-r border-white/10 cursor-pointer hover:bg-white/5 transition-colors"
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span>🏠 Lagerort</span>
@@ -1040,7 +1053,7 @@ export default function PantrySection({
                   </div>
                 </th>
 
-                <th className="py-3 px-3.5 w-44 text-right">
+                <th className="py-3 px-3.5 w-48 text-right">
                   Aktionen
                 </th>
               </tr>
@@ -1052,11 +1065,12 @@ export default function PantrySection({
                 const isUrgentRed = daysLeft <= 2;
                 const isWarningOrange = daysLeft > 2 && daysLeft <= 7;
                 const emojiIcon = getFoodEmoji(item.name, item.customEmoji);
+                const catObj = FOOD_CATEGORIES.find(c => c.id === item.resolvedCategory) || FOOD_CATEGORIES[1];
+                const locObj = STORAGE_LOCATIONS.find(l => l.id === (item.location || 'fridge')) || STORAGE_LOCATIONS[1];
                 const decPreview = decrementItemPieceCount(item.quantity);
                 const isLatestOverall = latestOverallItem && item.id === latestOverallItem.id;
                 const isGf = Boolean(item.resolvedGlutenFree);
 
-                // Klare Excel-Zeilenfärbung (Rot bei <= 2 Tagen, Orange bei 3-7 Tagen, sonst dezentes Zebra-Muster)
                 const rowBgClass = isUrgentRed
                   ? 'bg-rose-500/25 hover:bg-rose-500/35 text-rose-50'
                   : isWarningOrange
@@ -1078,7 +1092,7 @@ export default function PantrySection({
                     onClick={() => openEditProductModal(item)}
                     className={'transition-colors cursor-pointer ' + rowBgClass}
                   >
-                    {/* SPALTE 1: EXCEL-ZEILENNUMMER */}
+                    {/* SPALTE 1: ZEILENNUMMER */}
                     <td className="py-2.5 px-2 text-center font-mono text-xs font-bold opacity-55 border-r border-white/10">
                       {idx + 1}
                     </td>
@@ -1086,7 +1100,7 @@ export default function PantrySection({
                     {/* SPALTE 2: PRODUKT-ICON + GROSSER PRODUKTNAME */}
                     <td className="py-2 px-3 border-r border-white/10">
                       <div className="flex items-center gap-3 min-w-0">
-                        <span className="w-10 h-10 rounded-xl bg-black/40 border border-white/15 flex items-center justify-center text-2xl shrink-0">
+                        <span className="w-11 h-11 rounded-2xl bg-black/45 border border-white/15 flex items-center justify-center text-2xl shrink-0">
                           {emojiIcon}
                         </span>
                         <div className="min-w-0 flex-1">
@@ -1104,42 +1118,52 @@ export default function PantrySection({
                       </div>
                     </td>
 
-                    {/* SPALTE 3: KATEGORIE (DIREKT IN DER ZELLE ÄNDERBAR) */}
+                    {/* SPALTE 3: KATEGORIE MIT GROSSEM ICON-BADGE & KONTRASTREICHER SCHRIFT */}
                     <td className="py-2 px-2.5 border-r border-white/10" onClick={(e) => e.stopPropagation()}>
-                      <select
-                        value={item.resolvedCategory}
-                        onChange={(e) => handleInlineCategoryChange(item, e.target.value)}
-                        className="w-full h-9 px-2 rounded-xl bg-black/35 border border-white/15 text-xs font-extrabold text-white cursor-pointer focus:outline-none focus:border-sky-400"
-                      >
-                        {FOOD_CATEGORIES.map(cat => (
-                          <option key={cat.id} value={cat.id} className="bg-slate-800 text-white">
-                            {cat.icon} {cat.short}
-                          </option>
-                        ))}
-                      </select>
+                      <div className="flex items-center gap-2">
+                        <span className="w-9 h-9 rounded-xl bg-black/45 border border-white/15 flex items-center justify-center text-xl shrink-0">
+                          {catObj.icon}
+                        </span>
+                        <select
+                          value={item.resolvedCategory}
+                          onChange={(e) => handleInlineCategoryChange(item, e.target.value)}
+                          className="tw-excel-select flex-1 h-9 px-2.5 rounded-xl cursor-pointer focus:outline-none focus:border-sky-400"
+                        >
+                          {FOOD_CATEGORIES.map(cat => (
+                            <option key={cat.id} value={cat.id}>
+                              {cat.short}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
                     </td>
 
-                    {/* SPALTE 4: LAGERORT (DIREKT IN DER ZELLE ÄNDERBAR) */}
+                    {/* SPALTE 4: LAGERORT MIT GROSSEM ICON-BADGE & KONTRASTREICHER SCHRIFT */}
                     <td className="py-2 px-2.5 border-r border-white/10" onClick={(e) => e.stopPropagation()}>
-                      <select
-                        value={item.location || 'fridge'}
-                        onChange={(e) => handleInlineLocationChange(item, e.target.value)}
-                        className="w-full h-9 px-2 rounded-xl bg-black/35 border border-white/15 text-xs font-extrabold text-white cursor-pointer focus:outline-none focus:border-sky-400"
-                      >
-                        {STORAGE_LOCATIONS.filter(l => l.id !== 'all').map(loc => (
-                          <option key={loc.id} value={loc.id} className="bg-slate-800 text-white">
-                            {loc.short}
-                          </option>
-                        ))}
-                      </select>
+                      <div className="flex items-center gap-2">
+                        <span className="w-9 h-9 rounded-xl bg-black/45 border border-white/15 flex items-center justify-center text-xl shrink-0">
+                          {locObj.icon}
+                        </span>
+                        <select
+                          value={item.location || 'fridge'}
+                          onChange={(e) => handleInlineLocationChange(item, e.target.value)}
+                          className="tw-excel-select flex-1 h-9 px-2.5 rounded-xl cursor-pointer focus:outline-none focus:border-sky-400"
+                        >
+                          {STORAGE_LOCATIONS.filter(l => l.id !== 'all').map(loc => (
+                            <option key={loc.id} value={loc.id}>
+                              {loc.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
                     </td>
 
-                    {/* SPALTE 5: GLUTENFREI-STATUS (1-KLICK UMSCHALTBAR) */}
+                    {/* SPALTE 5: GLUTENFREI-STATUS */}
                     <td className="py-2 px-2 text-center border-r border-white/10" onClick={(e) => e.stopPropagation()}>
                       <button
                         type="button"
                         onClick={(e) => toggleItemGlutenFreeDirectly(e, item)}
-                        className={'px-2.5 py-1 rounded-lg text-[11px] font-black cursor-pointer ' +
+                        className={'px-2.5 py-1.5 rounded-xl text-xs font-black cursor-pointer ' +
                           (isGf
                             ? 'bg-emerald-500/25 border border-emerald-400/60 text-emerald-300'
                             : 'bg-white/5 border border-white/10 text-slate-400 opacity-65 hover:opacity-100')}
@@ -1148,9 +1172,9 @@ export default function PantrySection({
                       </button>
                     </td>
 
-                    {/* SPALTE 6: MENGE MIT DIREKTEN - / + BUTTONS IN DER ZELLE */}
+                    {/* SPALTE 6: MENGE MIT - / + BUTTONS */}
                     <td className="py-2 px-2.5 text-center border-r border-white/10" onClick={(e) => e.stopPropagation()}>
-                      <div className="inline-flex items-center justify-between gap-1 bg-black/45 border border-amber-400/35 rounded-xl p-0.5 w-full max-w-[155px]">
+                      <div className="inline-flex items-center justify-between gap-1 bg-black/45 border border-amber-400/35 rounded-xl p-1 w-full max-w-[155px]">
                         <button
                           type="button"
                           onClick={() => handleConsumeClick(item)}
@@ -1176,10 +1200,10 @@ export default function PantrySection({
                       </div>
                     </td>
 
-                    {/* SPALTE 7: MHD-DATUM & RESTTAGE-AMPEL */}
+                    {/* SPALTE 7: MHD-DATUM & RESTTAGE */}
                     <td className="py-2 px-3 text-center border-r border-white/10">
                       <div
-                        className={'inline-flex items-center justify-center gap-1.5 px-3 py-1 rounded-xl border text-xs sm:text-sm font-black whitespace-nowrap ' +
+                        className={'inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs sm:text-sm font-black whitespace-nowrap ' +
                           (isUrgentRed
                             ? 'bg-rose-600 text-white border-rose-300'
                             : isWarningOrange
@@ -1194,7 +1218,7 @@ export default function PantrySection({
                       </div>
                     </td>
 
-                    {/* SPALTE 8: SCHNELL-AKTIONEN */}
+                    {/* SPALTE 8: SCHNELL-AKTIONEN INKL. ANGEBOTE-BUTTON */}
                     <td className="py-2 px-3 text-right" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-end gap-1.5">
                         <button
@@ -1208,11 +1232,11 @@ export default function PantrySection({
 
                         <button
                           type="button"
-                          onClick={() => openEditProductModal(item)}
-                          title="Produktdetails bearbeiten"
-                          className="tw-nav-inactive p-2 rounded-xl text-sky-300 cursor-pointer"
+                          onClick={() => openOffersForProduct(item.name)}
+                          title="Günstigste Angebote für dieses Produkt zeigen"
+                          className="p-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/35 border border-emerald-400/50 text-emerald-300 cursor-pointer"
                         >
-                          <Pencil className="w-3.5 h-3.5" />
+                          <Tag className="w-3.5 h-3.5" />
                         </button>
 
                         <button
@@ -1226,6 +1250,15 @@ export default function PantrySection({
                         >
                           <ShoppingCart className="w-3.5 h-3.5" />
                         </button>
+
+                        <button
+                          type="button"
+                          onClick={() => openEditProductModal(item)}
+                          title="Produktdetails bearbeiten"
+                          className="tw-nav-inactive p-2 rounded-xl text-sky-300 cursor-pointer"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -1238,9 +1271,6 @@ export default function PantrySection({
     );
   };
 
-  // ============================================================================
-  // ZUSATZANSICHTEN: NACH KATEGORIEN GRUPPIERT ODER GROSSE KACHELN
-  // ============================================================================
   const renderCategoryGroupCard = (group) => {
     const hasOverallNewest = latestOverallItem && group.items.some(it => it.id === latestOverallItem.id);
 
@@ -1297,7 +1327,7 @@ export default function PantrySection({
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5">
                         {isGf && <span className="text-[10px] font-black text-emerald-300">🌾✓ GF</span>}
-                        <span className="text-xs font-bold opacity-75">{locObj.short}</span>
+                        <span className="text-xs font-bold opacity-75">{locObj.label}</span>
                       </div>
                       <div className="font-black text-sm sm:text-base truncate">{item.name}</div>
                     </div>
@@ -1353,7 +1383,7 @@ export default function PantrySection({
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between gap-1.5 flex-wrap mb-1">
                         <span className="text-[11px] font-extrabold opacity-80 truncate">
-                          {locObj.short}
+                          {locObj.label}
                         </span>
                         <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
                           <button
@@ -1428,7 +1458,7 @@ export default function PantrySection({
     <div className="tw-pantry-no-scale p-3 sm:p-4 min-h-[calc(100vh-130px)] flex flex-col gap-3">
       <style>{PANTRY_NO_SCALE_STYLES}</style>
 
-      {/* HAUPTLEISTE MIT DIREKT-ANSICHTSUMSCHALTER (EXCEL-LISTE / KATEGORIEN / KACHELN) */}
+      {/* HAUPTLEISTE MIT NEUEM REITER "🏷️ ANGEBOTE" */}
       <div className={'relative z-40 px-3.5 py-2.5 rounded-2xl border shadow-md flex flex-wrap items-center justify-between gap-2 ' + themeStyles.card}>
         <div className="flex items-center gap-1.5 flex-wrap">
           <button
@@ -1447,6 +1477,19 @@ export default function PantrySection({
           >
             <ChefHat className="w-4 h-4" />
             <span>🍽️ Rezepte</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setOffersInitialSearch('');
+              setActiveSubTab('offers');
+            }}
+            className={'px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer ' +
+              (activeSubTab === 'offers' ? 'tw-active-nav' : 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 hover:bg-emerald-500/30')}
+          >
+            <Tag className="w-4 h-4" />
+            <span>🏷️ Angebote</span>
           </button>
 
           <button
@@ -1591,11 +1634,11 @@ export default function PantrySection({
             <select
               value={locationFilter}
               onChange={(e) => setLocationFilter(e.target.value)}
-              className={'h-9 px-2.5 rounded-xl border text-xs font-extrabold cursor-pointer ' + themeStyles.input}
+              className="tw-excel-select h-9 px-2.5 rounded-xl cursor-pointer"
             >
-              <option value="all" className="bg-slate-800 text-white">🏠 Alle Orte ({safeStock.length})</option>
+              <option value="all">🏠 Alle Orte ({safeStock.length})</option>
               {STORAGE_LOCATIONS.filter(l => l.id !== 'all').map(loc => (
-                <option key={loc.id} value={loc.id} className="bg-slate-800 text-white">
+                <option key={loc.id} value={loc.id}>
                   {loc.label} ({safeStock.filter(x => x.location === loc.id).length})
                 </option>
               ))}
@@ -1604,11 +1647,11 @@ export default function PantrySection({
             <select
               value={categoryFilter}
               onChange={(e) => setCategoryFilter(e.target.value)}
-              className={'h-9 px-2.5 rounded-xl border text-xs font-extrabold cursor-pointer hidden md:block ' + themeStyles.input}
+              className="tw-excel-select h-9 px-2.5 rounded-xl cursor-pointer hidden md:block"
             >
-              <option value="all" className="bg-slate-800 text-white">🍱 Alle 7 Kategorien</option>
+              <option value="all">🍱 Alle 7 Kategorien</option>
               {FOOD_CATEGORIES.map(cat => (
-                <option key={cat.id} value={cat.id} className="bg-slate-800 text-white">
+                <option key={cat.id} value={cat.id}>
                   {cat.icon} {cat.short} ({safeStock.filter(it => detectFoodCategory(it.name, it.category) === cat.id).length})
                 </option>
               ))}
@@ -1620,7 +1663,6 @@ export default function PantrySection({
         <div className="flex items-center gap-1.5">
           {activeSubTab === 'stock' && (
             <>
-              {/* SCHNELL-UMSCHALTER: EXCEL-LISTE (STANDARD) vs. KATEGORIEN vs. KACHELN */}
               <div className="hidden sm:flex items-center gap-1 p-1 rounded-xl bg-black/30 border border-white/10">
                 <button
                   type="button"
@@ -1853,28 +1895,54 @@ export default function PantrySection({
         />
       )}
 
-      {/* SUB-TAB 3: MÜLLEIMER INKL. GELBEM EINKAUFSWAGEN-BUTTON */}
+      {/* SUB-TAB 3: BRING!-STYLE ANGEBOTE & LOKALER PREISVERGLEICH (app/PantryOffers.tsx) */}
+      {activeSubTab === 'offers' && (
+        <PantryOffers
+          safeStock={safeStock}
+          safeTrash={safeTrash}
+          addShoppingItem={addShoppingItem}
+          initialSearchQuery={offersInitialSearch}
+          themeStyles={themeStyles}
+          showToast={showToast}
+        />
+      )}
+
+      {/* SUB-TAB 4: MÜLLEIMER INKL. GELBEM EINKAUFSWAGEN & ANGEBOTE-CHECK */}
       {activeSubTab === 'trash' && (
         <div className="space-y-3.5">
           <div className={'p-3.5 rounded-3xl border flex flex-wrap items-center justify-between gap-3 ' + themeStyles.card}>
             <div>
               <h3 className="text-base font-extrabold">🗑️ Mülleimer & Verbrauchs-Übersicht</h3>
               <p className={'text-xs font-semibold ' + themeStyles.textMuted}>
-                Klicke auf den gelben Einkaufswagen 🛒, um ein verbrauchtes Produkt direkt wieder auf die Einkaufsliste zu setzen.
+                Klicke auf 🏷️, um lokale Angebote für ein verbrauchtes Produkt zu sehen, oder auf 🛒 für die Einkaufsliste.
               </p>
             </div>
-            {safeTrash.length > 0 && (
+            <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => {
-                  setPantryTrash([]);
-                  showToast('Mülleimer geleert', 'Alle Einträge wurden dauerhaft entfernt.', '🗑️');
+                  setOffersInitialSearch('');
+                  setActiveSubTab('offers');
                 }}
-                className="px-3.5 py-2 rounded-xl bg-rose-600 text-white text-xs font-extrabold cursor-pointer"
+                className="px-3.5 py-2 rounded-xl bg-emerald-600 text-white text-xs font-black flex items-center gap-1.5 cursor-pointer"
               >
-                🗑️ Mülleimer komplett leeren
+                <Tag className="w-4 h-4" />
+                <span>🏷️ Alle Nachkauf-Angebote zeigen</span>
               </button>
-            )}
+
+              {safeTrash.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPantryTrash([]);
+                    showToast('Mülleimer geleert', 'Alle Einträge wurden dauerhaft entfernt.', '🗑️');
+                  }}
+                  className="px-3.5 py-2 rounded-xl bg-rose-600 text-white text-xs font-extrabold cursor-pointer"
+                >
+                  🗑️ Komplett leeren
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
@@ -1913,17 +1981,27 @@ export default function PantrySection({
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2 pt-2 border-t border-white/10">
+                    <div className="flex items-center gap-1.5 pt-2 border-t border-white/10">
                       <button
                         type="button"
                         onClick={() => {
                           addShoppingItem(tItem.name);
                           showToast('Auf Einkaufsliste 🛒', '„' + tItem.name + '“ wurde wieder zur Einkaufsliste hinzugefügt!', '🛒');
                         }}
-                        className="flex-1 py-2 px-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
+                        className="flex-1 py-2 px-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black flex items-center justify-center gap-1 cursor-pointer shadow-md"
                       >
-                        <ShoppingCart className="w-4 h-4 stroke-[2.5]" />
-                        <span>Zur Einkaufsliste</span>
+                        <ShoppingCart className="w-3.5 h-3.5 stroke-[2.5]" />
+                        <span>Einkauf</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => openOffersForProduct(tItem.name)}
+                        title="Wo ist dieses Produkt im Angebot?"
+                        className="py-2 px-2.5 rounded-xl bg-emerald-500/25 hover:bg-emerald-500/40 border border-emerald-400/50 text-emerald-300 text-xs font-black flex items-center gap-1 cursor-pointer"
+                      >
+                        <Tag className="w-3.5 h-3.5" />
+                        <span>Angebot</span>
                       </button>
 
                       <button
@@ -1932,7 +2010,7 @@ export default function PantrySection({
                         title="Zurück in den Vorrats-Bestand legen"
                         className="tw-nav-inactive p-2 rounded-xl text-xs font-bold cursor-pointer"
                       >
-                        <RotateCcw className="w-4 h-4" />
+                        <RotateCcw className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   </div>
@@ -1943,7 +2021,7 @@ export default function PantrySection({
         </div>
       )}
 
-      {/* PORTAL-MODAL 1: NACHFRAGE BEIM VERBRAUCHEN (IMMER EXAKT MITTIG AUF DEM SCREEN!) */}
+      {/* PORTAL-MODAL 1: NACHFRAGE BEIM VERBRAUCHEN INKL. "ANGEBOTE PRÜFEN" */}
       {restockPromptItem && renderCenteredScreenModal(
         <div
           onClick={(e) => e.stopPropagation()}
@@ -1965,18 +2043,34 @@ export default function PantrySection({
             </p>
           </div>
 
-          <div className="grid grid-cols-2 gap-3 pt-2">
-            <button
-              type="button"
-              onClick={() => {
-                const name = restockPromptItem.name;
-                setRestockPromptItem(null);
-                showToast('Verbraucht', '„' + name + '“ liegt jetzt im Mülleimer.', '🍽️');
-              }}
-              className="tw-nav-inactive py-3.5 px-4 rounded-2xl text-sm font-black cursor-pointer"
-            >
-              Nein
-            </button>
+          <div className="space-y-2.5 pt-2">
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  const name = restockPromptItem.name;
+                  setRestockPromptItem(null);
+                  showToast('Verbraucht', '„' + name + '“ liegt jetzt im Mülleimer.', '🍽️');
+                }}
+                className="tw-nav-inactive py-3.5 px-4 rounded-2xl text-sm font-black cursor-pointer"
+              >
+                Nein
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const name = restockPromptItem.name;
+                  addShoppingItem(name);
+                  setRestockPromptItem(null);
+                  showToast('Auf Einkaufsliste! 🛒', '„' + name + '“ wurde zur Einkaufsliste hinzugefügt.', '🛒');
+                }}
+                className="py-3.5 px-4 rounded-2xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-sm font-black flex items-center justify-center gap-2 cursor-pointer shadow-lg"
+              >
+                <ShoppingCart className="w-4 h-4 stroke-[2.5]" />
+                <span>Ja, Einkaufsliste</span>
+              </button>
+            </div>
 
             <button
               type="button"
@@ -1984,12 +2078,12 @@ export default function PantrySection({
                 const name = restockPromptItem.name;
                 addShoppingItem(name);
                 setRestockPromptItem(null);
-                showToast('Auf Einkaufsliste! 🛒', '„' + name + '“ wurde zur Einkaufsliste hinzugefügt.', '🛒');
+                openOffersForProduct(name);
               }}
-              className="py-3.5 px-4 rounded-2xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-sm font-black flex items-center justify-center gap-2 cursor-pointer shadow-lg"
+              className="w-full py-3 px-4 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-black flex items-center justify-center gap-2 cursor-pointer shadow-md"
             >
-              <ShoppingCart className="w-4 h-4 stroke-[2.5]" />
-              <span>Ja, Einkaufsliste</span>
+              <Tag className="w-4 h-4" />
+              <span>🏷️ Ja + Günstigste Angebote in der Umgebung zeigen</span>
             </button>
           </div>
         </div>
@@ -2064,10 +2158,10 @@ export default function PantrySection({
               <select
                 value={itemLocation}
                 onChange={(e) => setItemLocation(e.target.value)}
-                className={'w-full px-3 py-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+                className="tw-excel-select w-full px-3 py-2.5 rounded-xl cursor-pointer"
               >
                 {STORAGE_LOCATIONS.filter(l => l.id !== 'all').map(loc => (
-                  <option key={loc.id} value={loc.id} className="bg-slate-800 text-white">{loc.label}</option>
+                  <option key={loc.id} value={loc.id}>{loc.label}</option>
                 ))}
               </select>
             </div>
@@ -2077,13 +2171,13 @@ export default function PantrySection({
               <select
                 value={itemCategory}
                 onChange={(e) => setItemCategory(e.target.value)}
-                className={'w-full px-3 py-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+                className="tw-excel-select w-full px-3 py-2.5 rounded-xl cursor-pointer"
               >
-                <option value="auto" className="bg-slate-800 text-amber-300">
+                <option value="auto">
                   ✨ Auto ({FOOD_CATEGORIES.find(c => c.id === detectFoodCategory(itemName))?.title.split(',')[0]})
                 </option>
                 {FOOD_CATEGORIES.map(cat => (
-                  <option key={cat.id} value={cat.id} className="bg-slate-800 text-white">{cat.icon} {cat.title}</option>
+                  <option key={cat.id} value={cat.id}>{cat.icon} {cat.title}</option>
                 ))}
               </select>
             </div>
@@ -2093,13 +2187,13 @@ export default function PantrySection({
               <select
                 value={itemGlutenFree}
                 onChange={(e) => setItemGlutenFree(e.target.value)}
-                className={'w-full px-3 py-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+                className="tw-excel-select w-full px-3 py-2.5 rounded-xl cursor-pointer"
               >
-                <option value="auto" className="bg-slate-800 text-emerald-300">
+                <option value="auto">
                   🌾 Auto ({isProductGlutenFree(itemName, itemCategory) ? 'GF ✓' : 'Normal'})
                 </option>
-                <option value="yes" className="bg-slate-800 text-emerald-300">🌾✓ Ja, glutenfrei</option>
-                <option value="no" className="bg-slate-800 text-rose-300">🚫 Enthält Gluten</option>
+                <option value="yes">🌾✓ Ja, glutenfrei</option>
+                <option value="no">🚫 Enthält Gluten</option>
               </select>
             </div>
           </div>
@@ -2226,10 +2320,10 @@ export default function PantrySection({
               <select
                 value={editModal.category}
                 onChange={(e) => setEditModal({ ...editModal, category: e.target.value })}
-                className={'w-full px-3 py-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+                className="tw-excel-select w-full px-3 py-2.5 rounded-xl cursor-pointer"
               >
                 {FOOD_CATEGORIES.map(cat => (
-                  <option key={cat.id} value={cat.id} className="bg-slate-800 text-white">{cat.icon} {cat.title}</option>
+                  <option key={cat.id} value={cat.id}>{cat.icon} {cat.title}</option>
                 ))}
               </select>
             </div>
@@ -2239,13 +2333,13 @@ export default function PantrySection({
               <select
                 value={editModal.glutenFree}
                 onChange={(e) => setEditModal({ ...editModal, glutenFree: e.target.value })}
-                className={'w-full px-3 py-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+                className="tw-excel-select w-full px-3 py-2.5 rounded-xl cursor-pointer"
               >
-                <option value="auto" className="bg-slate-800 text-sky-300">
+                <option value="auto">
                   ✨ Automatisch ({isProductGlutenFree(editModal.name, editModal.category, 'auto') ? 'Glutenfrei ✓' : 'Normal'})
                 </option>
-                <option value="yes" className="bg-slate-800 text-emerald-300">🌾✓ Ja, garantiert glutenfrei</option>
-                <option value="no" className="bg-slate-800 text-rose-300">🚫 Nein, enthält Gluten</option>
+                <option value="yes">🌾✓ Ja, garantiert glutenfrei</option>
+                <option value="no">🚫 Nein, enthält Gluten</option>
               </select>
             </div>
           </div>
