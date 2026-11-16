@@ -4,6 +4,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Package, Trash2, Plus, CheckCircle2,
   ShoppingCart, RotateCcw, ChefHat, Pencil, Check, X,
@@ -317,12 +318,13 @@ export function getDaysUntil(expiryDateStr, todayStr) {
 }
 
 // ============================================================================
-// PUNKT 2: STRIKTES ABSCHALTEN DER HOVER- & KLICK-SKALIERUNG IN DER SPEISEKAMMER
+// WICHTIG: "scale: none !important" statt "scale: 1", damit fixed-Modals
+// immer exakt mittig auf dem Bildschirm (Viewport) bleiben!
 // ============================================================================
 const PANTRY_NO_SCALE_STYLES = [
   '.tw-pantry-no-scale, .tw-pantry-no-scale *, .tw-pantry-no-scale *:hover, .tw-pantry-no-scale *:active {',
   '  transform: none !important;',
-  '  scale: 1 !important;',
+  '  scale: none !important;',
   '}'
 ].join('\n');
 
@@ -346,15 +348,13 @@ export default function PantrySection({
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Intelligente Popover-Menüs (schließen automatisch bei onMouseLeave!)
   const [showControlMenu, setShowControlMenu] = useState(false);
   const [showMhdAlertPopover, setShowMhdAlertPopover] = useState(false);
   const [showAddFormModal, setShowAddFormModal] = useState(false);
 
-  // Punkt 3: Dialog "Wieder auf die Einkaufsliste setzen? (Ja / Nein)" nach Verbrauch
+  // Nachfrage-Dialog nach dem Verbrauchen (immer mittig auf dem Bildschirm!)
   const [restockPromptItem, setRestockPromptItem] = useState(null);
 
-  // Formular: Neues Produkt
   const [itemName, setItemName] = useState('');
   const [itemQty, setItemQty] = useState('1x');
   const [itemLocation, setItemLocation] = useState('fridge');
@@ -362,7 +362,6 @@ export default function PantrySection({
   const [itemGlutenFree, setItemGlutenFree] = useState('auto');
   const [itemExpiry, setItemExpiry] = useState('');
 
-  // Komfort-Bearbeitungs-Modal
   const [editModal, setEditModal] = useState({
     open: false,
     id: null,
@@ -374,6 +373,30 @@ export default function PantrySection({
     expiryDate: '',
     customEmoji: ''
   });
+
+  // Hilfsfunktion: Rendert jedes Pop-up-Fenster per Portal direkt auf den Bildschirm (immer exakt mittig!)
+  const renderCenteredScreenModal = (modalContent) => {
+    const wrapper = (
+      <div
+        style={{
+          '--tw-btn-from': themeStyles?.btnFrom || '#0ea5e9',
+          '--tw-btn-to': themeStyles?.btnTo || '#4f46e5',
+          '--tw-btn-border': themeStyles?.btnBorder || '#38bdf8',
+          '--tw-btn-glow': themeStyles?.btnGlow || 'rgba(56, 189, 248, 0.5)',
+          '--tw-btn-rest-base': themeStyles?.dark ? '#1e222d' : '#e2e8f0',
+          '--tw-btn-rest-text': themeStyles?.dark ? '#e2e8f0' : '#1e293b'
+        }}
+        className="fixed inset-0 w-screen h-screen z-[9999] bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto select-none"
+      >
+        {modalContent}
+      </div>
+    );
+
+    if (typeof document !== 'undefined' && document.body) {
+      return createPortal(wrapper, document.body);
+    }
+    return wrapper;
+  };
 
   const safeStock = useMemo(() => Array.isArray(pantryItems) ? pantryItems : [], [pantryItems]);
   const safeTrash = useMemo(() => Array.isArray(pantryTrash) ? pantryTrash : [], [pantryTrash]);
@@ -399,7 +422,6 @@ export default function PantrySection({
     };
   }, [safeStock, todayStr]);
 
-  // 1. Automatischer Mülleimer für abgelaufene Produkte (< todayStr)
   useEffect(() => {
     const expiredNow = safeStock.filter(item => item.expiryDate && item.expiryDate < todayStr);
     if (expiredNow.length > 0) {
@@ -418,7 +440,6 @@ export default function PantrySection({
     }
   }, [safeStock, todayStr, setPantryItems, setPantryTrash, showToast]);
 
-  // 2. Zweistufiger MHD-Push-Alarm + Todoist-Notfallaufgabe am Ablauftag
   const triggerMhdWarningsAndTodoistPush = async (forceManual = false) => {
     if (!safeStock || safeStock.length === 0) return;
 
@@ -670,9 +691,6 @@ export default function PantrySection({
     showToast('Änderungen gespeichert!', editModal.name + ' wurde aktualisiert.', editModal.customEmoji || '✅');
   };
 
-  // ============================================================================
-  // PUNKT 3: BEIM VERBRAUCHEN IN DEN MÜLLEIMER VERSCHIEBEN + JA/NEIN-EINKAUFSABFRAGE
-  // ============================================================================
   const MoveItemToTrash = (item, reasonType, askForShoppingList = false) => {
     const now = Date.now();
     setPantryItems(prev => (Array.isArray(prev) ? prev : []).filter(x => x.id !== item.id));
@@ -714,7 +732,6 @@ export default function PantrySection({
       ));
       showToast('1 Stück verzehrt!', '„' + item.name + '“ → Restbestand: ' + result.nextQtyStr, getFoodEmoji(item.name, item.customEmoji));
     } else {
-      // Komplett verbraucht -> In Mülleimer verschieben & Ja/Nein-Abfrage für Einkaufsliste öffnen!
       MoveItemToTrash(item, 'consumed', true);
     }
   };
@@ -848,7 +865,6 @@ export default function PantrySection({
         </div>
 
         {viewMode === 'table' ? (
-          /* LISTENANSICHT OHNE HOVER-SKALIERUNG */
           <div className="p-2 space-y-1.5">
             {group.items.map((item) => {
               const daysLeft = getDaysUntil(item.expiryDate, todayStr);
@@ -963,7 +979,6 @@ export default function PantrySection({
             })}
           </div>
         ) : (
-          /* KACHEL-ANSICHT OHNE HOVER-SKALIERUNG */
           <div className="p-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
             {group.items.map((item) => {
               const daysLeft = getDaysUntil(item.expiryDate, todayStr);
@@ -1073,11 +1088,8 @@ export default function PantrySection({
     <div className="tw-pantry-no-scale p-3 sm:p-4 min-h-[calc(100vh-130px)] flex flex-col gap-3">
       <style>{PANTRY_NO_SCALE_STYLES}</style>
 
-      {/* ============================================================================
-          EINE EINZIGE HAUPTLEISTE MIT AUTO-CLOSE MENÜS (KEIN ABSCHNEIDEN MEHR!)
-         ============================================================================ */}
+      {/* HAUPTLEISTE MIT AUTO-CLOSE MENÜS */}
       <div className={'relative z-40 px-3.5 py-2.5 rounded-2xl border shadow-md flex flex-wrap items-center justify-between gap-2 ' + themeStyles.card}>
-        {/* LINKS: SUB-TABS + KOMPAKTES MHD-WARN-POPOVER */}
         <div className="flex items-center gap-1.5 flex-wrap">
           <button
             type="button"
@@ -1279,7 +1291,6 @@ export default function PantrySection({
                 <span>🌾✓ GF ({totalGlutenFreeCount})</span>
               </button>
 
-              {/* WRAPPER MIT onMouseLeave SCHLIESST DAS MENÜ SOFORT, WENN DIE MAUS ES VERLÄSST */}
               <div
                 className="relative"
                 onMouseLeave={() => setShowControlMenu(false)}
@@ -1476,9 +1487,7 @@ export default function PantrySection({
         />
       )}
 
-      {/* ============================================================================
-          SUB-TAB 3: MÜLLEIMER INKL. GELBEM EINKAUFSWAGEN-BUTTON ZUM NACHKAUFEN
-         ============================================================================ */}
+      {/* SUB-TAB 3: MÜLLEIMER INKL. GELBEM EINKAUFSWAGEN-BUTTON */}
       {activeSubTab === 'trash' && (
         <div className="space-y-3.5">
           <div className={'p-3.5 rounded-3xl border flex flex-wrap items-center justify-between gap-3 ' + themeStyles.card}>
@@ -1538,7 +1547,6 @@ export default function PantrySection({
                       </div>
                     </div>
 
-                    {/* GELBER EINKAUFSWAGEN-BUTTON + ZURÜCK-IN-BESTAND-BUTTON */}
                     <div className="flex items-center gap-2 pt-2 border-t border-white/10">
                       <button
                         type="button"
@@ -1570,403 +1578,412 @@ export default function PantrySection({
       )}
 
       {/* ============================================================================
-          PUNKT 3: ABFRAGE-MODAL BEIM VERBRAUCHEN ("WIEDER AUF DIE EINKAUFSLISTE? JA / NEIN")
+          PORTAL-MODAL 1: NACHFRAGE BEIM VERBRAUCHEN (IMMER EXAKT MITTIG AUF DEM SCREEN!)
          ============================================================================ */}
-      {restockPromptItem && (
-        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className={'w-full max-w-md rounded-3xl border-2 border-amber-400 p-6 shadow-2xl space-y-5 text-center ' + themeStyles.modal}>
-            <div className="w-16 h-16 rounded-3xl bg-amber-500/20 border-2 border-amber-400/60 flex items-center justify-center text-4xl mx-auto shadow-inner">
-              {getFoodEmoji(restockPromptItem.name, restockPromptItem.customEmoji)}
-            </div>
+      {restockPromptItem && renderCenteredScreenModal(
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className={'w-full max-w-md rounded-3xl border-2 border-amber-400 p-6 shadow-2xl space-y-5 text-center my-auto ' + themeStyles.modal}
+        >
+          <div className="w-16 h-16 rounded-3xl bg-amber-500/20 border-2 border-amber-400/60 flex items-center justify-center text-4xl mx-auto shadow-inner">
+            {getFoodEmoji(restockPromptItem.name, restockPromptItem.customEmoji)}
+          </div>
 
-            <div className="space-y-1.5">
-              <div className="text-xs font-black uppercase tracking-wider text-emerald-400">
-                🍽️ Produkt verbraucht
-              </div>
-              <h3 className="text-xl font-black leading-snug">
-                {restockPromptItem.name}
-              </h3>
-              <p className="text-sm font-bold opacity-85 pt-1">
-                Soll dieses Produkt wieder auf die Einkaufsliste aufgenommen werden?
-              </p>
+          <div className="space-y-1.5">
+            <div className="text-xs font-black uppercase tracking-wider text-emerald-400">
+              🍽️ Produkt verbraucht
             </div>
+            <h3 className="text-xl font-black leading-snug">
+              {restockPromptItem.name}
+            </h3>
+            <p className="text-sm font-bold opacity-85 pt-1">
+              Soll dieses Produkt wieder auf die Einkaufsliste aufgenommen werden?
+            </p>
+          </div>
 
-            <div className="grid grid-cols-2 gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => {
-                  const name = restockPromptItem.name;
-                  setRestockPromptItem(null);
-                  showToast('Verbraucht', '„' + name + '“ liegt jetzt im Mülleimer.', '🍽️');
-                }}
-                className="tw-nav-inactive py-3.5 px-4 rounded-2xl text-sm font-black cursor-pointer"
-              >
-                Nein
-              </button>
+          <div className="grid grid-cols-2 gap-3 pt-2">
+            <button
+              type="button"
+              onClick={() => {
+                const name = restockPromptItem.name;
+                setRestockPromptItem(null);
+                showToast('Verbraucht', '„' + name + '“ liegt jetzt im Mülleimer.', '🍽️');
+              }}
+              className="tw-nav-inactive py-3.5 px-4 rounded-2xl text-sm font-black cursor-pointer"
+            >
+              Nein
+            </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  const name = restockPromptItem.name;
-                  addShoppingItem(name);
-                  setRestockPromptItem(null);
-                  showToast('Auf Einkaufsliste! 🛒', '„' + name + '“ wurde zur Einkaufsliste hinzugefügt.', '🛒');
-                }}
-                className="py-3.5 px-4 rounded-2xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-sm font-black flex items-center justify-center gap-2 cursor-pointer shadow-lg"
-              >
-                <ShoppingCart className="w-4 h-4 stroke-[2.5]" />
-                <span>Ja, Einkaufsliste</span>
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => {
+                const name = restockPromptItem.name;
+                addShoppingItem(name);
+                setRestockPromptItem(null);
+                showToast('Auf Einkaufsliste! 🛒', '„' + name + '“ wurde zur Einkaufsliste hinzugefügt.', '🛒');
+              }}
+              className="py-3.5 px-4 rounded-2xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-sm font-black flex items-center justify-center gap-2 cursor-pointer shadow-lg"
+            >
+              <ShoppingCart className="w-4 h-4 stroke-[2.5]" />
+              <span>Ja, Einkaufsliste</span>
+            </button>
           </div>
         </div>
       )}
 
-      {/* MODAL: NEUES PRODUKT EINBUCHEN */}
-      {showAddFormModal && (
-        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-          <form onSubmit={handleAddProduct} className={'w-full max-w-lg rounded-3xl border-2 p-6 shadow-2xl space-y-4 my-auto ' + themeStyles.modal}>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <span className="w-12 h-12 rounded-2xl bg-black/35 border border-white/15 flex items-center justify-center text-3xl">
-                  {getFoodEmoji(itemName)}
-                </span>
-                <div>
-                  <h3 className="text-lg font-extrabold">➕ Produkt in Speisekammer einbuchen</h3>
-                  <p className={'text-xs font-semibold ' + themeStyles.textMuted}>
-                    Namen werden automatisch gekürzt & kategorisiert
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowAddFormModal(false)}
-                className="tw-nav-inactive w-9 h-9 rounded-full flex items-center justify-center cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div className="sm:col-span-2">
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-[11px] font-black uppercase text-sky-400">Produktname</label>
-                  <button
-                    type="button"
-                    onClick={() => setItemName(simplifyProductName(itemName))}
-                    className="px-2 py-0.5 rounded-lg bg-sky-500/20 border border-sky-400/40 text-sky-300 text-[10px] font-black flex items-center gap-1 cursor-pointer"
-                  >
-                    <Wand2 className="w-3 h-3" />
-                    <span>✨ Kürzen</span>
-                  </button>
-                </div>
-                <input
-                  type="text"
-                  required
-                  value={itemName}
-                  onChange={(e) => handleNameInputWithSmartDefaults(e.target.value)}
-                  placeholder="z.B. Wraps / Schär..."
-                  className={'w-full px-3.5 py-2.5 rounded-xl border text-sm font-extrabold ' + themeStyles.input}
-                />
-              </div>
-
+      {/* ============================================================================
+          PORTAL-MODAL 2: NEUES PRODUKT EINBUCHEN (IMMER EXAKT MITTIG AUF DEM SCREEN!)
+         ============================================================================ */}
+      {showAddFormModal && renderCenteredScreenModal(
+        <form
+          onSubmit={handleAddProduct}
+          onClick={(e) => e.stopPropagation()}
+          className={'w-full max-w-lg rounded-3xl border-2 p-6 shadow-2xl space-y-4 my-auto ' + themeStyles.modal}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <span className="w-12 h-12 rounded-2xl bg-black/35 border border-white/15 flex items-center justify-center text-3xl">
+                {getFoodEmoji(itemName)}
+              </span>
               <div>
-                <label className="block text-[11px] font-black uppercase text-amber-400 mb-1">Menge</label>
-                <input
-                  type="text"
-                  value={itemQty}
-                  onChange={(e) => setItemQty(e.target.value)}
-                  placeholder="z.B. 2x / 500g"
-                  className={'w-full px-3.5 py-2.5 rounded-xl border text-sm font-bold ' + themeStyles.input}
-                />
+                <h3 className="text-lg font-extrabold">➕ Produkt in Speisekammer einbuchen</h3>
+                <p className={'text-xs font-semibold ' + themeStyles.textMuted}>
+                  Namen werden automatisch gekürzt & kategorisiert
+                </p>
               </div>
             </div>
+            <button
+              type="button"
+              onClick={() => setShowAddFormModal(false)}
+              className="tw-nav-inactive w-9 h-9 rounded-full flex items-center justify-center cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div>
-                <label className="block text-[11px] font-black uppercase text-emerald-400 mb-1">Lagerort</label>
-                <select
-                  value={itemLocation}
-                  onChange={(e) => setItemLocation(e.target.value)}
-                  className={'w-full px-3 py-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="sm:col-span-2">
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-[11px] font-black uppercase text-sky-400">Produktname</label>
+                <button
+                  type="button"
+                  onClick={() => setItemName(simplifyProductName(itemName))}
+                  className="px-2 py-0.5 rounded-lg bg-sky-500/20 border border-sky-400/40 text-sky-300 text-[10px] font-black flex items-center gap-1 cursor-pointer"
                 >
-                  {STORAGE_LOCATIONS.filter(l => l.id !== 'all').map(loc => (
-                    <option key={loc.id} value={loc.id} className="bg-slate-800 text-white">{loc.label}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-black uppercase text-purple-300 mb-1">Kategorie</label>
-                <select
-                  value={itemCategory}
-                  onChange={(e) => setItemCategory(e.target.value)}
-                  className={'w-full px-3 py-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
-                >
-                  <option value="auto" className="bg-slate-800 text-amber-300">
-                    ✨ Auto ({FOOD_CATEGORIES.find(c => c.id === detectFoodCategory(itemName))?.title.split(',')[0]})
-                  </option>
-                  {FOOD_CATEGORIES.map(cat => (
-                    <option key={cat.id} value={cat.id} className="bg-slate-800 text-white">{cat.icon} {cat.title}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-black uppercase text-emerald-400 mb-1">🌾 Glutenfrei</label>
-                <select
-                  value={itemGlutenFree}
-                  onChange={(e) => setItemGlutenFree(e.target.value)}
-                  className={'w-full px-3 py-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
-                >
-                  <option value="auto" className="bg-slate-800 text-emerald-300">
-                    🌾 Auto ({isProductGlutenFree(itemName, itemCategory) ? 'GF ✓' : 'Normal'})
-                  </option>
-                  <option value="yes" className="bg-slate-800 text-emerald-300">🌾✓ Ja, glutenfrei</option>
-                  <option value="no" className="bg-slate-800 text-rose-300">🚫 Enthält Gluten</option>
-                </select>
-              </div>
-            </div>
-
-            <div className={'p-3 rounded-2xl border space-y-2 ' + themeStyles.subtle}>
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <label className="text-xs font-black uppercase text-amber-400">📅 Ablaufdatum (MHD)</label>
-                <div className="flex flex-wrap gap-1">
-                  {[
-                    { label: '+3 T.', days: 3 },
-                    { label: '+1 Wo.', days: 7 },
-                    { label: '+2 Wo.', days: 14 },
-                    { label: '+1 Mon.', days: 30 },
-                    { label: '+6 Mon. (TK)', days: 180 },
-                    { label: '+1 Jahr', days: 365 }
-                  ].map(b => (
-                    <button
-                      key={b.days}
-                      type="button"
-                      onClick={() => setQuickExpiryDays(b.days)}
-                      className="tw-glow-btn px-2 py-1 rounded-lg text-[10px] font-extrabold cursor-pointer"
-                    >
-                      {b.label}
-                    </button>
-                  ))}
-                </div>
+                  <Wand2 className="w-3 h-3" />
+                  <span>✨ Kürzen</span>
+                </button>
               </div>
               <input
-                type="date"
+                type="text"
                 required
-                min={todayStr}
-                value={itemExpiry}
-                onChange={(e) => setItemExpiry(e.target.value)}
-                className={'w-full px-3.5 py-2 rounded-xl border text-xs font-black ' + themeStyles.input}
+                value={itemName}
+                onChange={(e) => handleNameInputWithSmartDefaults(e.target.value)}
+                placeholder="z.B. Wraps / Schär..."
+                className={'w-full px-3.5 py-2.5 rounded-xl border text-sm font-extrabold ' + themeStyles.input}
               />
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-white/10">
-              <button
-                type="button"
-                onClick={() => setShowAddFormModal(false)}
-                className="tw-nav-inactive px-4 py-2.5 rounded-2xl text-xs font-bold cursor-pointer"
-              >
-                Abbrechen
-              </button>
-              <button
-                type="submit"
-                disabled={!itemName.trim() || !itemExpiry}
-                className="tw-active-nav px-5 py-2.5 rounded-2xl text-xs font-black flex items-center gap-1.5 cursor-pointer"
-              >
-                <Check className="w-4 h-4" />
-                <span>In Bestand speichern</span>
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {/* BEARBEITEN-MODAL */}
-      {editModal.open && (
-        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-          <form onSubmit={handleAcceptEditModal} className={'w-full max-w-lg rounded-3xl border-2 p-6 shadow-2xl space-y-4 my-auto ' + themeStyles.modal}>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <span className="w-12 h-12 rounded-2xl bg-black/35 border border-white/15 flex items-center justify-center text-3xl">
-                  {editModal.customEmoji || getFoodEmoji(editModal.name)}
-                </span>
-                <div>
-                  <h3 className="text-lg font-extrabold">✏️ Produkt bearbeiten</h3>
-                  <p className={'text-xs font-semibold ' + themeStyles.textMuted}>
-                    Name, Menge, Kategorie, Lagerort, Glutenfrei-Status oder MHD anpassen
-                  </p>
-                </div>
-              </div>
-              <button type="button" onClick={() => setEditModal({ ...editModal, open: false })} className="tw-nav-inactive w-9 h-9 rounded-full flex items-center justify-center cursor-pointer">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div className="sm:col-span-2">
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-[11px] font-black uppercase text-sky-400">Produktname</label>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const simplified = simplifyProductName(editModal.name);
-                      setEditModal({
-                        ...editModal,
-                        name: simplified,
-                        category: detectFoodCategory(simplified, editModal.category)
-                      });
-                    }}
-                    className="px-2 py-0.5 rounded-lg bg-sky-500/20 border border-sky-400/40 text-sky-300 text-[10px] font-black flex items-center gap-1 cursor-pointer"
-                  >
-                    <Wand2 className="w-3 h-3" />
-                    <span>✨ Auf „Produkt / Marke“ kürzen</span>
-                  </button>
-                </div>
-                <input
-                  type="text"
-                  required
-                  value={editModal.name}
-                  onChange={(e) => setEditModal({ ...editModal, name: e.target.value })}
-                  className={'w-full px-3.5 py-2.5 rounded-xl border text-sm font-extrabold ' + themeStyles.input}
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] font-black uppercase text-amber-400 mb-1">Menge / Stück</label>
-                <input
-                  type="text"
-                  value={editModal.quantity}
-                  onChange={(e) => setEditModal({ ...editModal, quantity: e.target.value })}
-                  className={'w-full px-3.5 py-2.5 rounded-xl border text-sm font-bold ' + themeStyles.input}
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="block text-[11px] font-black uppercase text-purple-300 mb-1">Lebensmittel-Kategorie</label>
-                <select
-                  value={editModal.category}
-                  onChange={(e) => setEditModal({ ...editModal, category: e.target.value })}
-                  className={'w-full px-3 py-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
-                >
-                  {FOOD_CATEGORIES.map(cat => (
-                    <option key={cat.id} value={cat.id} className="bg-slate-800 text-white">{cat.icon} {cat.title}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-black uppercase text-emerald-400 mb-1">🌾 Glutenfrei-Markierung</label>
-                <select
-                  value={editModal.glutenFree}
-                  onChange={(e) => setEditModal({ ...editModal, glutenFree: e.target.value })}
-                  className={'w-full px-3 py-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
-                >
-                  <option value="auto" className="bg-slate-800 text-sky-300">
-                    ✨ Automatisch ({isProductGlutenFree(editModal.name, editModal.category, 'auto') ? 'Glutenfrei ✓' : 'Normal'})
-                  </option>
-                  <option value="yes" className="bg-slate-800 text-emerald-300">🌾✓ Ja, garantiert glutenfrei</option>
-                  <option value="no" className="bg-slate-800 text-rose-300">🚫 Nein, enthält Gluten</option>
-                </select>
-              </div>
             </div>
 
             <div>
-              <label className="block text-[11px] font-black uppercase text-emerald-400 mb-1.5">Lagerort</label>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                {STORAGE_LOCATIONS.filter(l => l.id !== 'all').map(loc => (
-                  <button
-                    key={loc.id}
-                    type="button"
-                    onClick={() => setEditModal({ ...editModal, location: loc.id })}
-                    className={'py-2 px-2.5 rounded-xl text-xs font-extrabold cursor-pointer ' + (editModal.location === loc.id ? 'tw-active-nav' : 'tw-nav-inactive')}
-                  >
-                    {loc.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className={'p-3 rounded-2xl border space-y-2 ' + themeStyles.subtle}>
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <label className="text-xs font-black uppercase text-amber-400">📅 Ablaufdatum (MHD)</label>
-                <div className="flex flex-wrap gap-1">
-                  {[
-                    { l: '+3 T.', d: 3 },
-                    { l: '+1 Wo.', d: 7 },
-                    { l: '+2 Wo.', d: 14 },
-                    { l: '+1 Mon.', d: 30 },
-                    { l: '+6 Mon.', d: 180 }
-                  ].map(b => (
-                    <button
-                      key={b.d}
-                      type="button"
-                      onClick={() => setEditModal({ ...editModal, expiryDate: formatDateStr(addDays(new Date(), b.d)) })}
-                      className="tw-glow-btn px-2 py-1 rounded-lg text-[10px] font-extrabold cursor-pointer"
-                    >
-                      {b.l}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              <label className="block text-[11px] font-black uppercase text-amber-400 mb-1">Menge</label>
               <input
-                type="date"
-                required
-                value={editModal.expiryDate}
-                onChange={(e) => setEditModal({ ...editModal, expiryDate: e.target.value })}
-                className={'w-full px-3.5 py-2 rounded-xl border text-xs font-black ' + themeStyles.input}
+                type="text"
+                value={itemQty}
+                onChange={(e) => setItemQty(e.target.value)}
+                placeholder="z.B. 2x / 500g"
+                className={'w-full px-3.5 py-2.5 rounded-xl border text-sm font-bold ' + themeStyles.input}
               />
             </div>
+          </div>
 
-            <div className={'p-3 rounded-2xl border space-y-2 ' + themeStyles.subtle}>
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-black uppercase">🎨 Emoji wählen</span>
-                <button
-                  type="button"
-                  onClick={() => setEditModal({ ...editModal, customEmoji: getFoodEmoji(editModal.name) })}
-                  className="text-[11px] font-extrabold text-sky-400 hover:underline cursor-pointer"
-                >
-                  🔄 Automatisch
-                </button>
-              </div>
-              <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto p-1">
-                {FOOD_EMOJI_PICKER.map(em => (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-[11px] font-black uppercase text-emerald-400 mb-1">Lagerort</label>
+              <select
+                value={itemLocation}
+                onChange={(e) => setItemLocation(e.target.value)}
+                className={'w-full px-3 py-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+              >
+                {STORAGE_LOCATIONS.filter(l => l.id !== 'all').map(loc => (
+                  <option key={loc.id} value={loc.id} className="bg-slate-800 text-white">{loc.label}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-black uppercase text-purple-300 mb-1">Kategorie</label>
+              <select
+                value={itemCategory}
+                onChange={(e) => setItemCategory(e.target.value)}
+                className={'w-full px-3 py-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+              >
+                <option value="auto" className="bg-slate-800 text-amber-300">
+                  ✨ Auto ({FOOD_CATEGORIES.find(c => c.id === detectFoodCategory(itemName))?.title.split(',')[0]})
+                </option>
+                {FOOD_CATEGORIES.map(cat => (
+                  <option key={cat.id} value={cat.id} className="bg-slate-800 text-white">{cat.icon} {cat.title}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-black uppercase text-emerald-400 mb-1">🌾 Glutenfrei</label>
+              <select
+                value={itemGlutenFree}
+                onChange={(e) => setItemGlutenFree(e.target.value)}
+                className={'w-full px-3 py-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+              >
+                <option value="auto" className="bg-slate-800 text-emerald-300">
+                  🌾 Auto ({isProductGlutenFree(itemName, itemCategory) ? 'GF ✓' : 'Normal'})
+                </option>
+                <option value="yes" className="bg-slate-800 text-emerald-300">🌾✓ Ja, glutenfrei</option>
+                <option value="no" className="bg-slate-800 text-rose-300">🚫 Enthält Gluten</option>
+              </select>
+            </div>
+          </div>
+
+          <div className={'p-3 rounded-2xl border space-y-2 ' + themeStyles.subtle}>
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <label className="text-xs font-black uppercase text-amber-400">📅 Ablaufdatum (MHD)</label>
+              <div className="flex flex-wrap gap-1">
+                {[
+                  { label: '+3 T.', days: 3 },
+                  { label: '+1 Wo.', days: 7 },
+                  { label: '+2 Wo.', days: 14 },
+                  { label: '+1 Mon.', days: 30 },
+                  { label: '+6 Mon. (TK)', days: 180 },
+                  { label: '+1 Jahr', days: 365 }
+                ].map(b => (
                   <button
-                    key={em}
+                    key={b.days}
                     type="button"
-                    onClick={() => setEditModal({ ...editModal, customEmoji: em })}
-                    className={'w-8 h-8 rounded-xl border text-base flex items-center justify-center cursor-pointer ' +
-                      (editModal.customEmoji === em ? 'ring-2 ring-sky-400 bg-sky-500/25' : 'bg-black/25 border-white/10')}
+                    onClick={() => setQuickExpiryDays(b.days)}
+                    className="tw-glow-btn px-2 py-1 rounded-lg text-[10px] font-extrabold cursor-pointer"
                   >
-                    {em}
+                    {b.label}
                   </button>
                 ))}
               </div>
             </div>
+            <input
+              type="date"
+              required
+              min={todayStr}
+              value={itemExpiry}
+              onChange={(e) => setItemExpiry(e.target.value)}
+              className={'w-full px-3.5 py-2 rounded-xl border text-xs font-black ' + themeStyles.input}
+            />
+          </div>
 
-            <div className="flex items-center justify-between gap-2 pt-2 border-t border-white/10">
-              <button
-                type="button"
-                onClick={handleDeleteFromEditModal}
-                className="px-4 py-2.5 rounded-2xl bg-rose-600 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
-              >
-                <Trash2 className="w-4 h-4" />
-                <span>🗑️ Löschen</span>
-              </button>
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-white/10">
+            <button
+              type="button"
+              onClick={() => setShowAddFormModal(false)}
+              className="tw-nav-inactive px-4 py-2.5 rounded-2xl text-xs font-bold cursor-pointer"
+            >
+              Abbrechen
+            </button>
+            <button
+              type="submit"
+              disabled={!itemName.trim() || !itemExpiry}
+              className="tw-active-nav px-5 py-2.5 rounded-2xl text-xs font-black flex items-center gap-1.5 cursor-pointer"
+            >
+              <Check className="w-4 h-4" />
+              <span>In Bestand speichern</span>
+            </button>
+          </div>
+        </form>
+      )}
 
-              <div className="flex items-center gap-2">
-                <button type="button" onClick={() => setEditModal({ ...editModal, open: false })} className="tw-nav-inactive px-4 py-2.5 rounded-2xl text-xs font-bold cursor-pointer">
-                  Abbrechen
-                </button>
-                <button type="submit" className="tw-glow-btn px-5 py-2.5 rounded-2xl text-xs font-black flex items-center gap-1.5 cursor-pointer">
-                  <Check className="w-4 h-4" />
-                  <span>✅ Speichern</span>
-                </button>
+      {/* ============================================================================
+          PORTAL-MODAL 3: PRODUKT BEARBEITEN (IMMER EXAKT MITTIG AUF DEM SCREEN!)
+         ============================================================================ */}
+      {editModal.open && renderCenteredScreenModal(
+        <form
+          onSubmit={handleAcceptEditModal}
+          onClick={(e) => e.stopPropagation()}
+          className={'w-full max-w-lg rounded-3xl border-2 p-6 shadow-2xl space-y-4 my-auto ' + themeStyles.modal}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <span className="w-12 h-12 rounded-2xl bg-black/35 border border-white/15 flex items-center justify-center text-3xl">
+                {editModal.customEmoji || getFoodEmoji(editModal.name)}
+              </span>
+              <div>
+                <h3 className="text-lg font-extrabold">✏️ Produkt bearbeiten</h3>
+                <p className={'text-xs font-semibold ' + themeStyles.textMuted}>
+                  Name, Menge, Kategorie, Lagerort, Glutenfrei-Status oder MHD anpassen
+                </p>
               </div>
             </div>
-          </form>
-        </div>
+            <button type="button" onClick={() => setEditModal({ ...editModal, open: false })} className="tw-nav-inactive w-9 h-9 rounded-full flex items-center justify-center cursor-pointer">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="sm:col-span-2">
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-[11px] font-black uppercase text-sky-400">Produktname</label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const simplified = simplifyProductName(editModal.name);
+                    setEditModal({
+                      ...editModal,
+                      name: simplified,
+                      category: detectFoodCategory(simplified, editModal.category)
+                    });
+                  }}
+                  className="px-2 py-0.5 rounded-lg bg-sky-500/20 border border-sky-400/40 text-sky-300 text-[10px] font-black flex items-center gap-1 cursor-pointer"
+                >
+                  <Wand2 className="w-3 h-3" />
+                  <span>✨ Auf „Produkt / Marke“ kürzen</span>
+                </button>
+              </div>
+              <input
+                type="text"
+                required
+                value={editModal.name}
+                onChange={(e) => setEditModal({ ...editModal, name: e.target.value })}
+                className={'w-full px-3.5 py-2.5 rounded-xl border text-sm font-extrabold ' + themeStyles.input}
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] font-black uppercase text-amber-400 mb-1">Menge / Stück</label>
+              <input
+                type="text"
+                value={editModal.quantity}
+                onChange={(e) => setEditModal({ ...editModal, quantity: e.target.value })}
+                className={'w-full px-3.5 py-2.5 rounded-xl border text-sm font-bold ' + themeStyles.input}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[11px] font-black uppercase text-purple-300 mb-1">Lebensmittel-Kategorie</label>
+              <select
+                value={editModal.category}
+                onChange={(e) => setEditModal({ ...editModal, category: e.target.value })}
+                className={'w-full px-3 py-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+              >
+                {FOOD_CATEGORIES.map(cat => (
+                  <option key={cat.id} value={cat.id} className="bg-slate-800 text-white">{cat.icon} {cat.title}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-black uppercase text-emerald-400 mb-1">🌾 Glutenfrei-Markierung</label>
+              <select
+                value={editModal.glutenFree}
+                onChange={(e) => setEditModal({ ...editModal, glutenFree: e.target.value })}
+                className={'w-full px-3 py-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+              >
+                <option value="auto" className="bg-slate-800 text-sky-300">
+                  ✨ Automatisch ({isProductGlutenFree(editModal.name, editModal.category, 'auto') ? 'Glutenfrei ✓' : 'Normal'})
+                </option>
+                <option value="yes" className="bg-slate-800 text-emerald-300">🌾✓ Ja, garantiert glutenfrei</option>
+                <option value="no" className="bg-slate-800 text-rose-300">🚫 Nein, enthält Gluten</option>
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-black uppercase text-emerald-400 mb-1.5">Lagerort</label>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {STORAGE_LOCATIONS.filter(l => l.id !== 'all').map(loc => (
+                <button
+                  key={loc.id}
+                  type="button"
+                  onClick={() => setEditModal({ ...editModal, location: loc.id })}
+                  className={'py-2 px-2.5 rounded-xl text-xs font-extrabold cursor-pointer ' + (editModal.location === loc.id ? 'tw-active-nav' : 'tw-nav-inactive')}
+                >
+                  {loc.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className={'p-3 rounded-2xl border space-y-2 ' + themeStyles.subtle}>
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <label className="text-xs font-black uppercase text-amber-400">📅 Ablaufdatum (MHD)</label>
+              <div className="flex flex-wrap gap-1">
+                {[
+                  { l: '+3 T.', d: 3 },
+                  { l: '+1 Wo.', d: 7 },
+                  { l: '+2 Wo.', d: 14 },
+                  { l: '+1 Mon.', d: 30 },
+                  { l: '+6 Mon.', d: 180 }
+                ].map(b => (
+                  <button
+                    key={b.d}
+                    type="button"
+                    onClick={() => setEditModal({ ...editModal, expiryDate: formatDateStr(addDays(new Date(), b.d)) })}
+                    className="tw-glow-btn px-2 py-1 rounded-lg text-[10px] font-extrabold cursor-pointer"
+                  >
+                    {b.l}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <input
+              type="date"
+              required
+              value={editModal.expiryDate}
+              onChange={(e) => setEditModal({ ...editModal, expiryDate: e.target.value })}
+              className={'w-full px-3.5 py-2 rounded-xl border text-xs font-black ' + themeStyles.input}
+            />
+          </div>
+
+          <div className={'p-3 rounded-2xl border space-y-2 ' + themeStyles.subtle}>
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-black uppercase">🎨 Emoji wählen</span>
+              <button
+                type="button"
+                onClick={() => setEditModal({ ...editModal, customEmoji: getFoodEmoji(editModal.name) })}
+                className="text-[11px] font-extrabold text-sky-400 hover:underline cursor-pointer"
+              >
+                🔄 Automatisch
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto p-1">
+              {FOOD_EMOJI_PICKER.map(em => (
+                <button
+                  key={em}
+                  type="button"
+                  onClick={() => setEditModal({ ...editModal, customEmoji: em })}
+                  className={'w-8 h-8 rounded-xl border text-base flex items-center justify-center cursor-pointer ' +
+                    (editModal.customEmoji === em ? 'ring-2 ring-sky-400 bg-sky-500/25' : 'bg-black/25 border-white/10')}
+                >
+                  {em}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between gap-2 pt-2 border-t border-white/10">
+            <button
+              type="button"
+              onClick={handleDeleteFromEditModal}
+              className="px-4 py-2.5 rounded-2xl bg-rose-600 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
+            >
+              <Trash2 className="w-4 h-4" />
+              <span>🗑️ Löschen</span>
+            </button>
+
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={() => setEditModal({ ...editModal, open: false })} className="tw-nav-inactive px-4 py-2.5 rounded-2xl text-xs font-bold cursor-pointer">
+                Abbrechen
+              </button>
+              <button type="submit" className="tw-glow-btn px-5 py-2.5 rounded-2xl text-xs font-black flex items-center gap-1.5 cursor-pointer">
+                <Check className="w-4 h-4" />
+                <span>✅ Speichern</span>
+              </button>
+            </div>
+          </div>
+        </form>
       )}
     </div>
   );
