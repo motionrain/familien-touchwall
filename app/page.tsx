@@ -38,6 +38,7 @@ import {
   mergeCalendarEventsSafe,
   mergeSkillBoardSafe,
   callCloudApi,
+  useTouchwallRealtime,
   SyncCenterModal
 } from './sync';
 
@@ -683,7 +684,7 @@ export default function TouchwallApp() {
     return () => clearInterval(timer);
   }, [isAuthenticated, safeEvents, safeTasks, safeMembers, todayStr]);
 
-  const createAndSelectTodoistProject = async (projectName) => {
+const createAndSelectTodoistProject = async (projectName) => {
     const token = safeTodoistConfig.apiToken.trim();
     if (!token || !projectName?.trim()) return null;
     try {
@@ -918,13 +919,23 @@ export default function TouchwallApp() {
     isInitialLoadDone.current = true;
   };
 
-  const pullFromCloud = async (urlOverride, showFeedback = true, customAccId = undefined, customAuthKey = undefined, channelsFilter = 'all') => {
+  const pullFromCloud = async (
+    urlOverride,
+    showFeedback = true,
+    customAccId = undefined,
+    customAuthKey = undefined,
+    channelsFilter = 'all',
+    isRealtimeTrigger = false
+  ) => {
     const activeAcc = customAccId !== undefined ? customAccId : accountId;
     const activeKey = customAuthKey !== undefined ? customAuthKey : authKey;
     if (!activeAcc || activeAcc === 'local') return false;
     if (isSyncRunningRef.current) return false;
 
-    if (!showFeedback && (isNetworkSavingRef.current || Date.now() - lastLocalEditTimeRef.current < 8000)) {
+    if (!showFeedback && !isRealtimeTrigger && (isNetworkSavingRef.current || Date.now() - lastLocalEditTimeRef.current < 8000)) {
+      return false;
+    }
+    if (isRealtimeTrigger && isNetworkSavingRef.current) {
       return false;
     }
 
@@ -941,14 +952,14 @@ export default function TouchwallApp() {
         return false;
       }
 
-      if (!showFeedback && (isNetworkSavingRef.current || Date.now() - lastLocalEditTimeRef.current < 6500)) {
+      if (!showFeedback && !isRealtimeTrigger && (isNetworkSavingRef.current || Date.now() - lastLocalEditTimeRef.current < 6500)) {
         return false;
       }
 
       applyBundleData(bundle, channelsFilter);
       const now = new Date();
       const tStr = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
-      setSyncStatusText('⚡ 4-Kanal Sync (' + tStr + ')');
+      setSyncStatusText(isRealtimeTrigger ? '⚡ Live-Sync (' + tStr + ')' : '⚡ 4-Kanal Sync (' + tStr + ')');
       setChannelStatus(prev => ({
         ...prev,
         calendar: 'Synchron (' + tStr + ') ✓',
@@ -1069,13 +1080,19 @@ export default function TouchwallApp() {
     setIsCheckingAuth(false);
   }, []);
 
+  // SUPABASE REALTIME LIVE-SYNC: Reagiert sofort auf Änderungen von Pocket-App oder anderen Geräten
+  useTouchwallRealtime(isAuthenticated && accountId && accountId !== 'local' ? accountId : '', () => {
+    pullCloudRef.current?.(undefined, false, undefined, undefined, 'all', true);
+  });
+
+  // Fallback-Intervall (30s) für externe Änderungen direkt im Google Kalender
   useEffect(() => {
     if (!isAuthenticated || !accountId || accountId === 'local') return;
     const calInterval = setInterval(() => {
       if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
         pullCloudRef.current?.(undefined, false);
       }
-    }, 10000);
+    }, 30000);
     return () => clearInterval(calInterval);
   }, [isAuthenticated, accountId]);
 
@@ -2508,3 +2525,5 @@ export default function TouchwallApp() {
     </div>
   );
 }
+
+  
