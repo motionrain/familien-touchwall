@@ -49,6 +49,35 @@ function getSupabaseAdmin() {
 function hashAuthKey(authKey: string) {
   return crypto.createHash('sha256').update(String(authKey || '').trim()).digest('hex');
 }
+async function broadcastSync(accountId: string, sourceClientId?: string) {
+  try {
+    const cleanUrl = getCleanSupabaseUrl();
+    const key = (process.env.SUPABASE_SERVICE_ROLE_KEY || '')
+      .trim()
+      .replace(/^["']|["']$/g, '');
+    if (!cleanUrl || !key || !accountId) return;
+
+    await fetch(`${cleanUrl}/realtime/v1/api/broadcast`, {
+      method: 'POST',
+      headers: {
+        apikey: key,
+        Authorization: `Bearer ${key}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        messages: [
+          {
+            topic: `tw-sync-${accountId}`,
+            event: 'sync',
+            payload: { ts: Date.now(), clientId: sourceClientId || '' }
+          }
+        ]
+      })
+    });
+  } catch {
+    // Broadcast-Fehler dürfen den eigentlichen Speichervorgang nie blockieren
+  }
+}
 
 // ============================================================================
 // 2. ZERO-DEPENDENCY GOOGLE SERVICE ACCOUNT AUTH (NODE CRYPTO JWT)
