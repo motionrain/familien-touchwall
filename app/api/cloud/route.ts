@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 // ============================================================================
-// 1. SUPABASE SERVER-CLIENT (BEREINIGT URL & SCHLÜSSEL AUTOMATISCH)
+// 1. SUPABASE ADMIN-CLIENT, AUTH- & RECOVERY-HELFER
 // ============================================================================
 function getCleanSupabaseUrl() {
   const rawUrl = (process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || '')
@@ -28,7 +28,6 @@ function getCleanSupabaseUrl() {
   if (!cleanUrl.includes('supabase.co')) {
     throw new Error(`SUPABASE_URL zeigt nicht auf *.supabase.co, sondern auf: ${cleanUrl}`);
   }
-
   return cleanUrl;
 }
 
@@ -53,12 +52,51 @@ function getSupabaseAdmin() {
   if (!key) {
     throw new Error('SUPABASE_SERVICE_ROLE_KEY fehlt in den Vercel-Umgebungsvariablen.');
   }
-
   return createClient(cleanUrl, key, { auth: { persistSession: false } });
 }
 
-function hashAuthKey(authKey: string) {
-  return crypto.createHash('sha256').update(String(authKey || '').trim()).digest('hex');
+function hashAuthKey(val: string) {
+  return crypto.createHash('sha256').update(String(val || '').trim()).digest('hex');
+}
+
+function normalizeRecoveryCode(raw: string) {
+  return String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+function generateReadableRecoveryCode() {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const bytes = crypto.randomBytes(12);
+  let out = '';
+  for (let i = 0; i < 12; i++) {
+    out += alphabet[bytes[i] % alphabet.length];
+  }
+  return `TW-${out.slice(0, 4)}-${out.slice(4, 8)}-${out.slice(8, 12)}`;
+}
+
+// Prüft sowohl klassische Passwort-Hashes als auch signierte OAuth-Session-Tokens (tws_...)
+function verifyAccountAuth(authKey: string, accountId: string, storedHash: string) {
+  const cleanKey = String(authKey || '').trim();
+  if (!cleanKey || !storedHash) return false;
+  if (hashAuthKey(cleanKey) === storedHash) return true;
+
+  if (!cleanKey.startsWith('tws_')) return false;
+  const secret = (process.env.OAUTH_STATE_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+  if (!secret) return false;
+
+  const parts = cleanKey.slice(4).split('.');
+  if (parts.length !== 2) return false;
+  const [payloadB64, sig] = parts;
+  const expectedSig = crypto.createHmac('sha256', secret).update(payloadB64).digest('base64url');
+  if (sig !== expectedSig) return false;
+
+  try {
+    const parsed = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8'));
+    if (parsed.a !== accountId) return false;
+    if (parsed.h && parsed.h !== String(storedHash).slice(0, 12)) return false;
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function broadcastSync(
@@ -71,53 +109,41 @@ async function broadcastSync(
   const topic = `tw-sync-${accountId}`;
   const payload = { ts: Date.now(), clientId: sourceClientId || '', scope };
 
-  // 1. Offizieller Supabase-SDK HTTP-Broadcast (ideal für Vercel Serverless)
   if (supabase && typeof supabase.channel === 'function') {
     const channel = supabase.channel(topic);
     try {
       if (typeof channel?.httpSend === 'function') {
         const res = await channel.httpSend('sync', payload);
-        if (res?.success !== false) {
-          return;
-        }
+        if (res?.success !== false) return;
       }
     } catch {
-      // Weiter zum direkten REST-Fallback
+      // Weiter zum REST-Fallback
     } finally {
       await supabase.removeChannel(channel).catch(() => {});
     }
   }
 
-  // 2. Direkter REST-Broadcast-Fallback (kompatibel mit sb_secret_ und Legacy-JWT)
   try {
     const cleanUrl = getCleanSupabaseUrl();
-    const key = (process.env.SUPABASE_SERVICE_ROLE_KEY || '')
-      .trim()
-      .replace(/^["']|["']$/g, '');
+    const key = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim().replace(/^["']|["']$/g, '');
     if (!cleanUrl || !key) return;
 
     const headers: Record<string, string> = {
       apikey: key,
       'Content-Type': 'application/json'
     };
-    if (key.startsWith('eyJ')) {
-      headers.Authorization = `Bearer ${key}`;
-    }
+    if (key.startsWith('eyJ')) headers.Authorization = `Bearer ${key}`;
 
     await fetch(`${cleanUrl}/realtime/v1/api/broadcast`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({
-        messages: [{ topic, event: 'sync', payload }]
-      })
+      body: JSON.stringify({ messages: [{ topic, event: 'sync', payload }] })
     });
-  } catch {
-    // Broadcast-Fehler dürfen den eigentlichen Speichervorgang nie blockieren
-  }
+  } catch {}
 }
 
 // ============================================================================
-// 1B. VORRAT & MÜLLEIMER IN EIGENER TABELLE (tw_pantry_items)
+// 2. VORRAT & MÜLLEIMER (tw_pantry_items)
 // ============================================================================
 const KNOWN_PANTRY_KEYS = new Set([
   'id', 'name', 'barcode', 'quantity', 'location', 'category', 'glutenFree',
@@ -135,9 +161,7 @@ function normalizeGfValue(val: any) {
 function mapPantryItemToRow(accountId: string, item: any, status: 'stock' | 'trash') {
   const extra: Record<string, any> = {};
   Object.keys(item || {}).forEach(k => {
-    if (!KNOWN_PANTRY_KEYS.has(k) && item[k] !== undefined) {
-      extra[k] = item[k];
-    }
+    if (!KNOWN_PANTRY_KEYS.has(k) && item[k] !== undefined) extra[k] = item[k];
   });
 
   return {
@@ -197,17 +221,11 @@ function stripPantryFromState(stateObj: any) {
   return copy;
 }
 
-async function syncPantryTableForAccount(
-  supabase: any,
-  accountId: string,
-  stockList: any[],
-  trashList: any[]
-) {
+async function syncPantryTableForAccount(supabase: any, accountId: string, stockList: any[], trashList: any[]) {
   const rowMap = new Map<string, any>();
 
   (Array.isArray(stockList) ? stockList : []).forEach(it => {
-    if (!it || !it.id) return;
-    rowMap.set(String(it.id), mapPantryItemToRow(accountId, it, 'stock'));
+    if (it && it.id) rowMap.set(String(it.id), mapPantryItemToRow(accountId, it, 'stock'));
   });
 
   (Array.isArray(trashList) ? trashList : []).forEach(it => {
@@ -215,25 +233,20 @@ async function syncPantryTableForAccount(
     const idStr = String(it.id);
     const trashRow = mapPantryItemToRow(accountId, it, 'trash');
     const existing = rowMap.get(idStr);
-    if (!existing || trashRow.trashed_timestamp >= existing.updated_at) {
-      rowMap.set(idStr, trashRow);
-    }
+    if (!existing || trashRow.trashed_timestamp >= existing.updated_at) rowMap.set(idStr, trashRow);
   });
 
   const { data: existingRows, error: selErr } = await supabase
     .from('tw_pantry_items')
     .select('id')
     .eq('account_id', accountId);
-
   if (selErr) throw selErr;
 
   const allRows = Array.from(rowMap.values());
-
   for (let i = 0; i < allRows.length; i += 200) {
-    const chunk = allRows.slice(i, i + 200);
     const { error: upErr } = await supabase
       .from('tw_pantry_items')
-      .upsert(chunk, { onConflict: 'account_id,id' });
+      .upsert(allRows.slice(i, i + 200), { onConflict: 'account_id,id' });
     if (upErr) throw upErr;
   }
 
@@ -242,12 +255,11 @@ async function syncPantryTableForAccount(
     .filter((id: string) => !rowMap.has(id));
 
   for (let i = 0; i < idsToDelete.length; i += 200) {
-    const chunk = idsToDelete.slice(i, i + 200);
     const { error: delErr } = await supabase
       .from('tw_pantry_items')
       .delete()
       .eq('account_id', accountId)
-      .in('id', chunk);
+      .in('id', idsToDelete.slice(i, i + 200));
     if (delErr) throw delErr;
   }
 }
@@ -257,7 +269,6 @@ async function loadPantryForAccount(supabase: any, accountId: string, accountRow
     .from('tw_pantry_items')
     .select('*')
     .eq('account_id', accountId);
-
   if (error) throw error;
 
   const list = Array.isArray(rows) ? rows : [];
@@ -268,53 +279,43 @@ async function loadPantryForAccount(supabase: any, accountId: string, accountRow
     await syncPantryTableForAccount(supabase, accountId, legacyStock, legacyTrash);
     await supabase
       .from('tw_accounts')
-      .update({
-        state: stripPantryFromState(accountRow.state),
-        updated_at: new Date().toISOString()
-      })
+      .update({ state: stripPantryFromState(accountRow.state), updated_at: new Date().toISOString() })
       .eq('account_id', accountId);
-
     return { pantryItems: legacyStock, pantryTrash: legacyTrash };
   }
 
-  const pantryItems = list
-    .filter((r: any) => r.status !== 'trash')
-    .map(mapRowToPantryItem)
-    .sort((a: any, b: any) => String(a.expiryDate || '9999').localeCompare(String(b.expiryDate || '9999')));
-
-  const pantryTrash = list
-    .filter((r: any) => r.status === 'trash')
-    .map(mapRowToPantryItem)
-    .sort((a: any, b: any) => Number(b.trashedTimestamp || 0) - Number(a.trashedTimestamp || 0));
-
-  return { pantryItems, pantryTrash };
+  return {
+    pantryItems: list
+      .filter((r: any) => r.status !== 'trash')
+      .map(mapRowToPantryItem)
+      .sort((a: any, b: any) => String(a.expiryDate || '9999').localeCompare(String(b.expiryDate || '9999'))),
+    pantryTrash: list
+      .filter((r: any) => r.status === 'trash')
+      .map(mapRowToPantryItem)
+      .sort((a: any, b: any) => Number(b.trashedTimestamp || 0) - Number(a.trashedTimestamp || 0))
+  };
 }
 
 // ============================================================================
-// 2. ZERO-DEPENDENCY GOOGLE SERVICE ACCOUNT AUTH (NODE CRYPTO JWT)
+// 3. OAUTH TOKEN-REFRESH (GOOGLE & MICROSOFT/OUTLOOK) + GOOGLE SERVICE ACCOUNT
 // ============================================================================
-let cachedGoogleToken = { token: '', expiresAt: 0 };
+let cachedGoogleSaToken = { token: '', expiresAt: 0 };
 
-function hasGoogleCredentials() {
+function hasGoogleServiceAccount() {
   return Boolean(
     (process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || '').trim() &&
     (process.env.GOOGLE_PRIVATE_KEY || '').trim()
   );
 }
 
-async function getGoogleAccessToken() {
-  if (!hasGoogleCredentials()) return null;
-  if (cachedGoogleToken.token && Date.now() < cachedGoogleToken.expiresAt - 60000) {
-    return cachedGoogleToken.token;
+async function getGoogleServiceAccountToken() {
+  if (!hasGoogleServiceAccount()) return null;
+  if (cachedGoogleSaToken.token && Date.now() < cachedGoogleSaToken.expiresAt - 60000) {
+    return cachedGoogleSaToken.token;
   }
 
-  const email = (process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || '')
-    .trim()
-    .replace(/^["']|["']$/g, '');
-  const privateKey = (process.env.GOOGLE_PRIVATE_KEY || '')
-    .trim()
-    .replace(/^["']|["']$/g, '')
-    .replace(/\\n/g, '\n');
+  const email = (process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || '').trim().replace(/^["']|["']$/g, '');
+  const privateKey = (process.env.GOOGLE_PRIVATE_KEY || '').trim().replace(/^["']|["']$/g, '').replace(/\\n/g, '\n');
 
   const now = Math.floor(Date.now() / 1000);
   const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url');
@@ -330,37 +331,110 @@ async function getGoogleAccessToken() {
 
   const signer = crypto.createSign('RSA-SHA256');
   signer.update(header + '.' + claim);
-  const signature = signer.sign(privateKey, 'base64url');
-  const jwt = header + '.' + claim + '.' + signature;
+  const jwt = header + '.' + claim + '.' + signer.sign(privateKey, 'base64url');
 
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-      assertion: jwt
-    })
+    body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion: jwt })
   });
-
   const data = await res.json();
   if (!res.ok || !data.access_token) {
-    throw new Error('Google Auth fehlgeschlagen: ' + (data.error_description || data.error || res.status));
+    throw new Error('Google SA Auth fehlgeschlagen: ' + (data.error_description || data.error || res.status));
   }
 
-  cachedGoogleToken = {
-    token: data.access_token,
-    expiresAt: Date.now() + Number(data.expires_in || 3500) * 1000
-  };
+  cachedGoogleSaToken = { token: data.access_token, expiresAt: Date.now() + Number(data.expires_in || 3500) * 1000 };
   return data.access_token;
 }
 
+async function getValidOAuthAccessToken(supabase: any, conn: any) {
+  if (!conn) return null;
+  if (conn.access_token && Number(conn.token_expires_at || 0) > Date.now() + 90000) {
+    return conn.access_token;
+  }
+  if (!conn.refresh_token) return conn.access_token || null;
+
+  if (conn.provider === 'google') {
+    const clientId = (process.env.GOOGLE_OAUTH_CLIENT_ID || '').trim().replace(/^["']|["']$/g, '');
+    const clientSecret = (process.env.GOOGLE_OAUTH_CLIENT_SECRET || '').trim().replace(/^["']|["']$/g, '');
+    if (!clientId || !clientSecret) return conn.access_token || null;
+
+    const res = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        refresh_token: conn.refresh_token,
+        grant_type: 'refresh_token'
+      })
+    });
+    const json = await res.json();
+    if (!res.ok || !json.access_token) {
+      throw new Error('Google OAuth Refresh fehlgeschlagen: ' + (json.error_description || json.error || res.status));
+    }
+
+    const nextExp = Date.now() + Number(json.expires_in || 3500) * 1000;
+    await supabase
+      .from('tw_oauth_connections')
+      .update({
+        access_token: json.access_token,
+        token_expires_at: nextExp,
+        updated_at: new Date().toISOString()
+      })
+      .eq('account_id', conn.account_id)
+      .eq('member_id', conn.member_id)
+      .eq('provider', 'google');
+
+    return json.access_token;
+  }
+
+  if (conn.provider === 'microsoft') {
+    const msId = (process.env.MICROSOFT_OAUTH_CLIENT_ID || '').trim().replace(/^["']|["']$/g, '');
+    const msSecret = (process.env.MICROSOFT_OAUTH_CLIENT_SECRET || '').trim().replace(/^["']|["']$/g, '');
+    if (!msId || !msSecret) return conn.access_token || null;
+
+    const res = await fetch('https://login.microsoftonline.com/common/oauth2/v2.0/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: msId,
+        client_secret: msSecret,
+        refresh_token: conn.refresh_token,
+        grant_type: 'refresh_token',
+        scope: 'openid email profile offline_access User.Read Calendars.ReadWrite'
+      })
+    });
+    const json = await res.json();
+    if (!res.ok || !json.access_token) {
+      throw new Error('Outlook OAuth Refresh fehlgeschlagen: ' + (json.error_description || json.error || res.status));
+    }
+
+    const nextExp = Date.now() + Number(json.expires_in || 3500) * 1000;
+    await supabase
+      .from('tw_oauth_connections')
+      .update({
+        access_token: json.access_token,
+        refresh_token: json.refresh_token || conn.refresh_token,
+        token_expires_at: nextExp,
+        updated_at: new Date().toISOString()
+      })
+      .eq('account_id', conn.account_id)
+      .eq('member_id', conn.member_id)
+      .eq('provider', 'microsoft');
+
+    return json.access_token;
+  }
+
+  return null;
+}
+
 // ============================================================================
-// 3. ZEITZONEN-SICHERE KONVERTIERUNG (EUROPE/BERLIN FÜR VERCEL UTC-SERVER)
+// 4. ZEITZONEN- & PAYLOAD-KONVERTIERUNG (GOOGLE + OUTLOOK / EUROPE/BERLIN)
 // ============================================================================
 function addDaysToDateStr(dateStr: string, days: number) {
   const [y, m, d] = dateStr.split('-').map(Number);
-  const dt = new Date(Date.UTC(y, m - 1, d + days));
-  return dt.toISOString().slice(0, 10);
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
 }
 
 function formatBerlinDateAndTime(isoStr: string) {
@@ -380,63 +454,86 @@ function formatBerlinDateAndTime(isoStr: string) {
   return { datePart, timePart };
 }
 
-function buildGoogleEventPayload(ev: any) {
-  const title = String(ev.title || 'Termin').trim();
-  const dateStr = String(ev.date || '').slice(0, 10);
-  const rawTime = String(ev.time || 'Ganztägig').trim();
-
+function parseTouchwallTimeRange(rawTimeInput: string) {
+  const rawTime = String(rawTimeInput || 'Ganztägig').trim();
   const rangeMatch = rawTime.match(/(\d{1,2}):(\d{2})\s*[-–]\s*(\d{1,2}):(\d{2})/);
   const singleMatch = rawTime.match(/(\d{1,2}):(\d{2})/);
 
   if (!rawTime || rawTime.toLowerCase().includes('ganztägig') || (!rangeMatch && !singleMatch)) {
+    return { allDay: true };
+  }
+
+  if (rangeMatch) {
+    return {
+      allDay: false,
+      startH: rangeMatch[1].padStart(2, '0'),
+      startM: rangeMatch[2],
+      endH: rangeMatch[3].padStart(2, '0'),
+      endM: rangeMatch[4]
+    };
+  }
+  const startH = singleMatch[1].padStart(2, '0');
+  const startM = singleMatch[2];
+  const endH = String((Number(startH) + 1) % 24).padStart(2, '0');
+  return { allDay: false, startH, startM, endH, endM: startM };
+}
+
+function buildGoogleEventPayload(ev: any) {
+  const title = String(ev.title || 'Termin').trim();
+  const dateStr = String(ev.date || '').slice(0, 10);
+  const t = parseTouchwallTimeRange(ev.time);
+
+  if (t.allDay) {
     return {
       summary: title,
       start: { date: dateStr },
       end: { date: addDaysToDateStr(dateStr, 1) }
     };
   }
-
-  let startH, startM, endH, endM;
-  if (rangeMatch) {
-    startH = rangeMatch[1].padStart(2, '0');
-    startM = rangeMatch[2];
-    endH = rangeMatch[3].padStart(2, '0');
-    endM = rangeMatch[4];
-  } else {
-    startH = singleMatch[1].padStart(2, '0');
-    startM = singleMatch[2];
-    const nextH = (Number(startH) + 1) % 24;
-    endH = String(nextH).padStart(2, '0');
-    endM = startM;
-  }
-
   return {
     summary: title,
-    start: { dateTime: `${dateStr}T${startH}:${startM}:00`, timeZone: 'Europe/Berlin' },
-    end: { dateTime: `${dateStr}T${endH}:${endM}:00`, timeZone: 'Europe/Berlin' }
+    start: { dateTime: `${dateStr}T${t.startH}:${t.startM}:00`, timeZone: 'Europe/Berlin' },
+    end: { dateTime: `${dateStr}T${t.endH}:${t.endM}:00`, timeZone: 'Europe/Berlin' }
   };
 }
 
-function mapGoogleEventToTouchwall(gEv: any, memberId: string, calendarId: string) {
+function buildOutlookEventPayload(ev: any) {
+  const title = String(ev.title || 'Termin').trim();
+  const dateStr = String(ev.date || '').slice(0, 10);
+  const t = parseTouchwallTimeRange(ev.time);
+
+  if (t.allDay) {
+    return {
+      subject: title,
+      isAllDay: true,
+      start: { dateTime: `${dateStr}T00:00:00`, timeZone: 'Europe/Berlin' },
+      end: { dateTime: `${addDaysToDateStr(dateStr, 1)}T00:00:00`, timeZone: 'Europe/Berlin' }
+    };
+  }
+  return {
+    subject: title,
+    isAllDay: false,
+    start: { dateTime: `${dateStr}T${t.startH}:${t.startM}:00`, timeZone: 'Europe/Berlin' },
+    end: { dateTime: `${dateStr}T${t.endH}:${t.endM}:00`, timeZone: 'Europe/Berlin' }
+  };
+}
+
+function mapGoogleEventToTouchwall(gEv: any, memberId: string, calendarId: string, idPrefix = 'gcal') {
   let dateStr = '';
   let timeStr = 'Ganztägig';
 
   if (gEv.start?.date) {
     dateStr = gEv.start.date.slice(0, 10);
-    timeStr = 'Ganztägig';
   } else if (gEv.start?.dateTime) {
     const startFmt = formatBerlinDateAndTime(gEv.start.dateTime);
     dateStr = startFmt.datePart;
-    if (gEv.end?.dateTime) {
-      const endFmt = formatBerlinDateAndTime(gEv.end.dateTime);
-      timeStr = `${startFmt.timePart} - ${endFmt.timePart}`;
-    } else {
-      timeStr = startFmt.timePart;
-    }
+    timeStr = gEv.end?.dateTime
+      ? `${startFmt.timePart} - ${formatBerlinDateAndTime(gEv.end.dateTime).timePart}`
+      : startFmt.timePart;
   }
 
   return {
-    id: `gcal__${memberId}__${gEv.id}`,
+    id: `${idPrefix}__${memberId}__${gEv.id}`,
     googleEventId: gEv.id,
     calendarId,
     title: gEv.summary || '(Ohne Titel)',
@@ -450,29 +547,64 @@ function mapGoogleEventToTouchwall(gEv: any, memberId: string, calendarId: strin
   };
 }
 
-function extractGoogleEventId(eventId: string) {
-  const parts = String(eventId || '').split('__');
-  if (parts[0] === 'gcal' && parts.length >= 3) {
-    return parts.slice(2).join('__');
+function mapOutlookEventToTouchwall(msEv: any, memberId: string) {
+  const startRaw = String(msEv.start?.dateTime || '');
+  const endRaw = String(msEv.end?.dateTime || '');
+  const dateStr = startRaw.slice(0, 10);
+  let timeStr = 'Ganztägig';
+
+  if (!msEv.isAllDay && startRaw.length >= 16) {
+    const st = startRaw.slice(11, 16);
+    const en = endRaw.length >= 16 ? endRaw.slice(11, 16) : '';
+    timeStr = en ? `${st} - ${en}` : st;
   }
-  return null;
+
+  return {
+    id: `msoauth__${memberId}__${msEv.id}`,
+    outlookEventId: msEv.id,
+    title: msEv.subject || '(Ohne Titel)',
+    date: dateStr,
+    time: timeStr,
+    member: memberId,
+    notifyTime: '30m',
+    notifyChannel: 'wall_push',
+    notifyUsers: [memberId],
+    fromOutlook: true
+  };
+}
+
+function parseExternalEventId(eventId: string) {
+  const parts = String(eventId || '').split('__');
+  if (parts.length >= 3 && ['gcal', 'goauth', 'msoauth'].includes(parts[0])) {
+    return { kind: parts[0], memberId: parts[1], remoteId: parts.slice(2).join('__') };
+  }
+  return { kind: 'local', memberId: '', remoteId: String(eventId || '') };
 }
 
 // ============================================================================
-// 4. KOMBINIERTES LADEN: SUPABASE CLOUD-KALENDER + GOOGLE KALENDER API V3
+// 5. KOMBINIERTER KALENDER-SYNC (SUPABASE + GOOGLE OAUTH + OUTLOOK + SA)
 // ============================================================================
+async function loadOAuthConnectionsForAccount(supabase: any, accountId: string) {
+  const { data, error } = await supabase
+    .from('tw_oauth_connections')
+    .select('*')
+    .eq('account_id', accountId);
+  if (error) return [];
+  return Array.isArray(data) ? data : [];
+}
+
 async function loadCombinedCalendarData(supabase: any, accountId: string, calendarsMap: Record<string, string>) {
   const status: Record<string, { ok: boolean; msg: string }> = {};
   const allEvents: any[] = [];
 
-  const { data: dbEvents, error: dbErr } = await supabase
-    .from('tw_calendar_events')
-    .select('*')
-    .eq('account_id', accountId);
+  const [dbRes, oauthConns] = await Promise.all([
+    supabase.from('tw_calendar_events').select('*').eq('account_id', accountId),
+    loadOAuthConnectionsForAccount(supabase, accountId)
+  ]);
 
-  if (dbErr) throw dbErr;
+  if (dbRes.error) throw dbRes.error;
 
-  (dbEvents || []).forEach((row: any) => {
+  (dbRes.data || []).forEach((row: any) => {
     allEvents.push({
       id: row.id,
       title: row.title,
@@ -486,77 +618,337 @@ async function loadCombinedCalendarData(supabase: any, accountId: string, calend
     });
   });
 
-  const calEntries = Object.entries(calendarsMap || {}).filter(([, cid]) => String(cid || '').trim() !== '');
+  const timeMin = new Date(Date.now() - 30 * 86400000).toISOString();
+  const timeMax = new Date(Date.now() + 365 * 86400000).toISOString();
 
-  if (calEntries.length > 0 && hasGoogleCredentials()) {
-    let token: string | null = null;
+  // 1. OAuth-Kalender pro Familienmitglied laden (Google OAuth + Outlook/Microsoft Graph)
+  const memberOAuthConns = oauthConns.filter((c: any) => c.member_id && c.member_id !== 'account');
+  const membersWithGoogleOAuth = new Set<string>();
+
+  await Promise.all(
+    memberOAuthConns.map(async (conn: any) => {
+      try {
+        const token = await getValidOAuthAccessToken(supabase, conn);
+        if (!token) return;
+
+        if (conn.provider === 'google') {
+          membersWithGoogleOAuth.add(conn.member_id);
+          const calId = String(conn.calendar_id || 'primary').trim();
+          const url =
+            `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calId)}/events` +
+            `?singleEvents=true&orderBy=startTime&maxResults=500` +
+            `&timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}`;
+
+          const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+          const json = await res.json();
+          if (!res.ok) {
+            status[conn.member_id] = { ok: false, msg: 'Google OAuth: ' + (json?.error?.message || `HTTP ${res.status}`) };
+            return;
+          }
+          const items = Array.isArray(json.items) ? json.items : [];
+          items.forEach((gEv: any) => {
+            if (gEv.status !== 'cancelled') {
+              allEvents.push(mapGoogleEventToTouchwall(gEv, conn.member_id, calId, 'goauth'));
+            }
+          });
+          status[conn.member_id] = { ok: true, msg: `Google OAuth aktiv (${items.length} Termine) ✓` };
+        } else if (conn.provider === 'microsoft') {
+          const url =
+            `https://graph.microsoft.com/v1.0/me/calendarView` +
+            `?startDateTime=${encodeURIComponent(timeMin)}&endDateTime=${encodeURIComponent(timeMax)}&$top=250`;
+
+          const res = await fetch(url, {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              Prefer: 'outlook.timezone="Europe/Berlin"'
+            }
+          });
+          const json = await res.json();
+          if (!res.ok) {
+            status[conn.member_id] = { ok: false, msg: 'Outlook OAuth: ' + (json?.error?.message || `HTTP ${res.status}`) };
+            return;
+          }
+          const items = Array.isArray(json.value) ? json.value : [];
+          items.forEach((msEv: any) => {
+            if (!msEv.isCancelled) {
+              allEvents.push(mapOutlookEventToTouchwall(msEv, conn.member_id));
+            }
+          });
+          const prevMsg = status[conn.member_id]?.ok ? status[conn.member_id].msg + ' + ' : '';
+          status[conn.member_id] = { ok: true, msg: `${prevMsg}Outlook OAuth aktiv (${items.length} Termine) ✓` };
+        }
+      } catch (err: any) {
+        status[conn.member_id] = { ok: false, msg: err?.message || 'OAuth-Abruffehler' };
+      }
+    })
+  );
+
+  // 2. Legacy Google Service Account Fallback (für Mitglieder ohne Google-OAuth-Verknüpfung)
+  const calEntries = Object.entries(calendarsMap || {}).filter(
+    ([memberId, cid]) =>
+      String(cid || '').trim() !== '' &&
+      !String(cid).trim().startsWith('http') &&
+      !String(cid).trim().startsWith('webcal') &&
+      !membersWithGoogleOAuth.has(memberId)
+  );
+
+  if (calEntries.length > 0 && hasGoogleServiceAccount()) {
+    let saToken: string | null = null;
     try {
-      token = await getGoogleAccessToken();
+      saToken = await getGoogleServiceAccountToken();
     } catch (err: any) {
       calEntries.forEach(([memberId]) => {
-        status[memberId] = { ok: false, msg: 'Google Auth Fehler: ' + err.message };
+        if (!status[memberId]) status[memberId] = { ok: false, msg: 'Google Auth Fehler: ' + err.message };
       });
     }
 
-    if (token) {
-      const timeMin = new Date(Date.now() - 30 * 86400000).toISOString();
-      const timeMax = new Date(Date.now() + 365 * 86400000).toISOString();
-
+    if (saToken) {
       await Promise.all(
         calEntries.map(async ([memberId, rawCalId]) => {
-          const calId = String(rawCalId).trim();
+          const calId = String(rawCalId).split(',')[0].trim();
           try {
             const url =
               `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calId)}/events` +
               `?singleEvents=true&orderBy=startTime&maxResults=500` +
               `&timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}`;
 
-            const res = await fetch(url, {
-              headers: { Authorization: `Bearer ${token}` }
-            });
+            const res = await fetch(url, { headers: { Authorization: `Bearer ${saToken}` } });
             const json = await res.json();
-
             if (!res.ok) {
-              status[memberId] = {
-                ok: false,
-                msg:
-                  res.status === 404
-                    ? 'Kalender nicht gefunden / noch nicht für Service-Account freigegeben'
-                    : (json?.error?.message || `HTTP ${res.status}`)
-              };
+              if (!status[memberId]) {
+                status[memberId] = {
+                  ok: false,
+                  msg: res.status === 404 ? 'Kalender nicht freigegeben' : (json?.error?.message || `HTTP ${res.status}`)
+                };
+              }
               return;
             }
-
             const items = Array.isArray(json.items) ? json.items : [];
             items.forEach((gEv: any) => {
-              if (gEv.status === 'cancelled') return;
-              allEvents.push(mapGoogleEventToTouchwall(gEv, memberId, calId));
+              if (gEv.status !== 'cancelled') {
+                allEvents.push(mapGoogleEventToTouchwall(gEv, memberId, calId, 'gcal'));
+              }
             });
             status[memberId] = { ok: true, msg: `Google Kalender aktiv (${items.length} Termine) ✓` };
           } catch (err: any) {
-            status[memberId] = { ok: false, msg: err.message || 'Abruffehler' };
+            if (!status[memberId]) status[memberId] = { ok: false, msg: err.message || 'Abruffehler' };
           }
         })
       );
     }
-  } else {
-    calEntries.forEach(([memberId]) => {
-      status[memberId] = {
-        ok: true,
-        msg: hasGoogleCredentials() ? 'Google Kalender bereit ✓' : 'Supabase Cloud-Kalender aktiv ✓'
-      };
-    });
   }
 
-  return {
-    events: allEvents,
-    calendars: calendarsMap || {},
-    status
-  };
+  return { events: allEvents, calendars: calendarsMap || {}, status };
+}
+
+// Hilfsfunktionen für Zwei-Wege-Schreiben (Google OAuth -> Outlook OAuth -> Google SA -> Supabase)
+async function createEventForMember(
+  supabase: any,
+  accountId: string,
+  ev: any,
+  oauthConns: any[],
+  currentCalendars: Record<string, string>
+) {
+  const memberId = String(ev.member || 'all');
+  const gOAuth = oauthConns.find(c => c.member_id === memberId && c.provider === 'google');
+  const msOAuth = oauthConns.find(c => c.member_id === memberId && c.provider === 'microsoft');
+
+  if (gOAuth) {
+    const token = await getValidOAuthAccessToken(supabase, gOAuth);
+    const calId = String(gOAuth.calendar_id || 'primary').trim();
+    const res = await fetch(
+      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calId)}/events`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildGoogleEventPayload(ev))
+      }
+    );
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error('Google OAuth Termin-Fehler: ' + (err?.error?.message || res.status));
+    }
+    return;
+  }
+
+  if (msOAuth) {
+    const token = await getValidOAuthAccessToken(supabase, msOAuth);
+    const res = await fetch('https://graph.microsoft.com/v1.0/me/events', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(buildOutlookEventPayload(ev))
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error('Outlook OAuth Termin-Fehler: ' + (err?.error?.message || res.status));
+    }
+    return;
+  }
+
+  const targetCalId = String(currentCalendars[memberId] || '').split(',')[0].trim();
+  if (targetCalId && !targetCalId.startsWith('http') && !targetCalId.startsWith('webcal') && hasGoogleServiceAccount()) {
+    const saToken = await getGoogleServiceAccountToken();
+    const res = await fetch(
+      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(targetCalId)}/events`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${saToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildGoogleEventPayload(ev))
+      }
+    );
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error('Google Termin konnte nicht erstellt werden: ' + (err?.error?.message || res.status));
+    }
+    return;
+  }
+
+  const { error } = await supabase.from('tw_calendar_events').upsert({
+    id: String(ev.id || Date.now()),
+    account_id: accountId,
+    member: memberId,
+    title: ev.title || 'Termin',
+    event_date: ev.date,
+    event_time: ev.time || 'Ganztägig',
+    notify_time: ev.notifyTime || '30m',
+    notify_channel: ev.notifyChannel || 'wall_push',
+    notify_users: Array.isArray(ev.notifyUsers) ? ev.notifyUsers : [memberId],
+    updated_at: new Date().toISOString()
+  });
+  if (error) throw error;
+}
+
+async function deleteExternalOrLocalEvent(
+  supabase: any,
+  accountId: string,
+  eventId: string,
+  memberId: string,
+  oauthConns: any[],
+  currentCalendars: Record<string, string>
+) {
+  const parsed = parseExternalEventId(eventId);
+  const ownerMember = parsed.memberId || memberId;
+
+  if (parsed.kind === 'goauth') {
+    const conn = oauthConns.find(c => c.member_id === ownerMember && c.provider === 'google');
+    if (conn) {
+      const token = await getValidOAuthAccessToken(supabase, conn);
+      const calId = String(conn.calendar_id || 'primary').trim();
+      await fetch(
+        `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calId)}/events/${encodeURIComponent(parsed.remoteId)}`,
+        { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } }
+      );
+    }
+    return;
+  }
+
+  if (parsed.kind === 'msoauth') {
+    const conn = oauthConns.find(c => c.member_id === ownerMember && c.provider === 'microsoft');
+    if (conn) {
+      const token = await getValidOAuthAccessToken(supabase, conn);
+      await fetch(`https://graph.microsoft.com/v1.0/me/events/${encodeURIComponent(parsed.remoteId)}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+    }
+    return;
+  }
+
+  if (parsed.kind === 'gcal') {
+    const calId = String(currentCalendars[ownerMember] || '').split(',')[0].trim();
+    if (calId && hasGoogleServiceAccount()) {
+      const saToken = await getGoogleServiceAccountToken();
+      await fetch(
+        `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calId)}/events/${encodeURIComponent(parsed.remoteId)}`,
+        { method: 'DELETE', headers: { Authorization: `Bearer ${saToken}` } }
+      );
+    }
+    return;
+  }
+
+  await supabase.from('tw_calendar_events').delete().eq('account_id', accountId).eq('id', eventId);
+}
+
+async function updateExternalOrLocalEvent(
+  supabase: any,
+  accountId: string,
+  ev: any,
+  oldMember: string,
+  oauthConns: any[],
+  currentCalendars: Record<string, string>
+) {
+  const parsed = parseExternalEventId(ev.id);
+  const sameMember = String(oldMember || ev.member) === String(ev.member);
+
+  if (sameMember && parsed.kind === 'goauth') {
+    const conn = oauthConns.find(c => c.member_id === ev.member && c.provider === 'google');
+    if (conn) {
+      const token = await getValidOAuthAccessToken(supabase, conn);
+      const calId = String(conn.calendar_id || 'primary').trim();
+      await fetch(
+        `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calId)}/events/${encodeURIComponent(parsed.remoteId)}`,
+        {
+          method: 'PATCH',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify(buildGoogleEventPayload(ev))
+        }
+      );
+      return;
+    }
+  }
+
+  if (sameMember && parsed.kind === 'msoauth') {
+    const conn = oauthConns.find(c => c.member_id === ev.member && c.provider === 'microsoft');
+    if (conn) {
+      const token = await getValidOAuthAccessToken(supabase, conn);
+      await fetch(`https://graph.microsoft.com/v1.0/me/events/${encodeURIComponent(parsed.remoteId)}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildOutlookEventPayload(ev))
+      });
+      return;
+    }
+  }
+
+  if (sameMember && parsed.kind === 'gcal') {
+    const calId = String(currentCalendars[ev.member] || '').split(',')[0].trim();
+    if (calId && hasGoogleServiceAccount()) {
+      const saToken = await getGoogleServiceAccountToken();
+      await fetch(
+        `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calId)}/events/${encodeURIComponent(parsed.remoteId)}`,
+        {
+          method: 'PATCH',
+          headers: { Authorization: `Bearer ${saToken}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify(buildGoogleEventPayload(ev))
+        }
+      );
+      return;
+    }
+  }
+
+  if (!sameMember || parsed.kind !== 'local') {
+    await deleteExternalOrLocalEvent(supabase, accountId, String(ev.id), oldMember, oauthConns, currentCalendars);
+    await createEventForMember(supabase, accountId, { ...ev, id: String(Date.now()) }, oauthConns, currentCalendars);
+    return;
+  }
+
+  const { error } = await supabase.from('tw_calendar_events').upsert({
+    id: String(ev.id),
+    account_id: accountId,
+    member: ev.member || 'all',
+    title: ev.title || 'Termin',
+    event_date: ev.date,
+    event_time: ev.time || 'Ganztägig',
+    notify_time: ev.notifyTime || '30m',
+    notify_channel: ev.notifyChannel || 'wall_push',
+    notify_users: Array.isArray(ev.notifyUsers) ? ev.notifyUsers : [ev.member || 'all'],
+    updated_at: new Date().toISOString()
+  });
+  if (error) throw error;
 }
 
 // ============================================================================
-// 5. SCHNELLER BROWSER-STATUSCHECK + REALTIME-KONFIG (GET /api/cloud)
+// 6. STATUSCHECK + REALTIME-KONFIG (GET /api/cloud)
 // ============================================================================
 export async function GET() {
   try {
@@ -565,12 +957,15 @@ export async function GET() {
 
     return NextResponse.json({
       ok: true,
-      status: 'Touchwall Cloud API bereit (Turbo Live-Sync)',
+      status: 'Touchwall Cloud API bereit (Turbo Live-Sync + OAuth)',
       supabaseHost: new URL(cleanUrl).host,
       supabaseKeyConfigured: Boolean((process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim()),
       realtimeConfigured: Boolean(cleanUrl && anonKey),
-      googleConfigured: hasGoogleCredentials(),
-      // Öffentlicher Publishable/Anon-Key ausschließlich für den Realtime-Broadcast-Empfänger
+      googleConfigured: hasGoogleServiceAccount(),
+      oauthProvidersReady: {
+        google: Boolean((process.env.GOOGLE_OAUTH_CLIENT_ID || '').trim() && (process.env.GOOGLE_OAUTH_CLIENT_SECRET || '').trim()),
+        microsoft: Boolean((process.env.MICROSOFT_OAUTH_CLIENT_ID || '').trim() && (process.env.MICROSOFT_OAUTH_CLIENT_SECRET || '').trim())
+      },
       realtime: anonKey ? { url: cleanUrl, anonKey } : null
     });
   } catch (err: any) {
@@ -579,7 +974,7 @@ export async function GET() {
 }
 
 // ============================================================================
-// 6. HAUPT-ENDPOINT (POST /api/cloud)
+// 7. HAUPT-ENDPOINT (POST /api/cloud)
 // ============================================================================
 export async function POST(req: Request) {
   try {
@@ -593,10 +988,9 @@ export async function POST(req: Request) {
     }
 
     const supabase = getSupabaseAdmin();
-    const authHash = hashAuthKey(authKey);
 
     // ------------------------------------------------------------------------
-    // REGISTER ACCOUNT
+    // REGISTER ACCOUNT (MIT E-MAIL & AUTOMATISCHEM NOTFALL-RECOVERY-CODE)
     // ------------------------------------------------------------------------
     if (action === 'registerAccount') {
       const { data: existing, error: exErr } = await supabase
@@ -612,12 +1006,17 @@ export async function POST(req: Request) {
 
       const payload = body.payload || {};
       const calendars = payload.calendars || {};
+      const cleanEmail = String(body.email || payload.email || '').trim().toLowerCase();
+      const recoveryCode = generateReadableRecoveryCode();
+      const recoveryHash = hashAuthKey(normalizeRecoveryCode(recoveryCode));
       const initStock = Array.isArray(payload.pantryItems) ? payload.pantryItems : [];
       const initTrash = Array.isArray(payload.pantryTrash) ? payload.pantryTrash : [];
 
       const { error } = await supabase.from('tw_accounts').insert({
         account_id: accountId,
-        auth_hash: authHash,
+        auth_hash: hashAuthKey(authKey),
+        email: cleanEmail,
+        recovery_hash: recoveryHash,
         state: stripPantryFromState(payload),
         calendars
       });
@@ -628,11 +1027,11 @@ export async function POST(req: Request) {
         await syncPantryTableForAccount(supabase, accountId, initStock, initTrash);
       }
 
-      return NextResponse.json({ ok: true, state: payload });
+      return NextResponse.json({ ok: true, state: payload, recoveryCode });
     }
 
     // ------------------------------------------------------------------------
-    // KONTO LADEN & AUTH PRÜFEN
+    // KONTO LADEN & AUTH PRÜFEN (PASSWORT-HASH ODER OAUTH-SESSION-TOKEN)
     // ------------------------------------------------------------------------
     const { data: accountRow, error: accErr } = await supabase
       .from('tw_accounts')
@@ -644,7 +1043,7 @@ export async function POST(req: Request) {
     if (!accountRow) {
       return NextResponse.json({ ok: false, error: 'Konto nicht gefunden.' }, { status: 404 });
     }
-    if (accountRow.auth_hash !== authHash) {
+    if (!verifyAccountAuth(authKey, accountId, accountRow.auth_hash)) {
       return NextResponse.json({ ok: false, error: 'Passwort / PIN ist falsch.' }, { status: 401 });
     }
 
@@ -664,9 +1063,7 @@ export async function POST(req: Request) {
     if (action === 'loginAccount' || action === 'loadBundle') {
       const skipCalendars = Boolean(body.skipCalendars);
       const [calendarData, pantryData] = await Promise.all([
-        skipCalendars
-          ? Promise.resolve(null)
-          : loadCombinedCalendarData(supabase, accountId, currentCalendars),
+        skipCalendars ? Promise.resolve(null) : loadCombinedCalendarData(supabase, accountId, currentCalendars),
         loadPantryForAccount(supabase, accountId, accountRow)
       ]);
 
@@ -682,7 +1079,7 @@ export async function POST(req: Request) {
     }
 
     // ------------------------------------------------------------------------
-    // SAVE STATE & SAVE DRIVE AND SYNC (SCHREIBT VORRAT IN tw_pantry_items)
+    // SAVE STATE & SAVE DRIVE AND SYNC
     // ------------------------------------------------------------------------
     if (action === 'saveState' || action === 'saveDriveAndSync') {
       const nextState = body.payload || accountRow.state || {};
@@ -693,34 +1090,23 @@ export async function POST(req: Request) {
         });
       }
 
-      const hasPantryPayload =
-        Array.isArray(nextState.pantryItems) || Array.isArray(nextState.pantryTrash);
-
-      if (hasPantryPayload) {
-        const stockToSync = Array.isArray(nextState.pantryItems) ? nextState.pantryItems : [];
-        const trashToSync = Array.isArray(nextState.pantryTrash) ? nextState.pantryTrash : [];
-        await syncPantryTableForAccount(supabase, accountId, stockToSync, trashToSync);
+      if (Array.isArray(nextState.pantryItems) || Array.isArray(nextState.pantryTrash)) {
+        await syncPantryTableForAccount(
+          supabase,
+          accountId,
+          Array.isArray(nextState.pantryItems) ? nextState.pantryItems : [],
+          Array.isArray(nextState.pantryTrash) ? nextState.pantryTrash : []
+        );
       }
 
       const cleanState = stripPantryFromState({ ...nextState, calendars: nextCalendars });
-
       const { error } = await supabase
         .from('tw_accounts')
-        .update({
-          state: cleanState,
-          calendars: nextCalendars,
-          updated_at: new Date().toISOString()
-        })
+        .update({ state: cleanState, calendars: nextCalendars, updated_at: new Date().toISOString() })
         .eq('account_id', accountId);
-
       if (error) throw error;
 
-      await broadcastSync(
-        supabase,
-        accountId,
-        body.clientId,
-        action === 'saveDriveAndSync' ? 'all' : 'state'
-      );
+      await broadcastSync(supabase, accountId, body.clientId, action === 'saveDriveAndSync' ? 'all' : 'state');
 
       if (action === 'saveDriveAndSync') {
         const calendarData = await loadCombinedCalendarData(supabase, accountId, nextCalendars);
@@ -730,218 +1116,52 @@ export async function POST(req: Request) {
     }
 
     // ------------------------------------------------------------------------
-    // CREATE EVENT
+    // CREATE / UPDATE / DELETE / MOVE EVENT (GOOGLE OAUTH + OUTLOOK + SA + DB)
     // ------------------------------------------------------------------------
     if (action === 'createEvent') {
-      const ev = body.event || {};
-      const targetCalId = String(currentCalendars[ev.member] || '').trim();
-
-      if (targetCalId && hasGoogleCredentials()) {
-        const token = await getGoogleAccessToken();
-        const gRes = await fetch(
-          `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(targetCalId)}/events`,
-          {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${token}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(buildGoogleEventPayload(ev))
-          }
-        );
-        if (!gRes.ok) {
-          const gErr = await gRes.json().catch(() => ({}));
-          throw new Error('Google Termin konnte nicht erstellt werden: ' + (gErr?.error?.message || gRes.status));
-        }
-      } else {
-        const { error } = await supabase.from('tw_calendar_events').upsert({
-          id: String(ev.id || Date.now()),
-          account_id: accountId,
-          member: ev.member || 'all',
-          title: ev.title || 'Termin',
-          event_date: ev.date,
-          event_time: ev.time || 'Ganztägig',
-          notify_time: ev.notifyTime || '30m',
-          notify_channel: ev.notifyChannel || 'wall_push',
-          notify_users: Array.isArray(ev.notifyUsers) ? ev.notifyUsers : [ev.member || 'all'],
-          updated_at: new Date().toISOString()
-        });
-        if (error) throw error;
-      }
-
+      const oauthConns = await loadOAuthConnectionsForAccount(supabase, accountId);
+      await createEventForMember(supabase, accountId, body.event || {}, oauthConns, currentCalendars);
       const calendarData = await loadCombinedCalendarData(supabase, accountId, currentCalendars);
       await broadcastSync(supabase, accountId, body.clientId, 'calendar');
       return NextResponse.json({ ok: true, result: calendarData });
     }
 
-    // ------------------------------------------------------------------------
-    // UPDATE EVENT
-    // ------------------------------------------------------------------------
     if (action === 'updateEvent') {
       const ev = body.event || {};
-      const oldMember = body.oldMember || ev.member;
-      const gEventId = extractGoogleEventId(ev.id);
-      const oldCalId = String(currentCalendars[oldMember] || '').trim();
-      const newCalId = String(currentCalendars[ev.member] || '').trim();
-
-      if (gEventId && oldCalId && hasGoogleCredentials()) {
-        const token = await getGoogleAccessToken();
-        if (oldCalId === newCalId) {
-          await fetch(
-            `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(oldCalId)}/events/${encodeURIComponent(gEventId)}`,
-            {
-              method: 'PATCH',
-              headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-              body: JSON.stringify(buildGoogleEventPayload(ev))
-            }
-          );
-        } else {
-          await fetch(
-            `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(oldCalId)}/events/${encodeURIComponent(gEventId)}`,
-            { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } }
-          );
-          if (newCalId) {
-            await fetch(
-              `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(newCalId)}/events`,
-              {
-                method: 'POST',
-                headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify(buildGoogleEventPayload(ev))
-              }
-            );
-          } else {
-            const { error } = await supabase.from('tw_calendar_events').upsert({
-              id: String(Date.now()),
-              account_id: accountId,
-              member: ev.member || 'all',
-              title: ev.title || 'Termin',
-              event_date: ev.date,
-              event_time: ev.time || 'Ganztägig',
-              notify_time: ev.notifyTime || '30m',
-              notify_channel: ev.notifyChannel || 'wall_push',
-              notify_users: Array.isArray(ev.notifyUsers) ? ev.notifyUsers : [ev.member || 'all'],
-              updated_at: new Date().toISOString()
-            });
-            if (error) throw error;
-          }
-        }
-      } else {
-        const { error } = await supabase.from('tw_calendar_events').upsert({
-          id: String(ev.id),
-          account_id: accountId,
-          member: ev.member || 'all',
-          title: ev.title || 'Termin',
-          event_date: ev.date,
-          event_time: ev.time || 'Ganztägig',
-          notify_time: ev.notifyTime || '30m',
-          notify_channel: ev.notifyChannel || 'wall_push',
-          notify_users: Array.isArray(ev.notifyUsers) ? ev.notifyUsers : [ev.member || 'all'],
-          updated_at: new Date().toISOString()
-        });
-        if (error) throw error;
-      }
-
+      const oauthConns = await loadOAuthConnectionsForAccount(supabase, accountId);
+      await updateExternalOrLocalEvent(supabase, accountId, ev, body.oldMember || ev.member, oauthConns, currentCalendars);
       const calendarData = await loadCombinedCalendarData(supabase, accountId, currentCalendars);
       await broadcastSync(supabase, accountId, body.clientId, 'calendar');
       return NextResponse.json({ ok: true, result: calendarData });
     }
 
-    // ------------------------------------------------------------------------
-    // DELETE EVENT
-    // ------------------------------------------------------------------------
     if (action === 'deleteEvent') {
-      const eventId = String(body.eventId || '');
-      const member = String(body.member || '');
-      const gEventId = extractGoogleEventId(eventId);
-      const calId = String(currentCalendars[member] || '').trim();
-
-      if (gEventId && calId && hasGoogleCredentials()) {
-        const token = await getGoogleAccessToken();
-        await fetch(
-          `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calId)}/events/${encodeURIComponent(gEventId)}`,
-          { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } }
-        );
-      } else {
-        const { error } = await supabase
-          .from('tw_calendar_events')
-          .delete()
-          .eq('account_id', accountId)
-          .eq('id', eventId);
-        if (error) throw error;
-      }
-
+      const oauthConns = await loadOAuthConnectionsForAccount(supabase, accountId);
+      await deleteExternalOrLocalEvent(
+        supabase,
+        accountId,
+        String(body.eventId || ''),
+        String(body.member || ''),
+        oauthConns,
+        currentCalendars
+      );
       const calendarData = await loadCombinedCalendarData(supabase, accountId, currentCalendars);
       await broadcastSync(supabase, accountId, body.clientId, 'calendar');
       return NextResponse.json({ ok: true, result: calendarData });
     }
 
-    // ------------------------------------------------------------------------
-    // MOVE EVENT
-    // ------------------------------------------------------------------------
     if (action === 'moveEvent') {
-      const eventId = String(body.eventId || '');
-      const oldMember = String(body.oldMember || '');
-      const targetMember = String(body.targetMember || oldMember);
-      const newDate = String(body.newDate || '');
       const snap = body.eventSnapshot || {};
-
-      const gEventId = extractGoogleEventId(eventId);
-      const oldCalId = String(currentCalendars[oldMember] || '').trim();
-      const targetCalId = String(currentCalendars[targetMember] || '').trim();
-
-      const movedEv = { ...snap, member: targetMember, date: newDate };
-
-      if (gEventId && oldCalId && hasGoogleCredentials()) {
-        const token = await getGoogleAccessToken();
-        if (oldCalId === targetCalId) {
-          await fetch(
-            `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(oldCalId)}/events/${encodeURIComponent(gEventId)}`,
-            {
-              method: 'PATCH',
-              headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-              body: JSON.stringify(buildGoogleEventPayload(movedEv))
-            }
-          );
-        } else {
-          await fetch(
-            `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(oldCalId)}/events/${encodeURIComponent(gEventId)}`,
-            { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } }
-          );
-          if (targetCalId) {
-            await fetch(
-              `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(targetCalId)}/events`,
-              {
-                method: 'POST',
-                headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify(buildGoogleEventPayload(movedEv))
-              }
-            );
-          } else {
-            const { error } = await supabase.from('tw_calendar_events').upsert({
-              id: String(Date.now()),
-              account_id: accountId,
-              member: targetMember,
-              title: movedEv.title || 'Termin',
-              event_date: newDate,
-              event_time: movedEv.time || 'Ganztägig',
-              updated_at: new Date().toISOString()
-            });
-            if (error) throw error;
-          }
-        }
-      } else {
-        const { error } = await supabase
-          .from('tw_calendar_events')
-          .update({
-            member: targetMember,
-            event_date: newDate,
-            updated_at: new Date().toISOString()
-          })
-          .eq('account_id', accountId)
-          .eq('id', eventId);
-        if (error) throw error;
-      }
-
+      const oldMember = String(body.oldMember || snap.member || '');
+      const targetMember = String(body.targetMember || oldMember);
+      const movedEv = {
+        ...snap,
+        id: String(body.eventId || snap.id || ''),
+        member: targetMember,
+        date: String(body.newDate || snap.date || '')
+      };
+      const oauthConns = await loadOAuthConnectionsForAccount(supabase, accountId);
+      await updateExternalOrLocalEvent(supabase, accountId, movedEv, oldMember, oauthConns, currentCalendars);
       const calendarData = await loadCombinedCalendarData(supabase, accountId, currentCalendars);
       await broadcastSync(supabase, accountId, body.clientId, 'calendar');
       return NextResponse.json({ ok: true, result: calendarData });
@@ -951,10 +1171,11 @@ export async function POST(req: Request) {
     // RUN DIAGNOSTICS
     // ------------------------------------------------------------------------
     if (action === 'runDiagnostics') {
-      const [calendarData, pantryData, catalogRes] = await Promise.all([
+      const [calendarData, pantryData, catalogRes, oauthConns] = await Promise.all([
         loadCombinedCalendarData(supabase, accountId, currentCalendars),
         loadPantryForAccount(supabase, accountId, accountRow),
-        supabase.from('tw_product_catalog').select('barcode', { count: 'exact', head: true })
+        supabase.from('tw_product_catalog').select('barcode', { count: 'exact', head: true }),
+        loadOAuthConnectionsForAccount(supabase, accountId)
       ]);
 
       return NextResponse.json({
@@ -962,11 +1183,11 @@ export async function POST(req: Request) {
         result: {
           supabaseConnected: true,
           realtimeBroadcastReady: Boolean(getPublicAnonKey()),
+          oauthConnectionsActive: oauthConns.length,
           pantryStockInTable: pantryData.pantryItems.length,
           pantryTrashInTable: pantryData.pantryTrash.length,
           productCatalogEntries: catalogRes?.count || 0,
-          googleServiceAccountConfigured: hasGoogleCredentials(),
-          serviceAccountEmail: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || 'Nicht konfiguriert (Cloud-Kalender aktiv)',
+          googleServiceAccountConfigured: hasGoogleServiceAccount(),
           calendarsStatus: calendarData.status,
           totalEventsLoaded: calendarData.events.length
         }
