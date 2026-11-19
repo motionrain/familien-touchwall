@@ -10,6 +10,12 @@ import {
 
 export const PUBLIC_CLOUD_BACKEND_URL = '/api/cloud';
 
+// Eindeutige Tab-/Geräte-ID, damit eigene Speicherungen keinen doppelten Live-Reload auslösen
+export const TOUCHWALL_CLIENT_ID =
+  typeof window !== 'undefined'
+    ? `tw_${Math.random().toString(36).slice(2)}_${Date.now().toString(36)}`
+    : 'server';
+
 // Schneller JSON-Fingerabdruck: Verhindert unnötige Re-Renders & Endlos-Sync-Schleifen
 export function hasJsonChanged(a, b) {
   try {
@@ -332,15 +338,44 @@ export function mergeSkillBoardSafe(localSb, remoteSb) {
 }
 
 // ============================================================================
-// NETZWERK-AUFRUF FÜR GOOGLE APPS SCRIPT CLOUD
+// NETZWERK-AUFRUF FÜR SUPABASE/NEXT.JS CLOUD-API (+ LEGACY GAS FALLBACK)
 // ============================================================================
 export async function callCloudApi(targetUrl, method = 'POST', postBody = null, accountId = '', authKey = '') {
   const cleanTarget = (targetUrl || PUBLIC_CLOUD_BACKEND_URL).trim();
+  const isLocalApi = cleanTarget.startsWith('/');
+
+  // 1. Direkter Aufruf für die eigene Next.js-API (/api/cloud) — ohne /api/todoist-Umweg
+  if (isLocalApi) {
+    const payload = postBody
+      ? {
+          ...postBody,
+          accountId: postBody.accountId !== undefined ? postBody.accountId : accountId,
+          authKey: postBody.authKey !== undefined ? postBody.authKey : authKey,
+          clientId: postBody.clientId || TOUCHWALL_CLIENT_ID
+        }
+      : {
+          action: 'loadBundle',
+          accountId,
+          authKey,
+          clientId: TOUCHWALL_CLIENT_ID
+        };
+
+    const res = await fetch(cleanTarget, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      cache: 'no-store'
+    });
+    return res.json();
+  }
+
+  // 2. Fallback für eventuelle externe Google-Apps-Script-URLs
   const enrichedBody = postBody
     ? {
         ...postBody,
         accountId: postBody.accountId !== undefined ? postBody.accountId : accountId,
-        authKey: postBody.authKey !== undefined ? postBody.authKey : authKey
+        authKey: postBody.authKey !== undefined ? postBody.authKey : authKey,
+        clientId: postBody.clientId || TOUCHWALL_CLIENT_ID
       }
     : null;
 
@@ -390,12 +425,15 @@ export async function callCloudApi(targetUrl, method = 'POST', postBody = null, 
   }
 }
 
+// ============================================================================
+// SUPABASE REALTIME LIVE-SYNC (BROADCAST EMPFÄNGER)
+// ============================================================================
 let browserSupabase: any = null;
 
 function getBrowserSupabase() {
   if (browserSupabase) return browserSupabase;
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+  const url = (process.env.NEXT_PUBLIC_SUPABASE_URL || '').trim();
+  const key = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '').trim();
   if (!url || !key) return null;
   browserSupabase = createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false }
@@ -417,9 +455,13 @@ export function useTouchwallRealtime(accountId: string, onRemoteSync: () => void
     let lastTrigger = 0;
     const channel = sb
       .channel(`tw-sync-${cleanId}`)
-      .on('broadcast', { event: 'sync' }, () => {
-        const now = Date.now();
+      .on('broadcast', { event: 'sync' }, (msg: any) => {
+        // Eigene Speicherungen dieses Geräts/Tabs ignorieren
+        const senderId = msg?.payload?.clientId;
+        if (senderId && senderId === TOUCHWALL_CLIENT_ID) return;
+
         // Kurze Sperre (1,5s), damit mehrere schnelle Speicherungen nicht doppelt laden
+        const now = Date.now();
         if (now - lastTrigger < 1500) return;
         lastTrigger = now;
         callbackRef.current();
@@ -482,7 +524,6 @@ export function SyncCenterModal({
       onSync: onSyncSkillBoardOnly
     }
   ];
-  
 
   return (
     <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
@@ -558,4 +599,3 @@ export function SyncCenterModal({
     </div>
   );
 }
-
