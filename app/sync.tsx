@@ -97,7 +97,6 @@ export function applyPantryStateChangeWithMeta(prevList, nextListOrUpdater, sync
     const old = prevMap.get(idStr);
 
     if (!old) {
-      // Falls ein Produkt neu oder wiederhergestellt ist, aus der Löschliste entfernen
       if (syncMetaRef?.current?.deletedPantryIds?.[idStr]) {
         delete syncMetaRef.current.deletedPantryIds[idStr];
       }
@@ -122,7 +121,6 @@ export function applyPantryStateChangeWithMeta(prevList, nextListOrUpdater, sync
     return { ...it, updatedAt: old.updatedAt || it.updatedAt || 1 };
   });
 
-  // Alle Produkte, die aus dem Bestand entfernt wurden, als gelöscht/verzehrt merken
   if (syncMetaRef && syncMetaRef.current) {
     if (!syncMetaRef.current.deletedPantryIds) syncMetaRef.current.deletedPantryIds = {};
     let metaChanged = false;
@@ -139,8 +137,7 @@ export function applyPantryStateChangeWithMeta(prevList, nextListOrUpdater, sync
 }
 
 // ============================================================================
-// KANAL 3B: MÜLLEIMER SMART-MERGE (VERHINDERT WIEDERAUFTAUCHEN GELÖSCHTER ITEMS!)
-// Merkt sich geleerte oder wiederhergestellte Mülleimer-Einträge in deletedTrashIds
+// KANAL 3B: MÜLLEIMER SMART-MERGE
 // ============================================================================
 export function applyTrashStateChangeWithMeta(prevTrash, nextTrashOrUpdater, syncMetaRef) {
   const prev = Array.isArray(prevTrash) ? prevTrash : [];
@@ -161,7 +158,6 @@ export function applyTrashStateChangeWithMeta(prevTrash, nextTrashOrUpdater, syn
     const old = prevMap.get(idStr);
 
     if (!old) {
-      // Neu in den Mülleimer gelegt -> evtl. alten Lösch-Vermerk löschen
       if (syncMetaRef?.current?.deletedTrashIds?.[idStr]) {
         delete syncMetaRef.current.deletedTrashIds[idStr];
       }
@@ -170,7 +166,6 @@ export function applyTrashStateChangeWithMeta(prevTrash, nextTrashOrUpdater, syn
     return { ...it, trashedTimestamp: old.trashedTimestamp || it.trashedTimestamp || 1 };
   });
 
-  // Alles, was aus dem Mülleimer gelöscht oder wiederhergestellt wurde, in deletedTrashIds sperren!
   if (syncMetaRef && syncMetaRef.current) {
     if (!syncMetaRef.current.deletedTrashIds) syncMetaRef.current.deletedTrashIds = {};
     let metaChanged = false;
@@ -190,7 +185,6 @@ export function mergePantryChannelSafe(localStock, remoteStock, localTrash, remo
   const delStockMap = syncMeta?.deletedPantryIds || {};
   const delTrashMap = syncMeta?.deletedTrashIds || {};
 
-  // 1. Mülleimer zusammenführen (Ignoriert geleerte oder wiederhergestellte Einträge!)
   const trashMap = new Map();
   const addOrUpdateTrash = (it) => {
     if (!it || !it.id) return;
@@ -198,7 +192,6 @@ export function mergePantryChannelSafe(localStock, remoteStock, localTrash, remo
     const itemTrashTs = Number(it.trashedTimestamp) || 1;
     const delTrashTs = Number(delTrashMap[idStr]) || 0;
 
-    // Wenn im Mülleimer gelöscht oder in den Bestand zurückgeholt -> NICHT wiederherstellen!
     if (delTrashTs >= itemTrashTs) return;
 
     const existing = trashMap.get(idStr);
@@ -213,7 +206,6 @@ export function mergePantryChannelSafe(localStock, remoteStock, localTrash, remo
   const mergedTrash = Array.from(trashMap.values());
   const trashIds = new Set(mergedTrash.map(it => String(it.id)));
 
-  // 2. Bestand zusammenführen (Neuerer Zeitstempel gewinnt; Gelöschtes bleibt draußen)
   const stockMap = new Map();
   const addOrUpdateStock = (item) => {
     if (!item || !item.id) return;
@@ -344,7 +336,6 @@ export async function callCloudApi(targetUrl, method = 'POST', postBody = null, 
   const cleanTarget = (targetUrl || PUBLIC_CLOUD_BACKEND_URL).trim();
   const isLocalApi = cleanTarget.startsWith('/');
 
-  // 1. Direkter Aufruf für die eigene Next.js-API (/api/cloud) — ohne /api/todoist-Umweg
   if (isLocalApi) {
     const payload = postBody
       ? {
@@ -369,7 +360,6 @@ export async function callCloudApi(targetUrl, method = 'POST', postBody = null, 
     return res.json();
   }
 
-  // 2. Fallback für eventuelle externe Google-Apps-Script-URLs
   const enrichedBody = postBody
     ? {
         ...postBody,
@@ -426,22 +416,53 @@ export async function callCloudApi(targetUrl, method = 'POST', postBody = null, 
 }
 
 // ============================================================================
-// SUPABASE REALTIME LIVE-SYNC (BROADCAST EMPFÄNGER)
+// SUPABASE REALTIME LIVE-SYNC (TURBO BROADCAST EMPFÄNGER + RUNTIME FALLBACK)
 // ============================================================================
 let browserSupabase: any = null;
+let browserSupabasePromise: Promise<any> | null = null;
 
-function getBrowserSupabase() {
+async function resolveBrowserSupabase() {
   if (browserSupabase) return browserSupabase;
-  const url = (process.env.NEXT_PUBLIC_SUPABASE_URL || '').trim();
-  const key = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '').trim();
-  if (!url || !key) return null;
-  browserSupabase = createClient(url, key, {
-    auth: { persistSession: false, autoRefreshToken: false }
-  });
-  return browserSupabase;
+  if (browserSupabasePromise) return browserSupabasePromise;
+
+  browserSupabasePromise = (async () => {
+    let url = (process.env.NEXT_PUBLIC_SUPABASE_URL || '').trim().replace(/^["']|["']$/g, '');
+    let key = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '').trim().replace(/^["']|["']$/g, '');
+
+    // Falls NEXT_PUBLIC_* beim Build fehlte, holt der Browser die öffentlichen Realtime-Daten 1x von GET /api/cloud
+    if (!url || !key) {
+      try {
+        const res = await fetch(PUBLIC_CLOUD_BACKEND_URL, { cache: 'no-store' });
+        if (res.ok) {
+          const cfg = await res.json();
+          if (cfg?.realtime?.url && cfg?.realtime?.anonKey) {
+            url = String(cfg.realtime.url).trim();
+            key = String(cfg.realtime.anonKey).trim();
+          }
+        }
+      } catch (e) {}
+    }
+
+    if (!url || !key) {
+      console.warn('[Touchwall Realtime] NEXT_PUBLIC_SUPABASE_ANON_KEY fehlt in Vercel – nutze Intervall-Fallback.');
+      browserSupabasePromise = null;
+      return null;
+    }
+
+    browserSupabase = createClient(url, key, {
+      auth: { persistSession: false, autoRefreshToken: false },
+      realtime: { params: { eventsPerSecond: 10 } }
+    });
+    return browserSupabase;
+  })();
+
+  return browserSupabasePromise;
 }
 
-export function useTouchwallRealtime(accountId: string, onRemoteSync: () => void) {
+export function useTouchwallRealtime(
+  accountId: string,
+  onRemoteSync: (scope?: 'state' | 'calendar' | 'all') => void
+) {
   const callbackRef = React.useRef(onRemoteSync);
   callbackRef.current = onRemoteSync;
 
@@ -449,27 +470,42 @@ export function useTouchwallRealtime(accountId: string, onRemoteSync: () => void
     const cleanId = String(accountId || '').trim().toLowerCase();
     if (!cleanId) return;
 
-    const sb = getBrowserSupabase();
-    if (!sb) return;
-
+    let cancelled = false;
+    let activeSb: any = null;
+    let activeChannel: any = null;
     let lastTrigger = 0;
-    const channel = sb
-      .channel(`tw-sync-${cleanId}`)
-      .on('broadcast', { event: 'sync' }, (msg: any) => {
-        // Eigene Speicherungen dieses Geräts/Tabs ignorieren
-        const senderId = msg?.payload?.clientId;
-        if (senderId && senderId === TOUCHWALL_CLIENT_ID) return;
 
-        // Kurze Sperre (1,5s), damit mehrere schnelle Speicherungen nicht doppelt laden
-        const now = Date.now();
-        if (now - lastTrigger < 1500) return;
-        lastTrigger = now;
-        callbackRef.current();
-      })
-      .subscribe();
+    (async () => {
+      const sb = await resolveBrowserSupabase();
+      if (!sb || cancelled) return;
+
+      activeSb = sb;
+      activeChannel = sb
+        .channel(`tw-sync-${cleanId}`, {
+          config: { broadcast: { self: false } }
+        })
+        .on('broadcast', { event: 'sync' }, (msg: any) => {
+          const senderId = msg?.payload?.clientId;
+          if (senderId && senderId === TOUCHWALL_CLIENT_ID) return;
+
+          // Kurze 350ms-Sperre statt 1,5s für blitzschnellen Live-Abgleich
+          const now = Date.now();
+          if (now - lastTrigger < 350) return;
+          lastTrigger = now;
+          callbackRef.current(msg?.payload?.scope || 'all');
+        })
+        .subscribe((status: string) => {
+          if (status === 'SUBSCRIBED') {
+            console.info(`[Touchwall Realtime] Kanal tw-sync-${cleanId} verbunden ✓`);
+          }
+        });
+    })();
 
     return () => {
-      sb.removeChannel(channel);
+      cancelled = true;
+      if (activeSb && activeChannel) {
+        activeSb.removeChannel(activeChannel);
+      }
     };
   }, [accountId]);
 }
