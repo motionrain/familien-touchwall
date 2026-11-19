@@ -32,6 +32,18 @@ function getCleanSupabaseUrl() {
   return cleanUrl;
 }
 
+function getPublicAnonKey() {
+  return (
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+    process.env.SUPABASE_ANON_KEY ||
+    process.env.SUPABASE_PUBLISHABLE_KEY ||
+    ''
+  )
+    .trim()
+    .replace(/^["']|["']$/g, '');
+}
+
 function getSupabaseAdmin() {
   const cleanUrl = getCleanSupabaseUrl();
   const key = (process.env.SUPABASE_SERVICE_ROLE_KEY || '')
@@ -49,29 +61,54 @@ function hashAuthKey(authKey: string) {
   return crypto.createHash('sha256').update(String(authKey || '').trim()).digest('hex');
 }
 
-async function broadcastSync(accountId: string, sourceClientId?: string) {
+async function broadcastSync(
+  supabase: any,
+  accountId: string,
+  sourceClientId?: string,
+  scope: 'state' | 'calendar' | 'all' = 'state'
+) {
+  if (!accountId) return;
+  const topic = `tw-sync-${accountId}`;
+  const payload = { ts: Date.now(), clientId: sourceClientId || '', scope };
+
+  // 1. Offizieller Supabase-SDK HTTP-Broadcast (ideal für Vercel Serverless)
+  if (supabase && typeof supabase.channel === 'function') {
+    const channel = supabase.channel(topic);
+    try {
+      if (typeof channel?.httpSend === 'function') {
+        const res = await channel.httpSend('sync', payload);
+        if (res?.success !== false) {
+          return;
+        }
+      }
+    } catch {
+      // Weiter zum direkten REST-Fallback
+    } finally {
+      await supabase.removeChannel(channel).catch(() => {});
+    }
+  }
+
+  // 2. Direkter REST-Broadcast-Fallback (kompatibel mit sb_secret_ und Legacy-JWT)
   try {
     const cleanUrl = getCleanSupabaseUrl();
     const key = (process.env.SUPABASE_SERVICE_ROLE_KEY || '')
       .trim()
       .replace(/^["']|["']$/g, '');
-    if (!cleanUrl || !key || !accountId) return;
+    if (!cleanUrl || !key) return;
+
+    const headers: Record<string, string> = {
+      apikey: key,
+      'Content-Type': 'application/json'
+    };
+    if (key.startsWith('eyJ')) {
+      headers.Authorization = `Bearer ${key}`;
+    }
 
     await fetch(`${cleanUrl}/realtime/v1/api/broadcast`, {
       method: 'POST',
-      headers: {
-        apikey: key,
-        Authorization: `Bearer ${key}`,
-        'Content-Type': 'application/json'
-      },
+      headers,
       body: JSON.stringify({
-        messages: [
-          {
-            topic: `tw-sync-${accountId}`,
-            event: 'sync',
-            payload: { ts: Date.now(), clientId: sourceClientId || '' }
-          }
-        ]
+        messages: [{ topic, event: 'sync', payload }]
       })
     });
   } catch {
@@ -166,7 +203,6 @@ async function syncPantryTableForAccount(
   stockList: any[],
   trashList: any[]
 ) {
-  // Deduplizieren nach ID (verhindert Primary-Key-Konflikt beim Upsert)
   const rowMap = new Map<string, any>();
 
   (Array.isArray(stockList) ? stockList : []).forEach(it => {
@@ -193,7 +229,6 @@ async function syncPantryTableForAccount(
 
   const allRows = Array.from(rowMap.values());
 
-  // In 200er-Paketen sicher hochschreiben
   for (let i = 0; i < allRows.length; i += 200) {
     const chunk = allRows.slice(i, i + 200);
     const { error: upErr } = await supabase
@@ -202,7 +237,6 @@ async function syncPantryTableForAccount(
     if (upErr) throw upErr;
   }
 
-  // Gelöschte Artikel sauber aus tw_pantry_items entfernen
   const idsToDelete = (existingRows || [])
     .map((r: any) => String(r.id))
     .filter((id: string) => !rowMap.has(id));
@@ -230,7 +264,6 @@ async function loadPantryForAccount(supabase: any, accountId: string, accountRow
   const legacyStock = Array.isArray(accountRow?.state?.pantryItems) ? accountRow.state.pantryItems : [];
   const legacyTrash = Array.isArray(accountRow?.state?.pantryTrash) ? accountRow.state.pantryTrash : [];
 
-  // Einmalige automatische Migration bestehender JSON-Vorräte in tw_pantry_items
   if (list.length === 0 && !accountRow?.state?.pantryMigrated && (legacyStock.length > 0 || legacyTrash.length > 0)) {
     await syncPantryTableForAccount(supabase, accountId, legacyStock, legacyTrash);
     await supabase
@@ -523,17 +556,22 @@ async function loadCombinedCalendarData(supabase: any, accountId: string, calend
 }
 
 // ============================================================================
-// 5. SCHNELLER BROWSER-STATUSCHECK (GET /api/cloud)
+// 5. SCHNELLER BROWSER-STATUSCHECK + REALTIME-KONFIG (GET /api/cloud)
 // ============================================================================
 export async function GET() {
   try {
     const cleanUrl = getCleanSupabaseUrl();
+    const anonKey = getPublicAnonKey();
+
     return NextResponse.json({
       ok: true,
-      status: 'Touchwall Cloud API bereit (inkl. tw_pantry_items)',
+      status: 'Touchwall Cloud API bereit (Turbo Live-Sync)',
       supabaseHost: new URL(cleanUrl).host,
       supabaseKeyConfigured: Boolean((process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim()),
-      googleConfigured: hasGoogleCredentials()
+      realtimeConfigured: Boolean(cleanUrl && anonKey),
+      googleConfigured: hasGoogleCredentials(),
+      // Öffentlicher Publishable/Anon-Key ausschließlich für den Realtime-Broadcast-Empfänger
+      realtime: anonKey ? { url: cleanUrl, anonKey } : null
     });
   } catch (err: any) {
     return NextResponse.json({ ok: false, error: err?.message || 'Konfigurationsfehler' }, { status: 500 });
@@ -621,11 +659,14 @@ export async function POST(req: Request) {
     }
 
     // ------------------------------------------------------------------------
-    // LOGIN & LOAD BUNDLE (LÄDT VORRAT DIREKT AUS tw_pantry_items)
+    // LOGIN & LOAD BUNDLE (TURBO-MODUS MIT skipCalendars: true)
     // ------------------------------------------------------------------------
     if (action === 'loginAccount' || action === 'loadBundle') {
+      const skipCalendars = Boolean(body.skipCalendars);
       const [calendarData, pantryData] = await Promise.all([
-        loadCombinedCalendarData(supabase, accountId, currentCalendars),
+        skipCalendars
+          ? Promise.resolve(null)
+          : loadCombinedCalendarData(supabase, accountId, currentCalendars),
         loadPantryForAccount(supabase, accountId, accountRow)
       ]);
 
@@ -636,7 +677,7 @@ export async function POST(req: Request) {
           pantryItems: pantryData.pantryItems,
           pantryTrash: pantryData.pantryTrash
         },
-        calendarData
+        ...(calendarData ? { calendarData } : {})
       });
     }
 
@@ -674,7 +715,12 @@ export async function POST(req: Request) {
 
       if (error) throw error;
 
-      await broadcastSync(accountId, body.clientId);
+      await broadcastSync(
+        supabase,
+        accountId,
+        body.clientId,
+        action === 'saveDriveAndSync' ? 'all' : 'state'
+      );
 
       if (action === 'saveDriveAndSync') {
         const calendarData = await loadCombinedCalendarData(supabase, accountId, nextCalendars);
@@ -724,7 +770,7 @@ export async function POST(req: Request) {
       }
 
       const calendarData = await loadCombinedCalendarData(supabase, accountId, currentCalendars);
-      await broadcastSync(accountId, body.clientId);
+      await broadcastSync(supabase, accountId, body.clientId, 'calendar');
       return NextResponse.json({ ok: true, result: calendarData });
     }
 
@@ -796,7 +842,7 @@ export async function POST(req: Request) {
       }
 
       const calendarData = await loadCombinedCalendarData(supabase, accountId, currentCalendars);
-      await broadcastSync(accountId, body.clientId);
+      await broadcastSync(supabase, accountId, body.clientId, 'calendar');
       return NextResponse.json({ ok: true, result: calendarData });
     }
 
@@ -825,7 +871,7 @@ export async function POST(req: Request) {
       }
 
       const calendarData = await loadCombinedCalendarData(supabase, accountId, currentCalendars);
-      await broadcastSync(accountId, body.clientId);
+      await broadcastSync(supabase, accountId, body.clientId, 'calendar');
       return NextResponse.json({ ok: true, result: calendarData });
     }
 
@@ -897,7 +943,7 @@ export async function POST(req: Request) {
       }
 
       const calendarData = await loadCombinedCalendarData(supabase, accountId, currentCalendars);
-      await broadcastSync(accountId, body.clientId);
+      await broadcastSync(supabase, accountId, body.clientId, 'calendar');
       return NextResponse.json({ ok: true, result: calendarData });
     }
 
@@ -915,6 +961,7 @@ export async function POST(req: Request) {
         ok: true,
         result: {
           supabaseConnected: true,
+          realtimeBroadcastReady: Boolean(getPublicAnonKey()),
           pantryStockInTable: pantryData.pantryItems.length,
           pantryTrashInTable: pantryData.pantryTrash.length,
           productCatalogEntries: catalogRes?.count || 0,
