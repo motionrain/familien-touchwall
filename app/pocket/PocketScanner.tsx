@@ -388,35 +388,70 @@ function estimateProduceByName(inputName) {
   return null;
 }
 
-function enhanceCanvasForMhdOcr(ctx, width, height) {
-  try {
-    const imgData = ctx.getImageData(0, 0, width, height);
-    const d = imgData.data;
-    let minLum = 255;
-    let maxLum = 0;
+// ============================================================================
+// VERBESSERTE BILDVORVERARBEITUNG FÜR LOKALES MHD-OCR (NORMAL / KONTRAST / INVERT)
+// ============================================================================
+function buildMhdCanvasVariant(sourceCanvas, mode = 'contrast') {
+  const out = document.createElement('canvas');
+  out.width = sourceCanvas.width;
+  out.height = sourceCanvas.height;
+  const ctx = out.getContext('2d');
+  ctx.drawImage(sourceCanvas, 0, 0);
 
+  if (mode === 'raw') return out;
+
+  try {
+    const imgData = ctx.getImageData(0, 0, out.width, out.height);
+    const d = imgData.data;
+
+    // 5./95.-Perzentil statt harter Min/Max-Werte (ignoriert einzelne Glanzreflexe!)
+    const hist = new Uint32Array(256);
+    const totalPx = out.width * out.height;
     for (let i = 0; i < d.length; i += 4) {
       const lum = Math.round(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]);
       d[i] = lum;
-      if (lum < minLum) minLum = lum;
-      if (lum > maxLum) maxLum = lum;
+      hist[lum]++;
     }
 
-    const range = Math.max(25, maxLum - minLum);
+    let lowCut = 0, highCut = 255, acc = 0;
+    for (let v = 0; v < 256; v++) {
+      acc += hist[v];
+      if (acc >= totalPx * 0.04) { lowCut = v; break; }
+    }
+    acc = 0;
+    for (let v = 255; v >= 0; v--) {
+      acc += hist[v];
+      if (acc >= totalPx * 0.04) { highCut = v; break; }
+    }
+
+    const range = Math.max(20, highCut - lowCut);
     for (let i = 0; i < d.length; i += 4) {
-      let norm = ((d[i] - minLum) / range) * 255;
-      norm = norm < 118 ? Math.max(0, norm * 0.65) : Math.min(255, norm * 1.25 + 20);
-      const v = Math.round(norm);
+      let norm = ((d[i] - lowCut) / range) * 255;
+      norm = Math.max(0, Math.min(255, norm));
+
+      if (mode === 'invert') {
+        norm = 255 - norm;
+      }
+
+      // Sanfte S-Kurve statt hartem Abschneiden (erhält feine Dot-Matrix-Punkte)
+      const stretched = norm < 128 ? norm * 0.78 : Math.min(255, norm * 1.18 + 12);
+      const v = Math.round(stretched);
       d[i] = v;
       d[i + 1] = v;
       d[i + 2] = v;
     }
     ctx.putImageData(imgData, 0, 0);
   } catch (e) {}
+
+  return out;
 }
 
+// ============================================================================
+// ROBUSTE MHD-DATUMSEXTRAKTION (BEVORZUGT ZUKUNFTSDATEN & ECHTE KALENDERTAGE)
+// ============================================================================
 export function extractExpiryDateFromText(rawText) {
   const rawUpper = String(rawText || '').toUpperCase();
+  if (!rawUpper.trim()) return null;
 
   const withNumericMonths = rawUpper
     .replace(/\b(JANUAR|JAN|JANUARY)\b\.?/g, '.01.')
@@ -432,54 +467,80 @@ export function extractExpiryDateFromText(rawText) {
     .replace(/\b(NOVEMBER|NOV)\b\.?/g, '.11.')
     .replace(/\b(DEZEMBER|DEZ|DEC|DECEMBER)\b\.?/g, '.12.');
 
+  // Typische OCR-Verwechslungen direkt in Ziffern-Nachbarschaft korrigieren
   const clean = withNumericMonths
     .replace(/[|lI!]/g, '1')
     .replace(/[OQ]/g, '0')
+    .replace(/(?<=\d)[D](?=\d|[.,/\-\s])/g, '0')
     .replace(/S(?=\d)/g, '5')
+    .replace(/(?<=\d)S/g, '5')
     .replace(/B(?=\d)/g, '8')
-    .replace(/Z(?=\d)/g, '2');
+    .replace(/(?<=\d)B/g, '8')
+    .replace(/Z(?=\d)/g, '2')
+    .replace(/G(?=\d)/g, '6');
 
-  const isValidYear = (yNum) => yNum >= 2025 && yNum <= 2036;
+  const todayIso = formatDateStr(new Date());
+  const candidates = [];
 
-  const isoRegex = /\b(202[5-9]|203[0-6])\s*[-./]\s*(0?[1-9]|1[0-2])\s*[-./]\s*(0?[1-9]|[12][0-9]|3[01])\b/g;
-  let match = isoRegex.exec(clean);
-  if (match) {
-    return match[1] + '-' + String(match[2]).padStart(2, '0') + '-' + String(match[3]).padStart(2, '0');
+  const pushCandidate = (yearNum, monthNum, dayNum, specificity) => {
+    if (yearNum < 2025 || yearNum > 2036) return;
+    if (monthNum < 1 || monthNum > 12) return;
+    const maxDay = new Date(yearNum, monthNum, 0).getDate();
+    if (dayNum < 1 || dayNum > maxDay) return;
+
+    const iso =
+      String(yearNum) + '-' +
+      String(monthNum).padStart(2, '0') + '-' +
+      String(dayNum).padStart(2, '0');
+
+    // Score: Zukunftsdaten & vollständige Daten (TT.MM.JJJJ) klar bevorzugen
+    const isFuture = iso >= todayIso ? 100 : 0;
+    candidates.push({ iso, score: isFuture + specificity });
+  };
+
+  let match;
+
+  // 1. ISO: YYYY-MM-DD / YYYY.MM.DD
+  const isoRegex = /(?:^|[^\d])(202[5-9]|203[0-6])\s*[-./]\s*(0?[1-9]|1[0-2])\s*[-./]\s*(0?[1-9]|[12][0-9]|3[01])(?:$|[^\d])/g;
+  while ((match = isoRegex.exec(clean)) !== null) {
+    pushCandidate(Number(match[1]), Number(match[2]), Number(match[3]), 30);
   }
 
-  const dmyRegex = /\b(0?[1-9]|[12][0-9]|3[01])\s*[.,/\-\s:·•_]{1,4}\s*(0?[1-9]|1[0-2])\s*[.,/\-\s:·•_]{1,4}\s*(20[2-3][0-9]|2[5-9]|3[0-6])\b/g;
+  // 2. Klassisch Deutsch/EU: DD.MM.YYYY oder DD.MM.YY (auch mit Leerzeichen, Komma, Schrägstrich, Doppelpunkt)
+  const dmyRegex = /(?:^|[^\d])(0?[1-9]|[12][0-9]|3[01])\s*[.,/\-\s:·•_]{1,4}\s*(0?[1-9]|1[0-2])\s*[.,/\-\s:·•_]{1,4}\s*(202[5-9]|203[0-6]|2[5-9]|3[0-6])(?:$|[^\d])/g;
   while ((match = dmyRegex.exec(clean)) !== null) {
-    const day = String(match[1]).padStart(2, '0');
-    const month = String(match[2]).padStart(2, '0');
-    let year = String(match[3]);
-    if (year.length === 2) year = '20' + year;
-    if (isValidYear(Number(year))) {
-      return year + '-' + month + '-' + day;
-    }
+    const yStr = String(match[3]);
+    const yNum = yStr.length === 2 ? Number('20' + yStr) : Number(yStr);
+    pushCandidate(yNum, Number(match[2]), Number(match[1]), yStr.length === 4 ? 35 : 28);
   }
 
-  const compactRegex = /\b(0[1-9]|[12][0-9]|3[01])(0[1-9]|1[0-2])(202[5-9]|203[0-6]|2[6-9]|3[0-5])\b/g;
+  // 3. Kompakt ohne Trennzeichen: DDMMYYYY oder DDMMYY (z.B. 241126 / 24112026)
+  const compactRegex = /(?:^|[^\d])(0[1-9]|[12][0-9]|3[01])(0[1-9]|1[0-2])(202[5-9]|203[0-6]|2[5-9]|3[0-6])(?:$|[^\d])/g;
   while ((match = compactRegex.exec(clean)) !== null) {
-    const day = match[1];
-    const month = match[2];
-    let year = match[3];
-    if (year.length === 2) year = '20' + year;
-    if (isValidYear(Number(year))) {
-      return year + '-' + month + '-' + day;
-    }
+    const yStr = String(match[3]);
+    const yNum = yStr.length === 2 ? Number('20' + yStr) : Number(yStr);
+    pushCandidate(yNum, Number(match[2]), Number(match[1]), 22);
   }
 
-  const myRegex = /\b(0?[1-9]|1[0-2])\s*[./\-:]\s*(202[5-9]|203[0-6]|2[6-9]|3[0-5])\b/g;
+  // 4. Monat/Jahr: MM.YYYY oder MM/YY (z.B. 11/2026 -> Monatsende)
+  const myRegex = /(?:^|[^\d])(0?[1-9]|1[0-2])\s*[./\-:]\s*(202[5-9]|203[0-6]|2[5-9]|3[0-6])(?:$|[^\d])/g;
   while ((match = myRegex.exec(clean)) !== null) {
-    const month = String(match[1]).padStart(2, '0');
-    let year = String(match[2]);
-    if (year.length === 2) year = '20' + year;
-    if (isValidYear(Number(year))) {
-      return year + '-' + month + '-28';
-    }
+    const mNum = Number(match[1]);
+    const yStr = String(match[2]);
+    const yNum = yStr.length === 2 ? Number('20' + yStr) : Number(yStr);
+    const lastDay = new Date(yNum, mNum, 0).getDate();
+    pushCandidate(yNum, mNum, lastDay, yStr.length === 4 ? 15 : 10);
   }
 
-  return null;
+  if (candidates.length === 0) return null;
+
+  // Bei mehreren Daten (z.B. Abfülldatum + MHD) das höchste Score / späteste Zukunftsdatum wählen
+  candidates.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return b.iso.localeCompare(a.iso);
+  });
+
+  return candidates[0].iso;
 }
 
 function parseUniversalBarcodePayload(rawVal) {
@@ -749,10 +810,10 @@ export default function PocketScanner({
   const [scanPhase, setScanPhase] = useState('barcode');
   const [autoAddWhenBothScanned, setAutoAddWhenBothScanned] = useState(false);
 
-  // 2-STUNDEN BARCODE-AUSBUCHUNGS-MODAL (SCHRITT 1: ENTFERNEN? -> SCHRITT 2: EINKAUFSLISTE?)
+  // 2-STUNDEN BARCODE-AUSBUCHUNGS-MODAL
   const [scanCheckoutModal, setScanCheckoutModal] = useState({
     open: false,
-    step: 'confirm_remove', // 'confirm_remove' | 'ask_shopping'
+    step: 'confirm_remove',
     stockItem: null,
     ageLabel: '',
     pendingMergedScan: null
@@ -772,6 +833,7 @@ export default function PocketScanner({
   const [detectedMhdCandidate, setDetectedMhdCandidate] = useState('');
   const [isMhdLockedByOcr, setIsMhdLockedByOcr] = useState(false);
   const [lastOcrRawHint, setLastOcrRawHint] = useState('');
+  const [mhdSourceBadge, setMhdSourceBadge] = useState(''); // 'KI' | 'OCR' | 'Code'
   const [isReadingMhd, setIsReadingMhd] = useState(false);
   const [isReadingFullLabel, setIsReadingFullLabel] = useState(false);
   const [isDetectingObject, setIsDetectingObject] = useState(false);
@@ -787,6 +849,10 @@ export default function PocketScanner({
   const zxingReaderRef = useRef(null);
   const mobileNetModelRef = useRef(null);
   const wakeLockRef = useRef(null);
+  const hardwareZoomSupportedRef = useRef(false);
+  const aiEndpointAvailableRef = useRef(true);
+  const lastAiMhdCallRef = useRef(0);
+  const localOcrMissCountRef = useRef(0);
   const lastScannedCodeRef = useRef('');
   const lastScanTimeRef = useRef(0);
   const isReadingMhdRef = useRef(false);
@@ -859,12 +925,49 @@ export default function PocketScanner({
   const toggleCameraZoom = async () => {
     const next = !zoomActive;
     setZoomActive(next);
+    hardwareZoomSupportedRef.current = false;
     try {
       const track = streamRef.current?.getVideoTracks?.()?.[0];
-      if (track) {
-        await track.applyConstraints({ advanced: [{ zoom: next ? 2.0 : 1.0 }] });
+      const caps = track?.getCapabilities?.();
+      if (track && caps && caps.zoom) {
+        const targetZoom = next ? Math.min(2.2, caps.zoom.max || 2.0) : Math.max(1.0, caps.zoom.min || 1.0);
+        await track.applyConstraints({ advanced: [{ zoom: targetZoom }] });
+        hardwareZoomSupportedRef.current = true;
       }
-    } catch (e) {}
+    } catch (e) {
+      hardwareZoomSupportedRef.current = false;
+    }
+  };
+
+  // Schneidet exakt den sichtbaren Fokus-Rahmen aus (inkl. echtem Digital-Zoom, falls 2x aktiv!)
+  const grabFocusedFrameCanvas = (tightForMhd = true) => {
+    const vid = videoRef.current;
+    if (!vid || vid.readyState < 2) return null;
+
+    const vw = vid.videoWidth || 1280;
+    const vh = vid.videoHeight || 720;
+
+    // Wenn 2x aktiv ist, aber kein Hardware-Zoom greift, schneiden wir entsprechend enger in die Mitte!
+    const digitalZoomFactor = zoomActive && !hardwareZoomSupportedRef.current ? 1.85 : 1.0;
+
+    const baseW = tightForMhd ? 0.78 : 0.90;
+    const baseH = tightForMhd ? 0.36 : 0.78;
+
+    const cropW = Math.max(240, Math.floor((vw * baseW) / digitalZoomFactor));
+    const cropH = Math.max(120, Math.floor((vh * baseH) / digitalZoomFactor));
+    const cropX = Math.max(0, Math.floor((vw - cropW) / 2));
+    const cropY = Math.max(0, Math.floor((vh - cropH) / 2));
+
+    // Auf knackige Zielbreite skalieren (ideal für Gemini Vision & Tesseract OCR)
+    const maxOutW = tightForMhd ? 960 : 1024;
+    const scale = cropW > maxOutW ? maxOutW / cropW : (cropW < 540 ? 540 / cropW : 1);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(cropW * scale);
+    canvas.height = Math.round(cropH * scale);
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(vid, cropX, cropY, cropW, cropH, 0, 0, canvas.width, canvas.height);
+    return canvas;
   };
 
   // ============================================================================
@@ -888,13 +991,11 @@ export default function PocketScanner({
       .toLowerCase()
       .trim();
 
-    // Suche alle passenden Produkte im Bestand
     const matches = currentStock.filter(st => {
       if (!st) return false;
       const stCode = String(st.barcode || '').trim();
       if (stCode && codesToCheck.has(stCode)) return true;
 
-      // Bei 13-stelligen Frischetheken-Codes (20..29) auch den 7-stelligen Artikelstamm vergleichen
       const stDigits = stCode.replace(/\D/g, '');
       if (stDigits.length === 13 && /^2[0-9]/.test(stDigits)) {
         const prefix7 = stDigits.slice(0, 7);
@@ -912,13 +1013,11 @@ export default function PocketScanner({
 
     if (matches.length === 0) return null;
 
-    // Sortiere nach ältestem MHD zuerst (FIFO-Prinzip beim Ausbuchen)
     matches.sort((a, b) => String(a.expiryDate || '9999').localeCompare(String(b.expiryDate || '9999')));
 
-    // Prüfe den 2-Stunden-Spielraum (mindestens 2 Stunden seit dem Einbuchen vergangen)
     const eligibleMatch = matches.find(st => {
       const addedTs = getItemAddedTimestamp(st);
-      if (!addedTs) return true; // Ältere Bestandsartikel ohne Timestamp gelten als > 2 Stunden alt
+      if (!addedTs) return true;
       return (now - addedTs) >= TWO_HOURS_GRACE_MS;
     });
 
@@ -934,6 +1033,7 @@ export default function PocketScanner({
     setScanGlutenFree('yes');
     setScanExpiry(estDate);
     setDetectedMhdCandidate(estDate);
+    setMhdSourceBadge('Frische-KI');
     setIsMhdLockedByOcr(true);
     setScanPhase('mhd_locked');
     setEstimatedMhdHint(
@@ -1129,12 +1229,58 @@ export default function PocketScanner({
     if (window.Tesseract?.createWorker) {
       const worker = await window.Tesseract.createWorker('eng');
       await worker.setParameters({
+        tessedit_pageseg_mode: '6',
         tessedit_char_whitelist: '0123456789.,/-:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz '
       });
       ocrWorkerRef.current = worker;
       return worker;
     }
     return null;
+  };
+
+  // ============================================================================
+  // KI-VISION AUFRUF (/api/mhd-ai via Gemini 2.5 Flash)
+  // ============================================================================
+  const callVisionAiScanner = async (canvas, mode = 'mhd') => {
+    if (!aiEndpointAvailableRef.current || !canvas) return null;
+    try {
+      const imageBase64 = canvas.toDataURL('image/jpeg', 0.86);
+      const res = await fetch('/api/mhd-ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageBase64, mode, todayStr }),
+        cache: 'no-store'
+      });
+      const json = await res.json();
+      if (json?.fallbackToLocal && String(json?.error || '').includes('GEMINI_API_KEY fehlt')) {
+        aiEndpointAvailableRef.current = false;
+        return null;
+      }
+      if (json?.ok) return json;
+    } catch (e) {}
+    return null;
+  };
+
+  const lockDetectedMhdDate = (parsedDate, sourceLabel = 'KI', rawHint = '') => {
+    if (!parsedDate) return;
+    localOcrMissCountRef.current = 0;
+    setDetectedMhdCandidate(parsedDate);
+    setScanExpiry(parsedDate);
+    setMhdSourceBadge(sourceLabel);
+    if (rawHint) setLastOcrRawHint(rawHint);
+    setIsMhdLockedByOcr(true);
+    setScanPhase('mhd_locked');
+
+    playMobileBeep('scan');
+    triggerVibration([180, 70, 260]);
+
+    const niceDate = parsedDate.slice(8, 10) + '.' + parsedDate.slice(5, 7) + '.' + parsedDate.slice(0, 4);
+    if (autoAddWhenBothScanned && scanName.trim()) {
+      triggerAddCurrentScanToCart(parsedDate);
+      showToast('⚡ Automatisch im Wagen!', scanName + ' (MHD: ' + niceDate + ')', getFoodEmoji(scanName));
+    } else {
+      showToast('📅 MHD erkannt (' + sourceLabel + '): ' + niceDate, 'Tippe auf „🛒 In Einkaufswagen“!', '🎉');
+    }
   };
 
   const captureProductLabelFromLiveCamera = async (silentFallback = false) => {
@@ -1145,10 +1291,39 @@ export default function PocketScanner({
     if (isReadingFullLabel) return false;
     setIsReadingFullLabel(true);
     if (!silentFallback) {
-      showToast('Lese Verpackung...', 'Erkenne Produktname, Marke, Menge & MHD...', '🏷️');
+      showToast('KI liest Verpackung...', 'Erkenne Produktname, Marke, Menge & MHD...', '🏷️');
     }
 
     try {
+      const baseCanvas = grabFocusedFrameCanvas(false);
+      if (!baseCanvas) return false;
+
+      // 1. Zuerst KI-Vision probieren (liest Name + Marke + Menge + MHD auf einen Schlag)
+      const aiRes = await callVisionAiScanner(baseCanvas, 'label');
+      if (aiRes && (aiRes.productName || aiRes.expiryDate)) {
+        if (aiRes.productName) {
+          const finalName = simplifyProductName(aiRes.productName, aiRes.brand || '');
+          const cat = detectSmartCategory(finalName);
+          const loc = detectSmartLocation(finalName, cat);
+          setScanName(finalName);
+          setScanCategory(cat);
+          setScanLocation(loc);
+          setScanGlutenFree(isProductGlutenFree(finalName, cat) ? 'yes' : 'auto');
+          if (aiRes.quantity) setScanQty(String(aiRes.quantity).trim());
+        }
+        if (aiRes.expiryDate) {
+          lockDetectedMhdDate(aiRes.expiryDate, 'KI-Etikett', aiRes.rawText || aiRes.expiryDate);
+        } else if (aiRes.productName) {
+          setIsMhdLockedByOcr(false);
+          setScanPhase('hunting_mhd');
+          playMobileBeep('scan');
+          triggerVibration([90, 45, 90]);
+          showToast('KI-Etikett erkannt! 🏷️', aiRes.productName + ' – halte jetzt das MHD in den Rahmen!', getFoodEmoji(aiRes.productName));
+        }
+        return true;
+      }
+
+      // 2. Fallback: Lokales Tesseract-OCR (Deutsch)
       if (typeof window !== 'undefined' && !window.Tesseract) {
         await new Promise((resolve, reject) => {
           const s = document.createElement('script');
@@ -1159,27 +1334,8 @@ export default function PocketScanner({
         });
       }
 
-      const vid = videoRef.current;
-      const vw = vid.videoWidth || 640;
-      const vh = vid.videoHeight || 480;
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.floor(vw * 0.88);
-      canvas.height = Math.floor(vh * 0.78);
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(
-        vid,
-        Math.floor(vw * 0.06),
-        Math.floor(vh * 0.11),
-        canvas.width,
-        canvas.height,
-        0,
-        0,
-        canvas.width,
-        canvas.height
-      );
-      enhanceCanvasForMhdOcr(ctx, canvas.width, canvas.height);
-
-      const res = await window.Tesseract.recognize(canvas, 'deu');
+      const enhanced = buildMhdCanvasVariant(baseCanvas, 'contrast');
+      const res = await window.Tesseract.recognize(enhanced, 'deu');
       const fullText = String(res?.data?.text || '');
       if (!fullText.trim()) return false;
 
@@ -1232,13 +1388,7 @@ export default function PocketScanner({
         }
 
         if (parsedExp) {
-          setScanExpiry(parsedExp);
-          setDetectedMhdCandidate(parsedExp);
-          setIsMhdLockedByOcr(true);
-          setScanPhase('mhd_locked');
-          playMobileBeep('scan');
-          triggerVibration([180, 70, 260]);
-          showToast('Etikett + MHD erkannt! 🎉', finalName + ' (' + parsedExp + ')', getFoodEmoji(finalName));
+          lockDetectedMhdDate(parsedExp, 'Etikett', foundFoodTitle);
         } else {
           setIsMhdLockedByOcr(false);
           setScanPhase('hunting_mhd');
@@ -1248,13 +1398,7 @@ export default function PocketScanner({
         }
         return true;
       } else if (parsedExp) {
-        setScanExpiry(parsedExp);
-        setDetectedMhdCandidate(parsedExp);
-        setIsMhdLockedByOcr(true);
-        setScanPhase('mhd_locked');
-        playMobileBeep('scan');
-        triggerVibration([180, 70, 260]);
-        showToast('MHD gelesen! 🎉', parsedExp, '📅');
+        lockDetectedMhdDate(parsedExp, 'OCR', parsedExp);
         return true;
       }
     } catch (e) {} finally {
@@ -1263,7 +1407,10 @@ export default function PocketScanner({
     return false;
   };
 
-  const captureMhdFromLiveCamera = async (silentMode = false) => {
+  // ============================================================================
+  // TURBO MHD-SCANNER: KI-VISION (GEMINI FLASH) + MULTI-PASS LOKALES OCR
+  // ============================================================================
+  const captureMhdFromLiveCamera = async (silentMode = false, preferVisionAi = false) => {
     if (scanCheckoutOpenRef.current) return;
     if (!videoRef.current || videoRef.current.readyState < 2) {
       if (!silentMode) showToast('Kamera nicht bereit', 'Bitte zuerst die Kamera starten.', '⚠️');
@@ -1275,54 +1422,68 @@ export default function PocketScanner({
     setIsReadingMhd(true);
 
     try {
-      const vid = videoRef.current;
-      const vw = vid.videoWidth || 640;
-      const vh = vid.videoHeight || 480;
+      const baseCanvas = grabFocusedFrameCanvas(true);
+      if (!baseCanvas) return;
 
-      const cropX = Math.floor(vw * 0.08);
-      const cropY = Math.floor(vh * 0.22);
-      const cropW = Math.floor(vw * 0.84);
-      const cropH = Math.floor(vh * 0.52);
+      const now = Date.now();
+      const shouldTryAiNow =
+        aiEndpointAvailableRef.current &&
+        (
+          preferVisionAi ||
+          !silentMode ||
+          (scanPhase === 'hunting_mhd' && localOcrMissCountRef.current >= 1 && now - lastAiMhdCallRef.current >= 2400)
+        );
 
-      const canvas = document.createElement('canvas');
-      canvas.width = cropW;
-      canvas.height = cropH;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(vid, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
-
-      enhanceCanvasForMhdOcr(ctx, cropW, cropH);
-
-      const worker = await getFastMhdOcrWorker();
-      const result = worker
-        ? await worker.recognize(canvas)
-        : await window.Tesseract.recognize(canvas, 'eng');
-
-      const detectedText = String(result?.data?.text || '').trim();
-      const singleLineHint = detectedText.replace(/\s+/g, ' ').slice(0, 42);
-      if (singleLineHint) setLastOcrRawHint(singleLineHint);
-
-      const parsedDate = extractExpiryDateFromText(detectedText);
-
-      if (parsedDate) {
-        setDetectedMhdCandidate(parsedDate);
-        setScanExpiry(parsedDate);
-        setIsMhdLockedByOcr(true);
-        setScanPhase('mhd_locked');
-
-        playMobileBeep('scan');
-        triggerVibration([180, 70, 260]);
-
-        const niceDate = parsedDate.slice(8, 10) + '.' + parsedDate.slice(5, 7) + '.' + parsedDate.slice(0, 4);
-
-        if (autoAddWhenBothScanned && scanName.trim()) {
-          triggerAddCurrentScanToCart(parsedDate);
-          showToast('⚡ Automatisch im Wagen!', scanName + ' (MHD: ' + niceDate + ')', getFoodEmoji(scanName));
-        } else {
-          showToast('📅 MHD erkannt: ' + niceDate, 'Vibration bestätigt – tippe auf „🛒 In Einkaufswagen“!', '🎉');
+      // 1. DIREKT-SCHUSS AN GEMINI VISION-KI (bei Tippen / Button oder im hunting_mhd Auto-Modus)
+      if (shouldTryAiNow) {
+        lastAiMhdCallRef.current = now;
+        const aiRes = await callVisionAiScanner(baseCanvas, 'mhd');
+        if (aiRes?.rawText) {
+          setLastOcrRawHint('🤖 ' + String(aiRes.rawText).slice(0, 38));
         }
-      } else if (!silentMode) {
+        if (aiRes?.expiryDate) {
+          lockDetectedMhdDate(aiRes.expiryDate, 'KI-Vision', aiRes.rawText || aiRes.expiryDate);
+          return;
+        }
+      }
+
+      // 2. VERBESSERTES LOKALES MULTI-PASS OCR (Kontrast -> Invertiert für weiße Schrift -> Rohbild)
+      const worker = await getFastMhdOcrWorker();
+      const passes = silentMode ? ['contrast', 'invert'] : ['contrast', 'invert', 'raw'];
+      let combinedRawSnippet = '';
+
+      for (const passMode of passes) {
+        const variantCanvas = buildMhdCanvasVariant(baseCanvas, passMode);
+        const result = worker
+          ? await worker.recognize(variantCanvas)
+          : await window.Tesseract.recognize(variantCanvas, 'eng');
+
+        const detectedText = String(result?.data?.text || '').trim();
+        if (detectedText && !combinedRawSnippet) {
+          combinedRawSnippet = detectedText.replace(/\s+/g, ' ').slice(0, 38);
+        }
+
+        const parsedDate = extractExpiryDateFromText(detectedText);
+        if (parsedDate) {
+          lockDetectedMhdDate(parsedDate, passMode === 'invert' ? 'OCR-Invert' : 'OCR', combinedRawSnippet);
+          return;
+        }
+      }
+
+      localOcrMissCountRef.current += 1;
+      if (combinedRawSnippet) {
+        setLastOcrRawHint('👁️ ' + combinedRawSnippet);
+      }
+
+      if (!silentMode) {
         triggerVibration(40);
-        showToast('Datum noch unscharf', 'Tipp: Nutze oben im Bild „🔍 2x“ oder „🔦 Licht“.', '🔍');
+        showToast(
+          'Datum noch nicht klar erkannt',
+          aiEndpointAvailableRef.current
+            ? 'Kurz ruhig in den gelben Streifen halten & erneut tippen (oder 🔦 Licht / 🔍 2x).'
+            : 'Tipp: Mit GEMINI_API_KEY in Vercel liest KI auch Punktschrift sofort – sonst 🔍 2x / 🔦 Licht nutzen.',
+          '🔍'
+        );
       }
     } catch (err) {
       if (!silentMode) showToast('MHD-Scan Hinweis', 'Bitte noch einmal antippen.', '⚠️');
@@ -1338,10 +1499,10 @@ export default function PocketScanner({
       return;
     }
 
-    const intervalMs = scanPhase === 'hunting_mhd' ? 850 : 1250;
+    const intervalMs = scanPhase === 'hunting_mhd' ? 1100 : 1600;
     mhdAutoLoopRef.current = setInterval(() => {
       if (!isReadingMhdRef.current && !isMhdLockedByOcr && !scanCheckoutOpenRef.current) {
-        captureMhdFromLiveCamera(true);
+        captureMhdFromLiveCamera(true, false);
       }
     }, intervalMs);
 
@@ -1371,7 +1532,7 @@ export default function PocketScanner({
     return null;
   };
 
-  // ============================================================================
+// ============================================================================
   // HAUPT-SCAN-VERARBEITUNG INKL. 2-STUNDEN-AUSBUCHUNGS-CHECK
   // ============================================================================
   const processMergedScanResult = async (mergedScan, skipCheckoutCheck = false) => {
@@ -1401,6 +1562,7 @@ export default function PocketScanner({
 
     setScannedBarcode(primaryCodeKey);
     if (mergedScan.formats) setLastDetectedFormat(mergedScan.formats);
+    localOcrMissCountRef.current = 0;
 
     playMobileBeep('scan');
     triggerVibration([90, 45, 90]);
@@ -1412,12 +1574,15 @@ export default function PocketScanner({
     if (mergedScan.extractedExpiry) {
       setScanExpiry(mergedScan.extractedExpiry);
       setDetectedMhdCandidate(mergedScan.extractedExpiry);
+      setMhdSourceBadge('Code');
       setIsMhdLockedByOcr(true);
       setScanPhase('mhd_locked');
       triggerVibration([180, 70, 260]);
     } else {
       setIsMhdLockedByOcr(false);
       setDetectedMhdCandidate('');
+      setMhdSourceBadge('');
+      setLastOcrRawHint('');
       setScanPhase('hunting_mhd');
     }
 
@@ -1437,7 +1602,7 @@ export default function PocketScanner({
       setScanGlutenFree(learnedHit.glutenFree || (isProductGlutenFree(learnedHit.name, cat) ? 'yes' : 'auto'));
       showToast(
         '✅ Barcode erkannt: ' + learnedHit.name,
-        mergedScan.extractedExpiry ? 'MHD aus Code übernommen!' : '👉 Halte jetzt das MHD-Datum in den Rahmen!',
+        mergedScan.extractedExpiry ? 'MHD aus Code übernommen!' : '👉 Halte jetzt das MHD-Datum in den gelben Streifen!',
         getFoodEmoji(learnedHit.name)
       );
       return;
@@ -1478,7 +1643,6 @@ export default function PocketScanner({
           const qty = mergedScan.extractedWeightQty || (p.quantity ? String(p.quantity).trim() : '1x');
           const img = p.image_front_small_url || p.image_thumb_url || '';
 
-          // Falls ein älteres Bestandsprodukt ohne gespeicherten Barcode über den OpenFoodFacts-Namen erkannt wird (>= 2 Std. alt):
           if (!skipCheckoutCheck && smartName) {
             const matchByResolvedName = findExistingStockItemEligibleForCheckout(mergedScan, smartName);
             if (matchByResolvedName) {
@@ -1514,13 +1678,13 @@ export default function PocketScanner({
             } else if (freshMatch && !mergedScan.extractedExpiry) {
               setEstimatedMhdHint(freshMatch.emoji + ' Kamera sucht jetzt nach dem MHD-Aufdruck (Empfehlung: +' + freshMatch.days + 'T).');
             } else {
-              setEstimatedMhdHint('🎯 Produkt erkannt! Halte jetzt das MHD-Datum in den gelben Rahmen.');
+              setEstimatedMhdHint('🎯 Produkt erkannt! Halte jetzt das MHD in den gelben Streifen (oder tippe kurz aufs Bild).');
             }
 
             triggerVibration([100, 50, 100]);
             showToast(
               '✅ ' + smartName,
-              'Suche jetzt automatisch weiter nach dem MHD-Datum!',
+              'Halte jetzt das MHD in den gelben Streifen!',
               getFoodEmoji(smartName)
             );
             return;
@@ -1570,6 +1734,8 @@ export default function PocketScanner({
       }
 
       streamRef.current = stream;
+      hardwareZoomSupportedRef.current = false;
+      localOcrMissCountRef.current = 0;
       setCameraActive(true);
       setScanPhase(scanName.trim() ? 'hunting_mhd' : 'barcode');
       requestScreenWakeLock();
@@ -1779,10 +1945,12 @@ export default function PocketScanner({
     setScanExpiry('');
     setScanImageUrl('');
     setDetectedMhdCandidate('');
+    setMhdSourceBadge('');
     setIsMhdLockedByOcr(false);
     setScanPhase('barcode');
     setEstimatedMhdHint('');
     setLastOcrRawHint('');
+    localOcrMissCountRef.current = 0;
     lastScannedCodeRef.current = '';
   };
 
@@ -1809,7 +1977,6 @@ export default function PocketScanner({
           </div>
 
           {scanCheckoutModal.step === 'confirm_remove' ? (
-            /* SCHRITT 1: FRAGE OB DAS PRODUKT ENTFERNT & IN DEN MÜLLEIMER GELEGT WERDEN SOLL */
             <>
               <div className="space-y-1.5">
                 <span className="inline-block px-3 py-1 rounded-full bg-rose-500/25 border border-rose-400/50 text-rose-300 text-xs font-black uppercase">
@@ -1834,7 +2001,6 @@ export default function PocketScanner({
                       onCheckoutStockItemByScan(item, 'trash');
                     }
                     triggerVibration([120, 50, 120]);
-                    // Weiter zu Schritt 2: Fragen ob es auf die Einkaufsliste soll!
                     setScanCheckoutModal(prev => ({
                       ...prev,
                       step: 'ask_shopping'
@@ -1889,7 +2055,6 @@ export default function PocketScanner({
               </div>
             </>
           ) : (
-            /* SCHRITT 2: FRAGE OB DAS AUSGEBUCHTE PRODUKT AUF DIE EINKAUFSLISTE SOLL (JA / NEIN) */
             <>
               <div className="space-y-1.5">
                 <span className="inline-block px-3 py-1 rounded-full bg-emerald-500/25 border border-emerald-400/50 text-emerald-300 text-xs font-black uppercase">
@@ -2008,11 +2173,11 @@ export default function PocketScanner({
 
       {scannerMode !== 'receipt' ? (
         <div className={'p-3.5 rounded-3xl border space-y-3 shadow-lg ' + themeStyles.card}>
-          {/* LIVE-KAMERA-SUCHER MIT 2-PHASEN-ANZEIGE */}
+          {/* LIVE-KAMERA-SUCHER MIT 2-PHASEN-ANZEIGE & KI-MHD-STREIFEN */}
           {cameraActive && (
             <div className="space-y-2">
               <div
-                onClick={() => scannerMode === 'object_ai' ? recognizeProduceFromCamera() : captureMhdFromLiveCamera(false)}
+                onClick={() => scannerMode === 'object_ai' ? recognizeProduceFromCamera() : captureMhdFromLiveCamera(false, true)}
                 className={
                   'relative rounded-2xl overflow-hidden border-2 bg-black aspect-[16/10] cursor-pointer transition-colors ' +
                   (scanPhase === 'mhd_locked'
@@ -2024,7 +2189,7 @@ export default function PocketScanner({
               >
                 <video
                   ref={videoRef}
-                  style={zoomActive ? { transform: 'scale(1.85)', transformOrigin: 'center center' } : undefined}
+                  style={zoomActive && !hardwareZoomSupportedRef.current ? { transform: 'scale(1.85)', transformOrigin: 'center center' } : undefined}
                   className="w-full h-full object-cover transition-transform duration-200"
                   playsInline
                   muted
@@ -2043,10 +2208,12 @@ export default function PocketScanner({
                   >
                     {isLookingUpProduct || isReadingFullLabel
                       ? '⏳ Erkenne Produkt...'
+                      : isReadingMhd && scanPhase === 'hunting_mhd'
+                      ? '🤖 KI liest MHD-Datum...'
                       : scanPhase === 'mhd_locked'
-                      ? ('🎉 MHD erfasst: ' + detectedMhdCandidate.slice(8, 10) + '.' + detectedMhdCandidate.slice(5, 7) + '.' + detectedMhdCandidate.slice(0, 4))
+                      ? ('🎉 MHD (' + (mhdSourceBadge || 'OK') + '): ' + detectedMhdCandidate.slice(8, 10) + '.' + detectedMhdCandidate.slice(5, 7) + '.' + detectedMhdCandidate.slice(0, 4))
                       : scanPhase === 'hunting_mhd'
-                      ? ('🎯 Schritt 2: Halte jetzt das MHD in den Rahmen!')
+                      ? '🎯 MHD in den gelben Streifen (tippen = KI-Scan)'
                       : ('📷 Einbuchen & Ausbuchen per Barcode (' + activeFormatCount + ' Typen)')}
                   </span>
 
@@ -2070,23 +2237,33 @@ export default function PocketScanner({
                   </div>
                 </div>
 
+                {/* Zielrahmen: In Phase 2 enger Streifen exakt passend zum MHD-Ausschnitt */}
                 <div
                   className={
-                    'absolute inset-x-5 top-[22%] bottom-[22%] border-2 rounded-xl pointer-events-none shadow-[0_0_0_9999px_rgba(0,0,0,0.35)] flex flex-col justify-center ' +
-                    (scanPhase === 'mhd_locked' ? 'border-emerald-400' : 'border-amber-400')
+                    'absolute pointer-events-none rounded-xl border-2 shadow-[0_0_0_9999px_rgba(0,0,0,0.42)] flex flex-col justify-center transition-all duration-200 ' +
+                    (scanPhase === 'hunting_mhd'
+                      ? 'inset-x-6 top-[32%] bottom-[32%] border-amber-400'
+                      : scanPhase === 'mhd_locked'
+                      ? 'inset-x-6 top-[32%] bottom-[32%] border-emerald-400'
+                      : 'inset-x-5 top-[22%] bottom-[22%] border-sky-400')
                   }
                 >
                   <div className="w-full h-0.5 bg-emerald-400/90 shadow-[0_0_10px_#10b981] animate-pulse" />
                 </div>
 
-                {scanName && (
+                {(scanName || lastOcrRawHint) && (
                   <div className="absolute bottom-2 left-2 right-2 bg-black/85 border border-amber-400/60 rounded-xl px-3 py-1.5 flex items-center justify-between gap-2 z-10">
                     <div className="flex items-center gap-2 min-w-0">
-                      <span className="text-lg shrink-0">{getFoodEmoji(scanName)}</span>
-                      <span className="text-xs font-black text-white truncate">{scanName}</span>
+                      <span className="text-lg shrink-0">{scanName ? getFoodEmoji(scanName) : '📅'}</span>
+                      <div className="min-w-0 leading-tight">
+                        {scanName && <div className="text-xs font-black text-white truncate">{scanName}</div>}
+                        {lastOcrRawHint && !isMhdLockedByOcr && (
+                          <div className="text-[10px] font-bold text-sky-300 truncate">{lastOcrRawHint}</div>
+                        )}
+                      </div>
                     </div>
                     <span className="text-[10px] font-black text-amber-300 shrink-0">
-                      {isMhdLockedByOcr ? '✅ MHD OK' : '⏳ Suche MHD...'}
+                      {isMhdLockedByOcr ? '✅ MHD OK' : (isReadingMhd ? '🤖 Lese...' : '⏳ Suche MHD')}
                     </span>
                   </div>
                 )}
@@ -2097,13 +2274,13 @@ export default function PocketScanner({
                   type="button"
                   onClick={() => {
                     setIsMhdLockedByOcr(false);
-                    captureMhdFromLiveCamera(false);
+                    captureMhdFromLiveCamera(false, true);
                   }}
                   disabled={isReadingMhd}
                   className="tw-active-nav py-2.5 px-2 rounded-xl text-[11px] font-black flex items-center justify-center gap-1 shadow-md"
                 >
                   <ScanLine className={'w-3.5 h-3.5 shrink-0 ' + (isReadingMhd ? 'animate-spin' : '')} />
-                  <span>{isReadingMhd ? 'Lese...' : '📅 MHD'}</span>
+                  <span>{isReadingMhd ? 'KI...' : '📅 KI-MHD'}</span>
                 </button>
 
                 <button
@@ -2143,7 +2320,7 @@ export default function PocketScanner({
                 <div className="p-3 rounded-2xl bg-emerald-500/20 border-2 border-emerald-400 flex items-center justify-between gap-2 shadow-lg">
                   <div>
                     <div className="text-xs font-black uppercase text-emerald-300">
-                      ✅ MHD erkannt & bestätigt:
+                      ✅ MHD erkannt{mhdSourceBadge ? (' (' + mhdSourceBadge + ')') : ''}:
                     </div>
                     <div className="text-base font-black text-white">
                       📅 {detectedMhdCandidate.slice(8, 10)}.{detectedMhdCandidate.slice(5, 7)}.{detectedMhdCandidate.slice(0, 4)}
@@ -2156,6 +2333,9 @@ export default function PocketScanner({
                       onClick={() => {
                         setDetectedMhdCandidate('');
                         setScanExpiry('');
+                        setMhdSourceBadge('');
+                        setLastOcrRawHint('');
+                        localOcrMissCountRef.current = 0;
                         setIsMhdLockedByOcr(false);
                         setScanPhase('hunting_mhd');
                       }}
@@ -2336,6 +2516,7 @@ export default function PocketScanner({
                         const d = formatDateStr(addDays(new Date(), b.d));
                         setScanExpiry(d);
                         setDetectedMhdCandidate(d);
+                        setMhdSourceBadge('Schnellwahl');
                         setIsMhdLockedByOcr(true);
                         setScanPhase('mhd_locked');
                         triggerVibration(50);
@@ -2357,6 +2538,7 @@ export default function PocketScanner({
                     const d = formatDateStr(addDays(new Date(), days));
                     setScanExpiry(d);
                     setDetectedMhdCandidate(d);
+                    setMhdSourceBadge('Auswahl');
                     setIsMhdLockedByOcr(true);
                     setScanPhase('mhd_locked');
                   }}
@@ -2382,6 +2564,7 @@ export default function PocketScanner({
                   onChange={(e) => {
                     setScanExpiry(e.target.value);
                     setDetectedMhdCandidate(e.target.value);
+                    setMhdSourceBadge('Manuell');
                     setIsMhdLockedByOcr(true);
                     setScanPhase('mhd_locked');
                   }}
