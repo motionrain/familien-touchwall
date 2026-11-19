@@ -390,6 +390,48 @@ export async function callCloudApi(targetUrl, method = 'POST', postBody = null, 
   }
 }
 
+let browserSupabase: any = null;
+
+function getBrowserSupabase() {
+  if (browserSupabase) return browserSupabase;
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+  if (!url || !key) return null;
+  browserSupabase = createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false }
+  });
+  return browserSupabase;
+}
+
+export function useTouchwallRealtime(accountId: string, onRemoteSync: () => void) {
+  const callbackRef = React.useRef(onRemoteSync);
+  callbackRef.current = onRemoteSync;
+
+  React.useEffect(() => {
+    const cleanId = String(accountId || '').trim().toLowerCase();
+    if (!cleanId) return;
+
+    const sb = getBrowserSupabase();
+    if (!sb) return;
+
+    let lastTrigger = 0;
+    const channel = sb
+      .channel(`tw-sync-${cleanId}`)
+      .on('broadcast', { event: 'sync' }, () => {
+        const now = Date.now();
+        // Kurze Sperre (1,5s), damit mehrere schnelle Speicherungen nicht doppelt laden
+        if (now - lastTrigger < 1500) return;
+        lastTrigger = now;
+        callbackRef.current();
+      })
+      .subscribe();
+
+    return () => {
+      sb.removeChannel(channel);
+    };
+  }, [accountId]);
+}
+
 // ============================================================================
 // VISUELLES 4-KANAL SYNC-COCKPIT (FÜR DIE TOUCHWALL)
 // ============================================================================
@@ -440,6 +482,7 @@ export function SyncCenterModal({
       onSync: onSyncSkillBoardOnly
     }
   ];
+  
 
   return (
     <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
@@ -515,3 +558,4 @@ export function SyncCenterModal({
     </div>
   );
 }
+
