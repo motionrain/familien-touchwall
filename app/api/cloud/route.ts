@@ -7,15 +7,43 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 // ============================================================================
-// 1. SUPABASE SERVER-CLIENT
+// 1. SUPABASE SERVER-CLIENT (BEREINIGT URL & SCHLÜSSEL AUTOMATISCH)
 // ============================================================================
-function getSupabaseAdmin() {
-  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-  if (!url || !key) {
-    throw new Error('SUPABASE_URL oder SUPABASE_SERVICE_ROLE_KEY fehlt in den Umgebungsvariablen.');
+function getCleanSupabaseUrl() {
+  const rawUrl = (process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || '')
+    .trim()
+    .replace(/^["']|["']$/g, '');
+
+  if (!rawUrl) {
+    throw new Error('SUPABASE_URL fehlt in den Vercel-Umgebungsvariablen.');
   }
-  return createClient(url, key, { auth: { persistSession: false } });
+
+  let cleanUrl = rawUrl;
+  try {
+    // Entfernt automatisch angehängte Pfade wie /rest/v1 oder Schrägstriche am Ende
+    cleanUrl = new URL(rawUrl).origin;
+  } catch {
+    throw new Error(`Ungültige SUPABASE_URL in Vercel: "${rawUrl}"`);
+  }
+
+  if (!cleanUrl.includes('supabase.co')) {
+    throw new Error(`SUPABASE_URL zeigt nicht auf *.supabase.co, sondern auf: ${cleanUrl}`);
+  }
+
+  return cleanUrl;
+}
+
+function getSupabaseAdmin() {
+  const cleanUrl = getCleanSupabaseUrl();
+  const key = (process.env.SUPABASE_SERVICE_ROLE_KEY || '')
+    .trim()
+    .replace(/^["']|["']$/g, '');
+
+  if (!key) {
+    throw new Error('SUPABASE_SERVICE_ROLE_KEY fehlt in den Vercel-Umgebungsvariablen.');
+  }
+
+  return createClient(cleanUrl, key, { auth: { persistSession: false } });
 }
 
 function hashAuthKey(authKey: string) {
@@ -28,7 +56,10 @@ function hashAuthKey(authKey: string) {
 let cachedGoogleToken = { token: '', expiresAt: 0 };
 
 function hasGoogleCredentials() {
-  return Boolean(process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL && process.env.GOOGLE_PRIVATE_KEY);
+  return Boolean(
+    (process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || '').trim() &&
+    (process.env.GOOGLE_PRIVATE_KEY || '').trim()
+  );
 }
 
 async function getGoogleAccessToken() {
@@ -37,8 +68,13 @@ async function getGoogleAccessToken() {
     return cachedGoogleToken.token;
   }
 
-  const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL.trim();
-  const privateKey = process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n');
+  const email = (process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || '')
+    .trim()
+    .replace(/^["']|["']$/g, '');
+  const privateKey = (process.env.GOOGLE_PRIVATE_KEY || '')
+    .trim()
+    .replace(/^["']|["']$/g, '')
+    .replace(/\\n/g, '\n');
 
   const now = Math.floor(Date.now() / 1000);
   const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url');
@@ -174,6 +210,14 @@ function mapGoogleEventToTouchwall(gEv: any, memberId: string, calendarId: strin
   };
 }
 
+function extractGoogleEventId(eventId: string) {
+  const parts = String(eventId || '').split('__');
+  if (parts[0] === 'gcal' && parts.length >= 3) {
+    return parts.slice(2).join('__');
+  }
+  return null;
+}
+
 // ============================================================================
 // 4. KOMBINIERTES LADEN: SUPABASE CLOUD-KALENDER + GOOGLE KALENDER API V3
 // ============================================================================
@@ -181,10 +225,13 @@ async function loadCombinedCalendarData(supabase: any, accountId: string, calend
   const status: Record<string, { ok: boolean; msg: string }> = {};
   const allEvents: any[] = [];
 
-  const { data: dbEvents } = await supabase
+  // A. Cloud-Termine aus Supabase laden
+  const { data: dbEvents, error: dbErr } = await supabase
     .from('tw_calendar_events')
     .select('*')
     .eq('account_id', accountId);
+
+  if (dbErr) throw dbErr;
 
   (dbEvents || []).forEach((row: any) => {
     allEvents.push({
@@ -200,6 +247,7 @@ async function loadCombinedCalendarData(supabase: any, accountId: string, calend
     });
   });
 
+  // B. Google Kalender parallel abrufen
   const calEntries = Object.entries(calendarsMap || {}).filter(([, cid]) => String(cid || '').trim() !== '');
 
   if (calEntries.length > 0 && hasGoogleCredentials()) {
@@ -269,16 +317,26 @@ async function loadCombinedCalendarData(supabase: any, accountId: string, calend
   };
 }
 
-function extractGoogleEventId(eventId: string) {
-  const parts = String(eventId || '').split('__');
-  if (parts[0] === 'gcal' && parts.length >= 3) {
-    return parts.slice(2).join('__');
+// ============================================================================
+// 5. SCHNELLER BROWSER-STATUSCHECK (GET /api/cloud)
+// ============================================================================
+export async function GET() {
+  try {
+    const cleanUrl = getCleanSupabaseUrl();
+    return NextResponse.json({
+      ok: true,
+      status: 'Touchwall Cloud API bereit',
+      supabaseHost: new URL(cleanUrl).host,
+      supabaseKeyConfigured: Boolean((process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim()),
+      googleConfigured: hasGoogleCredentials()
+    });
+  } catch (err: any) {
+    return NextResponse.json({ ok: false, error: err?.message || 'Konfigurationsfehler' }, { status: 500 });
   }
-  return null;
 }
 
 // ============================================================================
-// 5. HAUPT-ENDPOINT (POST /api/cloud)
+// 6. HAUPT-ENDPOINT (POST /api/cloud)
 // ============================================================================
 export async function POST(req: Request) {
   try {
@@ -294,13 +352,17 @@ export async function POST(req: Request) {
     const supabase = getSupabaseAdmin();
     const authHash = hashAuthKey(authKey);
 
+    // ------------------------------------------------------------------------
+    // REGISTER ACCOUNT
+    // ------------------------------------------------------------------------
     if (action === 'registerAccount') {
-      const { data: existing } = await supabase
+      const { data: existing, error: exErr } = await supabase
         .from('tw_accounts')
         .select('account_id')
         .eq('account_id', accountId)
         .maybeSingle();
 
+      if (exErr) throw exErr;
       if (existing) {
         return NextResponse.json({ ok: false, error: 'Dieser Benutzername ist bereits vergeben.' }, { status: 409 });
       }
@@ -319,6 +381,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, state: payload });
     }
 
+    // ------------------------------------------------------------------------
+    // KONTO LADEN & AUTH PRÜFEN
+    // ------------------------------------------------------------------------
     const { data: accountRow, error: accErr } = await supabase
       .from('tw_accounts')
       .select('*')
@@ -333,16 +398,19 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: 'Passwort / PIN ist falsch.' }, { status: 401 });
     }
 
-    const currentCalendars = {
+    const currentCalendars: Record<string, string> = {
       ...(accountRow.calendars || {}),
       ...(accountRow.state?.calendars || {})
     };
     if (Array.isArray(accountRow.state?.members)) {
       accountRow.state.members.forEach((m: any) => {
-        if (m?.id && m?.calendarId) currentCalendars[m.id] = m.calendarId.trim();
+        if (m?.id && m?.calendarId) currentCalendars[m.id] = String(m.calendarId).trim();
       });
     }
 
+    // ------------------------------------------------------------------------
+    // LOGIN & LOAD BUNDLE
+    // ------------------------------------------------------------------------
     if (action === 'loginAccount' || action === 'loadBundle') {
       const calendarData = await loadCombinedCalendarData(supabase, accountId, currentCalendars);
       return NextResponse.json({
@@ -352,6 +420,9 @@ export async function POST(req: Request) {
       });
     }
 
+    // ------------------------------------------------------------------------
+    // SAVE STATE & SAVE DRIVE AND SYNC
+    // ------------------------------------------------------------------------
     if (action === 'saveState' || action === 'saveDriveAndSync') {
       const nextState = body.payload || accountRow.state || {};
       const nextCalendars = { ...currentCalendars, ...(body.calendars || {}) };
@@ -379,6 +450,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true });
     }
 
+    // ------------------------------------------------------------------------
+    // CREATE EVENT
+    // ------------------------------------------------------------------------
     if (action === 'createEvent') {
       const ev = body.event || {};
       const targetCalId = String(currentCalendars[ev.member] || '').trim();
@@ -401,7 +475,7 @@ export async function POST(req: Request) {
           throw new Error('Google Termin konnte nicht erstellt werden: ' + (gErr?.error?.message || gRes.status));
         }
       } else {
-        await supabase.from('tw_calendar_events').upsert({
+        const { error } = await supabase.from('tw_calendar_events').upsert({
           id: String(ev.id || Date.now()),
           account_id: accountId,
           member: ev.member || 'all',
@@ -413,12 +487,16 @@ export async function POST(req: Request) {
           notify_users: Array.isArray(ev.notifyUsers) ? ev.notifyUsers : [ev.member || 'all'],
           updated_at: new Date().toISOString()
         });
+        if (error) throw error;
       }
 
       const calendarData = await loadCombinedCalendarData(supabase, accountId, currentCalendars);
       return NextResponse.json({ ok: true, result: calendarData });
     }
 
+    // ------------------------------------------------------------------------
+    // UPDATE EVENT
+    // ------------------------------------------------------------------------
     if (action === 'updateEvent') {
       const ev = body.event || {};
       const oldMember = body.oldMember || ev.member;
@@ -452,7 +530,7 @@ export async function POST(req: Request) {
               }
             );
           } else {
-            await supabase.from('tw_calendar_events').upsert({
+            const { error } = await supabase.from('tw_calendar_events').upsert({
               id: String(Date.now()),
               account_id: accountId,
               member: ev.member || 'all',
@@ -461,12 +539,14 @@ export async function POST(req: Request) {
               event_time: ev.time || 'Ganztägig',
               notify_time: ev.notifyTime || '30m',
               notify_channel: ev.notifyChannel || 'wall_push',
-              notify_users: Array.isArray(ev.notifyUsers) ? ev.notifyUsers : [ev.member || 'all']
+              notify_users: Array.isArray(ev.notifyUsers) ? ev.notifyUsers : [ev.member || 'all'],
+              updated_at: new Date().toISOString()
             });
+            if (error) throw error;
           }
         }
       } else {
-        await supabase.from('tw_calendar_events').upsert({
+        const { error } = await supabase.from('tw_calendar_events').upsert({
           id: String(ev.id),
           account_id: accountId,
           member: ev.member || 'all',
@@ -478,12 +558,16 @@ export async function POST(req: Request) {
           notify_users: Array.isArray(ev.notifyUsers) ? ev.notifyUsers : [ev.member || 'all'],
           updated_at: new Date().toISOString()
         });
+        if (error) throw error;
       }
 
       const calendarData = await loadCombinedCalendarData(supabase, accountId, currentCalendars);
       return NextResponse.json({ ok: true, result: calendarData });
     }
 
+    // ------------------------------------------------------------------------
+    // DELETE EVENT
+    // ------------------------------------------------------------------------
     if (action === 'deleteEvent') {
       const eventId = String(body.eventId || '');
       const member = String(body.member || '');
@@ -497,17 +581,21 @@ export async function POST(req: Request) {
           { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } }
         );
       } else {
-        await supabase
+        const { error } = await supabase
           .from('tw_calendar_events')
           .delete()
           .eq('account_id', accountId)
           .eq('id', eventId);
+        if (error) throw error;
       }
 
       const calendarData = await loadCombinedCalendarData(supabase, accountId, currentCalendars);
       return NextResponse.json({ ok: true, result: calendarData });
     }
 
+    // ------------------------------------------------------------------------
+    // MOVE EVENT
+    // ------------------------------------------------------------------------
     if (action === 'moveEvent') {
       const eventId = String(body.eventId || '');
       const oldMember = String(body.oldMember || '');
@@ -547,18 +635,20 @@ export async function POST(req: Request) {
               }
             );
           } else {
-            await supabase.from('tw_calendar_events').upsert({
+            const { error } = await supabase.from('tw_calendar_events').upsert({
               id: String(Date.now()),
               account_id: accountId,
               member: targetMember,
               title: movedEv.title || 'Termin',
               event_date: newDate,
-              event_time: movedEv.time || 'Ganztägig'
+              event_time: movedEv.time || 'Ganztägig',
+              updated_at: new Date().toISOString()
             });
+            if (error) throw error;
           }
         }
       } else {
-        await supabase
+        const { error } = await supabase
           .from('tw_calendar_events')
           .update({
             member: targetMember,
@@ -567,12 +657,16 @@ export async function POST(req: Request) {
           })
           .eq('account_id', accountId)
           .eq('id', eventId);
+        if (error) throw error;
       }
 
       const calendarData = await loadCombinedCalendarData(supabase, accountId, currentCalendars);
       return NextResponse.json({ ok: true, result: calendarData });
     }
 
+    // ------------------------------------------------------------------------
+    // RUN DIAGNOSTICS
+    // ------------------------------------------------------------------------
     if (action === 'runDiagnostics') {
       const calendarData = await loadCombinedCalendarData(supabase, accountId, currentCalendars);
       return NextResponse.json({
@@ -589,8 +683,11 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: false, error: 'Unbekannte Aktion: ' + action }, { status: 400 });
   } catch (err: any) {
+    const details = [err?.message, err?.details, err?.hint, err?.code ? `(${err.code})` : '']
+      .filter(Boolean)
+      .join(' – ');
     return NextResponse.json(
-      { ok: false, error: err?.message || 'Interner Serverfehler in /api/cloud' },
+      { ok: false, error: details || 'Interner Serverfehler in /api/cloud' },
       { status: 500 }
     );
   }
