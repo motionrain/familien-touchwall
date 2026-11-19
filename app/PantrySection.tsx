@@ -356,7 +356,7 @@ const PANTRY_NO_SCALE_STYLES = [
   '  scale: none !important;',
   '}',
   '.tw-excel-select {',
-  '  background-color: #25292d !important;',
+  '  background-color: #26292d !important;',
   '  color: #f8fafc !important;',
   '  border: 1px solid rgba(255, 255, 255, 0.22) !important;',
   '  font-weight: 800 !important;',
