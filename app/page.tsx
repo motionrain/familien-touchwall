@@ -849,7 +849,12 @@ const createAndSelectTodoistProject = async (projectName) => {
         const nextMembers = baseMembers.map(m => {
           const cid = calMap[m.id] !== undefined && calMap[m.id] !== '' ? calMap[m.id] : (m.calendarId || '');
           const st = statusMap[m.id];
-          return { ...m, calendarId: cid, ok: st ? Boolean(st.ok) : true, statusMsg: st?.msg || 'Cloud aktiv ✓' };
+          return {
+            ...m,
+            calendarId: cid,
+            ok: st ? Boolean(st.ok) : (m.ok !== undefined ? m.ok : true),
+            statusMsg: st?.msg || m.statusMsg || 'Cloud aktiv ✓'
+          };
         });
         if (hasJsonChanged(safeMembers, nextMembers)) setMembers(nextMembers);
 
@@ -943,11 +948,21 @@ const createAndSelectTodoistProject = async (projectName) => {
     const targetUrl = (urlOverride !== undefined ? urlOverride : (appsScriptUrl || PUBLIC_CLOUD_BACKEND_URL)).trim();
     if (!targetUrl) return false;
 
+    const effectiveSkipCalendars = Boolean(
+      skipCalendars || channelsFilter === 'pantry' || channelsFilter === 'skillboard'
+    );
+
     isSyncRunningRef.current = true;
     if (showFeedback) setIsSyncing(true);
 
     try {
-      const bundle = await callCloudApi(targetUrl, 'POST', { action: 'loadBundle', skipCalendars }, activeAcc, activeKey);
+      const bundle = await callCloudApi(
+        targetUrl,
+        'POST',
+        { action: 'loadBundle', skipCalendars: effectiveSkipCalendars },
+        activeAcc,
+        activeKey
+      );
       if (bundle?.ok === false) {
         if (showFeedback) showToast('Hinweis', bundle.error || 'Daten konnten nicht geladen werden.', '⚠️');
         return false;
@@ -963,7 +978,7 @@ const createAndSelectTodoistProject = async (projectName) => {
       setSyncStatusText(isRealtimeTrigger ? '⚡ Live-Sync (' + tStr + ')' : '⚡ 4-Kanal Sync (' + tStr + ')');
       setChannelStatus(prev => ({
         ...prev,
-        calendar: 'Synchron (' + tStr + ') ✓',
+        calendar: effectiveSkipCalendars ? prev.calendar : ('Synchron (' + tStr + ') ✓'),
         pantry: 'Synchron (' + tStr + ') ✓',
         skillboard: 'Synchron (' + tStr + ') ✓'
       }));
@@ -1081,10 +1096,10 @@ const createAndSelectTodoistProject = async (projectName) => {
     setIsCheckingAuth(false);
   }, []);
 
-  // SUPABASE REALTIME LIVE-SYNC: Reagiert sofort auf Änderungen von Pocket-App oder anderen Geräten
+  // SUPABASE REALTIME TURBO LIVE-SYNC: Überspringt Google Kalender bei reinen State-Änderungen (< 1 Sek.)
   useTouchwallRealtime(isAuthenticated && accountId && accountId !== 'local' ? accountId : '', (scope) => {
-  pullCloudRef.current?.(undefined, false, undefined, undefined, 'all', true, scope === 'state');
-});
+    pullCloudRef.current?.(undefined, false, undefined, undefined, 'all', true, scope === 'state');
+  });
 
   // Fallback-Intervall (30s) für externe Änderungen direkt im Google Kalender
   useEffect(() => {
@@ -1146,7 +1161,14 @@ const createAndSelectTodoistProject = async (projectName) => {
         let mergedSkill = skillBoardData;
 
         try {
-          const fresh = await callCloudApi(appsScriptUrl || PUBLIC_CLOUD_BACKEND_URL, 'POST', { action: 'loadBundle' }, accountId, authKey);
+          // TURBO: Vor-Merge ohne Google-Kalender-Wartezeit (~60ms statt 2-3s)
+          const fresh = await callCloudApi(
+            appsScriptUrl || PUBLIC_CLOUD_BACKEND_URL,
+            'POST',
+            { action: 'loadBundle', skipCalendars: true },
+            accountId,
+            authKey
+          );
           if (fresh?.ok && fresh.state) {
             syncMetaRef.current = mergeSyncMetaMaps(syncMetaRef.current, fresh.state.syncMeta);
             saveLocalSyncMeta(syncMetaRef.current);
@@ -1206,7 +1228,7 @@ const createAndSelectTodoistProject = async (projectName) => {
         lastLocalEditTimeRef.current = Date.now();
         isNetworkSavingRef.current = false;
       }
-    }, 900);
+    }, 250);
   }, [isAuthenticated, accountId, authKey, familyName, safeMembers, safeMeals, safeNotes, safeSchoolData, safeTasks, safePantryItems, safePantryTrash, currentTheme, customLogoUrl, safeTodoistConfig, appsScriptUrl]);
 
   const handleRegisterSubmit = async (e) => {
@@ -1380,7 +1402,7 @@ const createAndSelectTodoistProject = async (projectName) => {
     setIsAuthenticated(false);
   };
 
-  const shoppingNoteBlock = useMemo(() => safeNotes[0] || { id: 1, title: '🛒 Einkaufsliste', items: [] }, [safeNotes]);
+const shoppingNoteBlock = useMemo(() => safeNotes[0] || { id: 1, title: '🛒 Einkaufsliste', items: [] }, [safeNotes]);
 
   const setShoppingTileProjectId = (projId) => {
     lastLocalEditTimeRef.current = Date.now();
@@ -2526,5 +2548,3 @@ const createAndSelectTodoistProject = async (projectName) => {
     </div>
   );
 }
-
-  
