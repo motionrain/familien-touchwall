@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 
 import * as Cfg from '../touchwallConfig';
+import AuthScreen from '../AuthScreen';
 import {
   PUBLIC_CLOUD_BACKEND_URL,
   hasJsonChanged,
@@ -563,12 +564,15 @@ function reconcileFamilyTasks(localTasks, incomingTasks, syncMeta, source = 'clo
 export default function TouchwallPocketApp() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+  const [authTab, setAuthTab] = useState('login');
   const [accountId, setAccountId] = useState('');
   const [authKey, setAuthKey] = useState('');
   const [familyName, setFamilyName] = useState('Touchwall Pocket');
 
   const [formUsername, setFormUsername] = useState('');
   const [formPassword, setFormPassword] = useState('');
+  const [formEmail, setFormEmail] = useState('');
+  const [loginFamilyName, setLoginFamilyName] = useState('');
   const [loginError, setLoginError] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
@@ -1016,7 +1020,8 @@ export default function TouchwallPocketApp() {
     '  box-shadow: 0 6px 16px -3px var(--tw-btn-glow) !important;',
     '}'
   ].join('\n');
-  const callCloudBackend = async (postBody) => {
+
+const callCloudBackend = async (postBody) => {
     return callCloudApi(
       PUBLIC_CLOUD_BACKEND_URL,
       'POST',
@@ -1283,11 +1288,57 @@ export default function TouchwallPocketApp() {
     syncMetaRef.current = loadLocalSyncMeta();
     try {
       const params = new URLSearchParams(window.location.search);
+      const oauthOk = params.get('oauth_ok');
+      const oauthIntent = params.get('oauth_intent');
+      const oauthErr = params.get('oauth_error');
       const qrAcc = params.get('account');
       const qrKey = params.get('key');
       const qrFamily = params.get('family');
       const savedPerson = localStorage.getItem('richter_tw_pocket_person');
       if (savedPerson) setSelectedPerson(savedPerson);
+
+      if (oauthErr) {
+        setLoginError(oauthErr);
+        showToast('OAuth-Hinweis', oauthErr, '⚠️');
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+
+      if (oauthOk && oauthIntent === 'login') {
+        window.history.replaceState({}, '', window.location.pathname);
+        fetch('/api/oauth/session', { cache: 'no-store' })
+          .then(r => r.json())
+          .then(data => {
+            const h = data?.handoff;
+            if (h?.accountId && h?.authKey) {
+              const title = h.familyName || ('Familie ' + h.accountId);
+              setAccountId(h.accountId);
+              setAuthKey(h.authKey);
+              setFamilyName(title);
+              writeAuthSession(h.accountId, h.authKey, title);
+              setIsAuthenticated(true);
+              showToast(
+                'Mit ' + (h.provider === 'google' ? 'Google' : 'Outlook') + ' angemeldet!',
+                title + ' geladen.',
+                '🔓'
+              );
+              setTimeout(() => syncAllNowRef.current?.(false, h.accountId, h.authKey), 150);
+            } else {
+              setLoginError('OAuth-Sitzung abgelaufen. Bitte erneut anmelden.');
+            }
+          })
+          .catch(() => setLoginError('OAuth-Sitzung konnte nicht geladen werden.'))
+          .finally(() => setIsCheckingAuth(false));
+        return;
+      }
+
+      if (oauthOk && oauthIntent === 'link') {
+        window.history.replaceState({}, '', window.location.pathname);
+        showToast(
+          'OAuth verknüpft ✓',
+          (oauthOk === 'google' ? 'Google' : 'Outlook / Microsoft') + ' wurde erfolgreich verbunden!',
+          '🔗'
+        );
+      }
 
       if (qrAcc && qrKey) {
         const cleanTitle = qrFamily || 'Familien-Touchwall';
@@ -2141,7 +2192,10 @@ export default function TouchwallPocketApp() {
     setLoginError('');
     const cleanUser = formUsername.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
     const cleanPass = formPassword.trim();
-    if (!cleanUser || !cleanPass) return;
+    if (!cleanUser || !cleanPass) {
+      setLoginError('Bitte Benutzername und Passwort eingeben.');
+      return;
+    }
 
     setIsLoggingIn(true);
     try {
@@ -2169,63 +2223,111 @@ export default function TouchwallPocketApp() {
     }
   };
 
-  if (isCheckingAuth) {
+  const handlePocketRegister = async (e) => {
+    e.preventDefault();
+    setLoginError('');
+    const cleanUser = formUsername.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
+    const cleanPass = formPassword.trim();
+    const cleanEmail = formEmail.trim().toLowerCase();
+    const chosenTitle = loginFamilyName.trim() || ('Familie ' + (cleanUser.charAt(0).toUpperCase() + cleanUser.slice(1)));
+
+    if (cleanUser.length < 3) {
+      setLoginError('Bitte wähle einen Benutzernamen mit mindestens 3 Zeichen.');
+      return;
+    }
+    if (cleanPass.length < 4) {
+      setLoginError('Das Passwort / PIN muss mindestens 4 Zeichen lang sein.');
+      return;
+    }
+
+    setIsLoggingIn(true);
+    try {
+      const res = await callCloudBackend({
+        action: 'registerAccount',
+        accountId: cleanUser,
+        authKey: cleanPass,
+        email: cleanEmail,
+        payload: {
+          isConfigured: true,
+          familyName: chosenTitle,
+          members: DEFAULT_MEMBERS,
+          mealPlan: DEFAULT_MEALS,
+          familyNotes: DEFAULT_NOTES,
+          schoolData: DEFAULT_SCHOOL,
+          familyTasks: [],
+          pantryItems: [],
+          pantryTrash: [],
+          skillBoardData: null,
+          currentTheme: 'metal',
+          customLogoUrl: '',
+          todoistConfig: { apiToken: '', shoppingProjectId: '', tasksProjectId: '', projects: [], collaborators: [] }
+        }
+      });
+
+      if (!res || res.ok === false) {
+        setLoginError(res?.error || 'Registrierung fehlgeschlagen.');
+        setIsLoggingIn(false);
+        return;
+      }
+
+      setAccountId(cleanUser);
+      setAuthKey(cleanPass);
+      setFamilyName(chosenTitle);
+      setMembers(DEFAULT_MEMBERS);
+      setEvents([]);
+      setFamilyTasks([]);
+      setPantryItems([]);
+      setPantryTrash([]);
+      writeAuthSession(cleanUser, cleanPass, chosenTitle);
+      setIsAuthenticated(true);
+      if (res.recoveryCode) {
+        showToast('Konto erstellt! Notfall-Code:', res.recoveryCode, '🔑');
+      } else {
+        showToast('Konto erstellt!', chosenTitle + ' ist jetzt bereit.', '🎉');
+      }
+    } catch (err) {
+      setLoginError('Verbindungsfehler bei der Registrierung.');
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  const startPocketOAuthLink = (provider) => {
+    if (!accountId || accountId === 'local' || typeof window === 'undefined') {
+      showToast('Cloud-Konto nötig', 'Bitte zuerst mit einem Cloud-Konto anmelden.', '⚠️');
+      return;
+    }
+    const targetMember = selectedPerson && selectedPerson !== 'all' ? selectedPerson : 'account';
+    window.location.href =
+      '/api/oauth/start?provider=' + encodeURIComponent(provider) +
+      '&intent=link&accountId=' + encodeURIComponent(accountId) +
+      '&memberId=' + encodeURIComponent(targetMember) +
+      '&returnTo=/pocket';
+  };
+
+if (isCheckingAuth || !isAuthenticated) {
     return (
-      <div className="h-screen w-screen bg-[#111418] text-white flex items-center justify-center p-6">
-        <div className="text-sm font-extrabold opacity-75 animate-pulse">📱 Lade Touchwall Pocket...</div>
-      </div>
-    );
-  }
-
-  if (!isAuthenticated) {
-    return (
-      <div className="h-screen w-screen bg-[#111418] text-slate-100 flex flex-col justify-center p-5 select-none">
-        <div className="w-full max-w-md mx-auto rounded-3xl border border-slate-700/80 bg-[#1b2028] p-6 shadow-2xl space-y-5">
-          <div className="flex items-center gap-3.5">
-            <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-sky-500 to-indigo-600 flex items-center justify-center shadow-md shrink-0">
-              <Smartphone className="w-6 h-6 text-white" />
-            </div>
-            <div>
-              <span className="px-2.5 py-0.5 rounded-full bg-sky-500/20 text-sky-300 text-[10px] font-extrabold">
-                📱 Touchwall Pocket • Android App & Scanner
-              </span>
-              <h1 className="text-xl font-black mt-0.5">Handy-Anmeldung</h1>
-            </div>
-          </div>
-
-          {loginError && (
-            <div className="p-3 rounded-2xl bg-rose-500/20 border border-rose-400/50 text-rose-200 text-xs font-extrabold">
-              ⚠️ {loginError}
-            </div>
-          )}
-
-          <form onSubmit={handlePocketLogin} className="space-y-3.5">
-            <input
-              type="text"
-              required
-              value={formUsername}
-              onChange={(e) => setFormUsername(e.target.value)}
-              placeholder="Familien-Benutzername"
-              className="w-full px-4 py-3.5 rounded-2xl bg-[#0e1116] border border-slate-700 text-sm font-bold text-white"
-            />
-            <input
-              type="password"
-              required
-              value={formPassword}
-              onChange={(e) => setFormPassword(e.target.value)}
-              placeholder="Passwort / PIN"
-              className="w-full px-4 py-3.5 rounded-2xl bg-[#0e1116] border border-slate-700 text-sm font-bold text-white"
-            />
-            <button
-              type="submit"
-              disabled={isLoggingIn}
-              className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-sky-500 to-indigo-600 text-white font-black text-sm shadow-lg"
-            >
-              {isLoggingIn ? 'Verbinde...' : '🔓 Auf dem Handy anmelden'}
-            </button>
-          </form>
-        </div>
-      </div>
+      <AuthScreen
+        isCheckingAuth={isCheckingAuth}
+        themeStyles={themeStyles}
+        authTab={authTab}
+        setAuthTab={setAuthTab}
+        loginError={loginError}
+        setLoginError={setLoginError}
+        formUsername={formUsername}
+        setFormUsername={setFormUsername}
+        formPassword={formPassword}
+        setFormPassword={setFormPassword}
+        formEmail={formEmail}
+        setFormEmail={setFormEmail}
+        loginFamilyName={loginFamilyName}
+        setLoginFamilyName={setLoginFamilyName}
+        isLoggingIn={isLoggingIn}
+        handleAccountLoginSubmit={handlePocketLogin}
+        handleRegisterSubmit={handlePocketRegister}
+        returnTo="/pocket"
+        isPocket={true}
+      />
     );
   }
 
@@ -2942,7 +3044,7 @@ export default function TouchwallPocketApp() {
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className={'w-full max-w-md rounded-3xl border-2 p-4 shadow-2xl space-y-4 mb-14 ' + themeStyles.modal}
+            className={'w-full max-w-md rounded-3xl border-2 p-4 shadow-2xl space-y-4 mb-14 max-h-[82dvh] overflow-y-auto ' + themeStyles.modal}
           >
             <div className="flex items-center justify-between gap-2 border-b border-white/10 pb-3">
               <div className="flex items-center gap-2.5 min-w-0">
@@ -2998,6 +3100,41 @@ export default function TouchwallPocketApp() {
               </div>
             </div>
 
+            {/* GOOGLE & OUTLOOK OAUTH JEDERZEIT NACHTRÄGLICH VERKNÜPFEN */}
+            {accountId && accountId !== 'local' && (
+              <div className="space-y-2 pt-1 border-t border-white/10">
+                <span className="text-[11px] font-black uppercase text-emerald-400 block">
+                  🔗 Google / Outlook OAuth verknüpfen ({selectedPerson && selectedPerson !== 'all' ? (activePersonObj?.name || selectedPerson) : 'Konto'}):
+                </span>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => startPocketOAuthLink('google')}
+                    className="tw-nav-inactive py-2.5 px-3 rounded-2xl text-xs font-black flex items-center justify-center gap-2"
+                  >
+                    <svg viewBox="0 0 24 24" className="w-4 h-4 shrink-0" aria-hidden="true">
+                      <path fill="#EA4335" d="M12 10.2v3.9h5.5c-.2 1.3-1.5 3.9-5.5 3.9-3.3 0-6-2.7-6-6s2.7-6 6-6c1.9 0 3.1.8 3.8 1.5l2.6-2.5C16.7 3.4 14.6 2.4 12 2.4 6.7 2.4 2.4 6.7 2.4 12s4.3 9.6 9.6 9.6c5.5 0 9.2-3.9 9.2-9.4 0-.6-.1-1.1-.2-1.6H12z" />
+                    </svg>
+                    <span>Google OAuth</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => startPocketOAuthLink('microsoft')}
+                    className="tw-nav-inactive py-2.5 px-3 rounded-2xl text-xs font-black flex items-center justify-center gap-2"
+                  >
+                    <svg viewBox="0 0 24 24" className="w-4 h-4 shrink-0" aria-hidden="true">
+                      <rect x="2" y="2" width="9.2" height="9.2" fill="#F25022" />
+                      <rect x="12.8" y="2" width="9.2" height="9.2" fill="#7FBA00" />
+                      <rect x="2" y="12.8" width="9.2" height="9.2" fill="#00A4EF" />
+                      <rect x="12.8" y="12.8" width="9.2" height="9.2" fill="#FFB900" />
+                    </svg>
+                    <span>Outlook OAuth</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="grid grid-cols-2 gap-2 pt-1">
               <button
                 type="button"
@@ -3030,7 +3167,15 @@ export default function TouchwallPocketApp() {
               <button
                 type="button"
                 onClick={() => {
-                  localStorage.removeItem('richter_tw_auth_active');
+                  try {
+                    localStorage.removeItem('richter_tw_auth_active');
+                    localStorage.removeItem('richter_tw_account_id');
+                    localStorage.removeItem('richter_tw_auth_key');
+                    document.cookie = 'tw_auth_session=; path=/; max-age=0; SameSite=Lax';
+                    document.cookie = 'tw_account_id=; path=/; max-age=0; SameSite=Lax';
+                  } catch (e) {}
+                  setAccountId('');
+                  setAuthKey('');
                   setIsAuthenticated(false);
                   setQuickCockpitOpen(false);
                 }}
