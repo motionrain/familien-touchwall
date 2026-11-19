@@ -3,8 +3,11 @@
 /* eslint-disable @next/next/no-img-element */
 'use client';
 
-import React, { useState } from 'react';
-import { ShieldCheck, RefreshCw, Cloud, Check, Plus, ChevronDown } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import {
+  ShieldCheck, RefreshCw, Cloud, Check, Plus, ChevronDown,
+  KeyRound, Mail, Unlink, Copy, Lock
+} from 'lucide-react';
 import { COLOR_PALETTES, PAGE_THEMES, AVATAR_EMOJIS } from './touchwallConfig';
 
 const CALENDAR_PROVIDERS = [
@@ -14,8 +17,30 @@ const CALENDAR_PROVIDERS = [
   { id: 'school',  label: '🏫 Schule / WebUntis / Verein (.ics Link)', placeholder: 'https://... (.ics Kalender-Link)' }
 ];
 
+function GoogleMiniIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 shrink-0" aria-hidden="true">
+      <path fill="#EA4335" d="M12 10.2v3.9h5.5c-.2 1.3-1.5 3.9-5.5 3.9-3.3 0-6-2.7-6-6s2.7-6 6-6c1.9 0 3.1.8 3.8 1.5l2.6-2.5C16.7 3.4 14.6 2.4 12 2.4 6.7 2.4 2.4 6.7 2.4 12s4.3 9.6 9.6 9.6c5.5 0 9.2-3.9 9.2-9.4 0-.6-.1-1.1-.2-1.6H12z" />
+    </svg>
+  );
+}
+
+function MicrosoftMiniIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 shrink-0" aria-hidden="true">
+      <rect x="2" y="2" width="9.2" height="9.2" fill="#F25022" />
+      <rect x="12.8" y="2" width="9.2" height="9.2" fill="#7FBA00" />
+      <rect x="2" y="12.8" width="9.2" height="9.2" fill="#00A4EF" />
+      <rect x="12.8" y="12.8" width="9.2" height="9.2" fill="#FFB900" />
+    </svg>
+  );
+}
+
 export default function SettingsSection({
   activeSection,
+  accountId = '',
+  authKey = '',
+  onAuthKeyUpdated = null,
   members,
   setMembers,
   currentTheme,
@@ -39,13 +64,171 @@ export default function SettingsSection({
   exportBackupJson,
   themeStyles,
   getMemberStyles,
-  renderAvatar
+  renderAvatar,
+  showToast = null
 }) {
   const [addingCalForMember, setAddingCalForMember] = useState(null);
   const [newCalProvider, setNewCalProvider] = useState('outlook');
   const [newCalLabel, setNewCalLabel] = useState('');
   const [newCalUrl, setNewCalUrl] = useState('');
   const [showExpertServerUrl, setShowExpertServerUrl] = useState(false);
+
+  // Konto-Sicherheit, Passwort-Reset & OAuth-Status
+  const [securityEmail, setSecurityEmail] = useState('');
+  const [hasRecoveryCode, setHasRecoveryCode] = useState(false);
+  const [generatedRecoveryCode, setGeneratedRecoveryCode] = useState('');
+  const [newPasswordInput, setNewPasswordInput] = useState('');
+  const [oauthConnections, setOauthConnections] = useState([]);
+  const [oauthProvidersReady, setOauthProvidersReady] = useState({ google: true, microsoft: true });
+  const [isLoadingSecurity, setIsLoadingSecurity] = useState(false);
+  const [isSavingSecurity, setIsSavingSecurity] = useState(false);
+  const [securityFeedback, setSecurityFeedback] = useState('');
+
+  const effectiveAccountId =
+    accountId || (typeof localStorage !== 'undefined' ? localStorage.getItem('richter_tw_account_id') || '' : '');
+  const effectiveAuthKey =
+    authKey || (typeof localStorage !== 'undefined' ? localStorage.getItem('richter_tw_auth_key') || '' : '');
+  const isCloudAccount = Boolean(effectiveAccountId && effectiveAccountId !== 'local' && effectiveAuthKey);
+
+  const notify = (title, msg, icon = '✅') => {
+    if (typeof showToast === 'function') {
+      showToast(title, msg, icon);
+    } else {
+      setSecurityFeedback(title + ': ' + msg);
+    }
+  };
+
+  const loadSecurityAndOAuthStatus = async () => {
+    if (!isCloudAccount) return;
+    setIsLoadingSecurity(true);
+    try {
+      const res = await fetch('/api/auth/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'getSecurityStatus',
+          accountId: effectiveAccountId,
+          authKey: effectiveAuthKey
+        }),
+        cache: 'no-store'
+      });
+      const json = await res.json();
+      if (res.ok && json?.ok) {
+        setSecurityEmail(json.email || '');
+        setHasRecoveryCode(Boolean(json.hasRecoveryCode));
+        setOauthConnections(Array.isArray(json.oauthConnections) ? json.oauthConnections : []);
+        if (json.oauthProvidersReady) setOauthProvidersReady(json.oauthProvidersReady);
+      }
+    } catch (e) {} finally {
+      setIsLoadingSecurity(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeSection === 'google' && isCloudAccount) {
+      loadSecurityAndOAuthStatus();
+    }
+  }, [activeSection, effectiveAccountId, effectiveAuthKey]);
+
+  const handleSaveSecuritySettings = async (opts = {}) => {
+    if (!isCloudAccount) return;
+    setIsSavingSecurity(true);
+    setSecurityFeedback('');
+    try {
+      const bodyPayload = {
+        action: 'updateSecurity',
+        accountId: effectiveAccountId,
+        authKey: effectiveAuthKey
+      };
+      if (opts.saveEmail) bodyPayload.email = securityEmail.trim().toLowerCase();
+      if (opts.generateRecoveryCode) bodyPayload.generateRecoveryCode = true;
+      if (opts.changePassword) {
+        const cleanPw = newPasswordInput.trim();
+        if (cleanPw.length < 4) {
+          notify('Passwort zu kurz', 'Bitte mindestens 4 Zeichen eingeben.', '⚠️');
+          setIsSavingSecurity(false);
+          return;
+        }
+        bodyPayload.newPassword = cleanPw;
+      }
+
+      const res = await fetch('/api/auth/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(bodyPayload)
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.ok) {
+        notify('Hinweis', json?.error || 'Konnte nicht gespeichert werden.', '⚠️');
+        return;
+      }
+
+      if (json.email !== undefined) setSecurityEmail(json.email);
+      if (json.hasRecoveryCode !== undefined) setHasRecoveryCode(Boolean(json.hasRecoveryCode));
+
+      if (json.recoveryCode) {
+        setGeneratedRecoveryCode(json.recoveryCode);
+        notify('Notfall-Code erzeugt 🔑', 'Bitte jetzt sicher notieren oder kopieren!', '🔑');
+      } else if (opts.changePassword) {
+        const cleanPw = newPasswordInput.trim();
+        try { localStorage.setItem('richter_tw_auth_key', cleanPw); } catch (e) {}
+        if (typeof onAuthKeyUpdated === 'function') onAuthKeyUpdated(cleanPw);
+        setNewPasswordInput('');
+        notify('Passwort geändert 🔒', 'Dein neues Passwort ist sofort aktiv.', '🔒');
+      } else if (opts.saveEmail) {
+        notify('Reset-E-Mail gespeichert ✉️', securityEmail.trim() || 'E-Mail entfernt.', '✉️');
+      }
+    } catch (e) {
+      notify('Verbindungsfehler', 'Bitte erneut versuchen.', '⚠️');
+    } finally {
+      setIsSavingSecurity(false);
+    }
+  };
+
+  const startOAuthLinkFlow = (provider, memberId = 'account') => {
+    if (!isCloudAccount || typeof window === 'undefined') {
+      notify('Cloud-Konto nötig', 'Bitte zuerst mit einem Cloud-Konto anmelden.', '⚠️');
+      return;
+    }
+    const url =
+      '/api/oauth/start?provider=' + encodeURIComponent(provider) +
+      '&intent=link&accountId=' + encodeURIComponent(effectiveAccountId) +
+      '&memberId=' + encodeURIComponent(memberId) +
+      '&returnTo=/';
+    window.location.href = url;
+  };
+
+  const handleDisconnectOAuth = async (provider, memberId = 'account') => {
+    if (!isCloudAccount) return;
+    try {
+      const res = await fetch('/api/oauth/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'disconnect',
+          accountId: effectiveAccountId,
+          authKey: effectiveAuthKey,
+          provider,
+          memberId
+        })
+      });
+      const json = await res.json();
+      if (res.ok && json?.ok) {
+        setOauthConnections(prev =>
+          prev.filter(c => !(c.provider === provider && c.member_id === memberId))
+        );
+        notify(
+          'Verbindung getrennt',
+          (provider === 'google' ? 'Google' : 'Outlook / Microsoft') + ' wurde erfolgreich getrennt.',
+          '🔌'
+        );
+        pullFromCloud?.(undefined, false);
+      }
+    } catch (e) {}
+  };
+
+  const getOAuthConn = (memberId, provider) =>
+    oauthConnections.find(c => c.member_id === memberId && c.provider === provider) || null;
 
   const projectsList = Array.isArray(todoistConfig?.projects) ? todoistConfig.projects : [];
 
@@ -296,10 +479,229 @@ export default function SettingsSection({
   }
 
   // =========================================================
-  // ANSICHT: KONTEN & MULTI-KALENDER VERKNÜPFUNG
+  // ANSICHT: KONTEN, OAUTH (GOOGLE & OUTLOOK), PASSWORT-RESET & MULTI-KALENDER
   // =========================================================
+  const accountGoogleConn = getOAuthConn('account', 'google');
+  const accountMsConn = getOAuthConn('account', 'microsoft');
+
   return (
     <div className="p-6 flex flex-col gap-6">
+
+      {/* 1. KONTO-SICHERHEIT, PASSWORT-RESET & NACHTRÄGLICHES OAUTH-LOGIN */}
+      {isCloudAccount && (
+        <div className={'rounded-3xl p-6 shadow-xl border-2 border-emerald-500/40 space-y-5 ' + themeStyles.card}>
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-extrabold">
+                🔐 Konto-Sicherheit, Passwort-Reset & 1-Klick OAuth-Login
+              </span>
+              <h2 className="text-xl sm:text-2xl font-extrabold mt-2">
+                Google & Outlook verknüpfen • Passwort & Notfall-Code
+              </h2>
+              <p className={'text-xs sm:text-sm mt-1 ' + themeStyles.textMuted}>
+                Auch nach einer normalen Registrierung kannst du hier jederzeit <strong>Google</strong> und <strong>Microsoft / Outlook</strong> für dein Konto (<strong>{effectiveAccountId}</strong>) freischalten sowie Reset-E-Mail und Notfall-Code verwalten.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={loadSecurityAndOAuthStatus}
+              disabled={isLoadingSecurity}
+              className="tw-nav-inactive px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
+            >
+              <RefreshCw className={'w-3.5 h-3.5 ' + (isLoadingSecurity ? 'animate-spin' : '')} />
+              <span>Status prüfen</span>
+            </button>
+          </div>
+
+          {securityFeedback && (
+            <div className="p-3 rounded-2xl bg-sky-500/20 border border-sky-400/40 text-sky-200 text-xs font-extrabold">
+              {securityFeedback}
+            </div>
+          )}
+
+          {/* OAUTH-LOGIN VERKNÜPFUNGEN (KONTOWEIT) */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+            <div className={'p-4 rounded-2xl border flex flex-wrap items-center justify-between gap-3 ' + themeStyles.subtle}>
+              <div className="space-y-0.5 min-w-[180px]">
+                <div className="text-sm font-black flex items-center gap-2">
+                  <GoogleMiniIcon />
+                  <span>Google Konto (OAuth)</span>
+                </div>
+                <div className="text-xs opacity-80 font-semibold">
+                  {accountGoogleConn
+                    ? ('Verbunden: ' + (accountGoogleConn.provider_email || 'Aktiv ✓'))
+                    : (oauthProvidersReady.google ? 'Noch nicht verknüpft' : 'Hinweis: GOOGLE_OAUTH_CLIENT_ID in Vercel ergänzen')}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {accountGoogleConn ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => startOAuthLinkFlow('google', 'account')}
+                      className="tw-nav-inactive px-3 py-2 rounded-xl text-xs font-extrabold cursor-pointer"
+                    >
+                      Neu verbinden
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDisconnectOAuth('google', 'account')}
+                      className="px-3 py-2 rounded-xl bg-rose-500/20 border border-rose-400/40 text-rose-300 text-xs font-extrabold flex items-center gap-1 cursor-pointer"
+                    >
+                      <Unlink className="w-3.5 h-3.5" /> Trennen
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => startOAuthLinkFlow('google', 'account')}
+                    className="tw-glow-btn px-4 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <GoogleMiniIcon />
+                    <span>Google jetzt verknüpfen</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className={'p-4 rounded-2xl border flex flex-wrap items-center justify-between gap-3 ' + themeStyles.subtle}>
+              <div className="space-y-0.5 min-w-[180px]">
+                <div className="text-sm font-black flex items-center gap-2">
+                  <MicrosoftMiniIcon />
+                  <span>Outlook / Microsoft (OAuth)</span>
+                </div>
+                <div className="text-xs opacity-80 font-semibold">
+                  {accountMsConn
+                    ? ('Verbunden: ' + (accountMsConn.provider_email || 'Aktiv ✓'))
+                    : (oauthProvidersReady.microsoft ? 'Noch nicht verknüpft' : 'Hinweis: MICROSOFT_OAUTH_CLIENT_ID in Vercel ergänzen')}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {accountMsConn ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => startOAuthLinkFlow('microsoft', 'account')}
+                      className="tw-nav-inactive px-3 py-2 rounded-xl text-xs font-extrabold cursor-pointer"
+                    >
+                      Neu verbinden
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDisconnectOAuth('microsoft', 'account')}
+                      className="px-3 py-2 rounded-xl bg-rose-500/20 border border-rose-400/40 text-rose-300 text-xs font-extrabold flex items-center gap-1 cursor-pointer"
+                    >
+                      <Unlink className="w-3.5 h-3.5" /> Trennen
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => startOAuthLinkFlow('microsoft', 'account')}
+                    className="tw-glow-btn px-4 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <MicrosoftMiniIcon />
+                    <span>Outlook jetzt verknüpfen</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* RESET-E-MAIL, PASSWORT & NOTFALL-RECOVERY-CODE */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3.5">
+            <div className={'p-4 rounded-2xl border space-y-2.5 ' + themeStyles.subtle}>
+              <label className="text-xs font-extrabold uppercase text-sky-400 flex items-center gap-1.5">
+                <Mail className="w-3.5 h-3.5" /> E-Mail für Passwort-Reset
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="email"
+                  value={securityEmail}
+                  onChange={(e) => setSecurityEmail(e.target.value)}
+                  placeholder="name@beispiel.de"
+                  className={'flex-1 min-w-0 px-3 py-2 rounded-xl border text-xs font-bold ' + themeStyles.input}
+                />
+                <button
+                  type="button"
+                  disabled={isSavingSecurity}
+                  onClick={() => handleSaveSecuritySettings({ saveEmail: true })}
+                  className="tw-glow-btn px-3.5 py-2 rounded-xl text-xs font-black cursor-pointer shrink-0"
+                >
+                  Speichern
+                </button>
+              </div>
+            </div>
+
+            <div className={'p-4 rounded-2xl border space-y-2.5 ' + themeStyles.subtle}>
+              <label className="text-xs font-extrabold uppercase text-amber-400 flex items-center gap-1.5">
+                <Lock className="w-3.5 h-3.5" /> Passwort / PIN ändern
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  value={newPasswordInput}
+                  onChange={(e) => setNewPasswordInput(e.target.value)}
+                  placeholder="Neues Passwort (min. 4 Z.)"
+                  className={'flex-1 min-w-0 px-3 py-2 rounded-xl border text-xs font-bold ' + themeStyles.input}
+                />
+                <button
+                  type="button"
+                  disabled={isSavingSecurity || newPasswordInput.trim().length < 4}
+                  onClick={() => handleSaveSecuritySettings({ changePassword: true })}
+                  className="tw-glow-btn px-3.5 py-2 rounded-xl text-xs font-black cursor-pointer shrink-0"
+                >
+                  Ändern
+                </button>
+              </div>
+            </div>
+
+            <div className={'p-4 rounded-2xl border space-y-2.5 ' + themeStyles.subtle}>
+              <div className="flex items-center justify-between gap-2">
+                <label className="text-xs font-extrabold uppercase text-emerald-400 flex items-center gap-1.5">
+                  <KeyRound className="w-3.5 h-3.5" /> Notfall-Recovery-Code
+                </label>
+                <span className={'text-[10px] font-black px-2 py-0.5 rounded-full ' + (hasRecoveryCode ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300')}>
+                  {hasRecoveryCode ? 'Aktiv ✓' : 'Noch offen'}
+                </span>
+              </div>
+              <button
+                type="button"
+                disabled={isSavingSecurity}
+                onClick={() => handleSaveSecuritySettings({ generateRecoveryCode: true })}
+                className="tw-glow-btn w-full py-2 px-3 rounded-xl text-xs font-black cursor-pointer"
+              >
+                {hasRecoveryCode ? '🔄 Neuen Notfall-Code erzeugen' : '🔑 Notfall-Code (TW-...) erstellen'}
+              </button>
+            </div>
+          </div>
+
+          {generatedRecoveryCode && (
+            <div className="p-4 rounded-2xl bg-amber-500/20 border-2 border-amber-400 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="text-xs font-black uppercase text-amber-300">
+                  ⚠️ Einmalig angezeigt – bitte sicher aufbewahren (funktioniert auch ohne E-Mail!):
+                </div>
+                <div className="text-lg font-mono font-black tracking-widest text-white mt-0.5">
+                  {generatedRecoveryCode}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard?.writeText(generatedRecoveryCode);
+                  notify('Kopiert 📋', 'Notfall-Recovery-Code in die Zwischenablage kopiert.', '📋');
+                }}
+                className="tw-active-nav px-4 py-2.5 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer"
+              >
+                <Copy className="w-4 h-4" /> Code kopieren
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 2. MULTI-KALENDER & TODOIST KOPFZEILE */}
       <div className={'rounded-3xl p-6 shadow-xl border-2 border-sky-500/40 space-y-4 ' + themeStyles.card}>
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
@@ -308,7 +710,7 @@ export default function SettingsSection({
             </span>
             <h2 className="text-2xl font-extrabold mt-2">Externe Kalender & Todoist verbinden</h2>
             <p className={'text-sm mt-1 ' + themeStyles.textMuted}>
-              Euer integrierter Cloud-Kalender ist sofort bereit. Zusätzlich könnt ihr unten bei jeder Person beliebig viele <strong>Microsoft Outlook</strong>-, <strong>Google</strong>-, <strong>Apple iCloud</strong>- oder <strong>Schul-Kalender</strong> verknüpfen!
+              Euer integrierter Cloud-Kalender ist sofort bereit. Zusätzlich könnt ihr unten bei jeder Person per <strong>1-Klick Google / Outlook OAuth</strong> (Zwei-Wege-Sync) oder per <strong>.ics-Link</strong> beliebig viele Kalender verknüpfen!
             </p>
           </div>
           <button
@@ -334,6 +736,7 @@ export default function SettingsSection({
         </div>
       </div>
 
+      {/* 3. FAMILIENMITGLIEDER & KALENDER-VERKNÜPFUNGEN (OAUTH + ICS) */}
       <div className={'rounded-3xl border overflow-hidden divide-y ' + themeStyles.card + ' ' + themeStyles.divider}>
         {(Array.isArray(members) ? members : []).map(m => {
           const isCustom = !['all', 'hans', 'sarah', 'dean', 'valentina'].includes(m.id);
@@ -341,6 +744,8 @@ export default function SettingsSection({
           const calSources = getMemberCalendarSources(m);
           const isAddingHere = addingCalForMember === m.id;
           const activeProviderObj = CALENDAR_PROVIDERS.find(p => p.id === newCalProvider) || CALENDAR_PROVIDERS[0];
+          const memberGoogleOAuth = getOAuthConn(m.id, 'google');
+          const memberMsOAuth = getOAuthConn(m.id, 'microsoft');
 
           return (
             <div key={m.id} style={st.headerStyle} className="p-5 flex flex-col gap-4">
@@ -403,7 +808,31 @@ export default function SettingsSection({
                   </div>
                 )}
 
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  {isCloudAccount && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => startOAuthLinkFlow('google', m.id)}
+                        className="tw-nav-inactive px-3 py-2.5 rounded-xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
+                        title="Google Kalender direkt per 1-Klick OAuth (Zwei-Wege-Sync) verbinden"
+                      >
+                        <GoogleMiniIcon />
+                        <span>{memberGoogleOAuth ? 'Google ✓' : 'Google OAuth'}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => startOAuthLinkFlow('microsoft', m.id)}
+                        className="tw-nav-inactive px-3 py-2.5 rounded-xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
+                        title="Outlook / Microsoft Kalender direkt per 1-Klick OAuth (Zwei-Wege-Sync) verbinden"
+                      >
+                        <MicrosoftMiniIcon />
+                        <span>{memberMsOAuth ? 'Outlook ✓' : 'Outlook OAuth'}</span>
+                      </button>
+                    </>
+                  )}
+
                   <button
                     type="button"
                     onClick={() => {
@@ -411,10 +840,10 @@ export default function SettingsSection({
                       setNewCalUrl('');
                       setNewCalLabel('');
                     }}
-                    className="tw-glow-btn px-4 py-2.5 rounded-xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
+                    className="tw-glow-btn px-3.5 py-2.5 rounded-xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
                   >
                     <Plus className="w-4 h-4" />
-                    <span>+ Kalender verknüpfen (Outlook / Google / iCloud)</span>
+                    <span>+ ICS / ID</span>
                   </button>
 
                   {isCustom && (
@@ -432,10 +861,41 @@ export default function SettingsSection({
                 </div>
               </div>
 
+              {/* AKTIVE KALENDER-VERKNÜPFUNGEN (CLOUD + OAUTH + ICS) */}
               <div className="flex flex-wrap items-center gap-2 pl-0 sm:pl-14">
                 <span className="px-3 py-1 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-xs font-extrabold flex items-center gap-1.5">
                   ☁️ Integrierter Touchwall-Kalender ✓
                 </span>
+
+                {memberGoogleOAuth && (
+                  <div className="px-3 py-1 rounded-xl bg-sky-500/20 border border-sky-400/50 text-sky-100 text-xs font-extrabold flex items-center gap-2">
+                    <GoogleMiniIcon />
+                    <span>Google OAuth: {memberGoogleOAuth.provider_email || 'Verbunden'}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleDisconnectOAuth('google', m.id)}
+                      className="text-rose-300 hover:text-rose-200 font-black cursor-pointer"
+                      title="Google OAuth trennen"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
+
+                {memberMsOAuth && (
+                  <div className="px-3 py-1 rounded-xl bg-indigo-500/20 border border-indigo-400/50 text-indigo-100 text-xs font-extrabold flex items-center gap-2">
+                    <MicrosoftMiniIcon />
+                    <span>Outlook OAuth: {memberMsOAuth.provider_email || 'Verbunden'}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleDisconnectOAuth('microsoft', m.id)}
+                      className="text-rose-300 hover:text-rose-200 font-black cursor-pointer"
+                      title="Outlook OAuth trennen"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
 
                 {calSources.map((src, sIdx) => {
                   const icon =
@@ -508,7 +968,7 @@ export default function SettingsSection({
 
                   <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
                     <span className="text-[11px] opacity-80 font-semibold">
-                      💡 <strong>Tipp für Outlook / Apple / Google:</strong> Kopiere in deinen Kalender-Einstellungen unter „Kalender teilen / veröffentlichen“ einfach den <strong>ICS-Link</strong> hier hinein!
+                      💡 <strong>Tipp:</strong> Für echten Zwei-Wege-Sync nutze oben <strong>Google OAuth</strong> oder <strong>Outlook OAuth</strong>. Für reine Lese-Kalender (z.B. Apple iCloud, Schule, Verein) einfach den <strong>ICS-Link</strong> hier einfügen!
                     </span>
                     <div className="flex gap-2">
                       <button
@@ -534,6 +994,7 @@ export default function SettingsSection({
         })}
       </div>
 
+      {/* 4. CLOUD-SYNC & BACKUP */}
       <div className={'rounded-3xl p-6 shadow-md border space-y-4 ' + themeStyles.card}>
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
