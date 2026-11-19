@@ -925,7 +925,8 @@ const createAndSelectTodoistProject = async (projectName) => {
     customAccId = undefined,
     customAuthKey = undefined,
     channelsFilter = 'all',
-    isRealtimeTrigger = false
+    isRealtimeTrigger = false,
+    skipCalendars = false
   ) => {
     const activeAcc = customAccId !== undefined ? customAccId : accountId;
     const activeKey = customAuthKey !== undefined ? customAuthKey : authKey;
@@ -946,7 +947,7 @@ const createAndSelectTodoistProject = async (projectName) => {
     if (showFeedback) setIsSyncing(true);
 
     try {
-      const bundle = await callCloudApi(targetUrl, 'POST', { action: 'loadBundle' }, activeAcc, activeKey);
+      const bundle = await callCloudApi(targetUrl, 'POST', { action: 'loadBundle', skipCalendars }, activeAcc, activeKey);
       if (bundle?.ok === false) {
         if (showFeedback) showToast('Hinweis', bundle.error || 'Daten konnten nicht geladen werden.', '⚠️');
         return false;
@@ -1081,9 +1082,9 @@ const createAndSelectTodoistProject = async (projectName) => {
   }, []);
 
   // SUPABASE REALTIME LIVE-SYNC: Reagiert sofort auf Änderungen von Pocket-App oder anderen Geräten
-  useTouchwallRealtime(isAuthenticated && accountId && accountId !== 'local' ? accountId : '', () => {
-    pullCloudRef.current?.(undefined, false, undefined, undefined, 'all', true);
-  });
+  useTouchwallRealtime(isAuthenticated && accountId && accountId !== 'local' ? accountId : '', (scope) => {
+  pullCloudRef.current?.(undefined, false, undefined, undefined, 'all', true, scope === 'state');
+});
 
   // Fallback-Intervall (30s) für externe Änderungen direkt im Google Kalender
   useEffect(() => {
