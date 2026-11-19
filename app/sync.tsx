@@ -2,6 +2,7 @@
 /* eslint-disable react/no-unescaped-entities */
 'use client';
 
+import { createClient } from '@supabase/supabase-js';
 import React from 'react';
 import {
   RefreshCw, X, ShieldCheck
