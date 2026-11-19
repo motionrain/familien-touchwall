@@ -7,8 +7,7 @@ import {
   RefreshCw, X, ShieldCheck
 } from 'lucide-react';
 
-export const PUBLIC_CLOUD_BACKEND_URL =
-  'https://script.google.com/macros/s/AKfycbzBs3ewHvp78OCIgWQkOQ80vXyKcM6wR5hQSn-WfYPU4puS7Gu0lPCX0KMwkxzeDxoE4g/exec';
+export const PUBLIC_CLOUD_BACKEND_URL = '/api/cloud';
 
 // Schneller JSON-Fingerabdruck: Verhindert unnötige Re-Renders & Endlos-Sync-Schleifen
 export function hasJsonChanged(a, b) {
