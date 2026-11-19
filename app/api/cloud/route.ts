@@ -49,6 +49,7 @@ function getSupabaseAdmin() {
 function hashAuthKey(authKey: string) {
   return crypto.createHash('sha256').update(String(authKey || '').trim()).digest('hex');
 }
+
 async function broadcastSync(accountId: string, sourceClientId?: string) {
   try {
     const cleanUrl = getCleanSupabaseUrl();
@@ -472,6 +473,8 @@ export async function POST(req: Request) {
 
       if (error) throw error;
 
+      await broadcastSync(accountId, body.clientId);
+
       if (action === 'saveDriveAndSync') {
         const calendarData = await loadCombinedCalendarData(supabase, accountId, nextCalendars);
         return NextResponse.json({ ok: true, result: calendarData });
@@ -520,6 +523,7 @@ export async function POST(req: Request) {
       }
 
       const calendarData = await loadCombinedCalendarData(supabase, accountId, currentCalendars);
+      await broadcastSync(accountId, body.clientId);
       return NextResponse.json({ ok: true, result: calendarData });
     }
 
@@ -591,6 +595,7 @@ export async function POST(req: Request) {
       }
 
       const calendarData = await loadCombinedCalendarData(supabase, accountId, currentCalendars);
+      await broadcastSync(accountId, body.clientId);
       return NextResponse.json({ ok: true, result: calendarData });
     }
 
@@ -619,6 +624,7 @@ export async function POST(req: Request) {
       }
 
       const calendarData = await loadCombinedCalendarData(supabase, accountId, currentCalendars);
+      await broadcastSync(accountId, body.clientId);
       return NextResponse.json({ ok: true, result: calendarData });
     }
 
@@ -690,6 +696,7 @@ export async function POST(req: Request) {
       }
 
       const calendarData = await loadCombinedCalendarData(supabase, accountId, currentCalendars);
+      await broadcastSync(accountId, body.clientId);
       return NextResponse.json({ ok: true, result: calendarData });
     }
 
