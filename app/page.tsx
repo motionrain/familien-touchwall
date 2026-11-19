@@ -328,6 +328,7 @@ export default function TouchwallApp() {
 
   const [formUsername, setFormUsername] = useState('');
   const [formPassword, setFormPassword] = useState('');
+  const [formEmail, setFormEmail] = useState('');
   const [loginFamilyName, setLoginFamilyName] = useState('');
   const [setupMemberNames, setSetupMemberNames] = useState(['Mama / Person 1', 'Papa / Person 2', 'Kind 1', 'Kind 2']);
   const [loginError, setLoginError] = useState('');
@@ -1033,12 +1034,60 @@ const createAndSelectTodoistProject = async (projectName) => {
   useEffect(() => {
     try {
       const params = new URLSearchParams(window.location.search);
+      const oauthOk = params.get('oauth_ok');
+      const oauthIntent = params.get('oauth_intent');
+      const oauthErr = params.get('oauth_error');
       const qrAcc = params.get('account');
       const qrKey = params.get('key');
       const qrFamily = params.get('family');
 
       const lockedTheme = localStorage.getItem('richter_tw_theme_lock');
       if (lockedTheme) setCurrentTheme(lockedTheme);
+
+      if (oauthErr) {
+        setLoginError(oauthErr);
+        showToast('OAuth-Hinweis', oauthErr, '⚠️');
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+
+      if (oauthOk && oauthIntent === 'login') {
+        window.history.replaceState({}, '', window.location.pathname);
+        fetch('/api/oauth/session', { cache: 'no-store' })
+          .then(r => r.json())
+          .then(data => {
+            const h = data?.handoff;
+            if (h?.accountId && h?.authKey) {
+              const title = h.familyName || ('Familie ' + h.accountId);
+              setAccountId(h.accountId);
+              setAuthKey(h.authKey);
+              setFamilyName(title);
+              writeAuthSession(h.accountId, h.authKey, title);
+              setIsAuthenticated(true);
+              isInitialLoadDone.current = true;
+              showToast(
+                'Mit ' + (h.provider === 'google' ? 'Google' : 'Outlook') + ' angemeldet!',
+                title + ' wurde geladen.',
+                '🔓'
+              );
+              setTimeout(() => pullCloudRef.current?.(PUBLIC_CLOUD_BACKEND_URL, false, h.accountId, h.authKey), 150);
+            } else {
+              setLoginError('OAuth-Sitzung abgelaufen. Bitte erneut anmelden.');
+            }
+          })
+          .catch(() => setLoginError('OAuth-Sitzung konnte nicht geladen werden.'))
+          .finally(() => setIsCheckingAuth(false));
+        return;
+      }
+
+      if (oauthOk && oauthIntent === 'link') {
+        window.history.replaceState({}, '', window.location.pathname);
+        setActiveSection('google');
+        showToast(
+          'OAuth verknüpft ✓',
+          (oauthOk === 'google' ? 'Google' : 'Outlook / Microsoft') + ' wurde erfolgreich verbunden!',
+          '🔗'
+        );
+      }
 
       if (qrAcc && qrKey) {
         const cleanTitle = qrFamily || 'Familien-Touchwall';
@@ -1101,7 +1150,7 @@ const createAndSelectTodoistProject = async (projectName) => {
     pullCloudRef.current?.(undefined, false, undefined, undefined, 'all', true, scope === 'state');
   });
 
-  // Fallback-Intervall (30s) für externe Änderungen direkt im Google Kalender
+  // Fallback-Intervall (30s) für externe Änderungen direkt im Google/Outlook Kalender
   useEffect(() => {
     if (!isAuthenticated || !accountId || accountId === 'local') return;
     const calInterval = setInterval(() => {
@@ -1237,6 +1286,7 @@ const createAndSelectTodoistProject = async (projectName) => {
 
     const cleanUser = formUsername.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
     const cleanPass = formPassword.trim();
+    const cleanEmail = formEmail.trim().toLowerCase();
     const chosenTitle = loginFamilyName.trim() || 'Familie ' + (cleanUser.charAt(0).toUpperCase() + cleanUser.slice(1));
 
     if (cleanUser.length < 3) {
@@ -1298,6 +1348,7 @@ const createAndSelectTodoistProject = async (projectName) => {
         action: 'registerAccount',
         accountId: cleanUser,
         authKey: cleanPass,
+        email: cleanEmail,
         payload: initialPayload
       }, cleanUser, cleanPass);
 
@@ -1319,7 +1370,11 @@ const createAndSelectTodoistProject = async (projectName) => {
       writeAuthSession(cleanUser, cleanPass, chosenTitle);
       isInitialLoadDone.current = true;
       setIsAuthenticated(true);
-      showToast('Konto erstellt!', 'Willkommen! Euer Konto „' + cleanUser + '“ ist jetzt aktiv.', '🎉');
+      if (res.recoveryCode) {
+        showToast('Konto erstellt! Notfall-Code sichern:', res.recoveryCode, '🔑');
+      } else {
+        showToast('Konto erstellt!', 'Willkommen! Euer Konto „' + cleanUser + '“ ist jetzt aktiv.', '🎉');
+      }
     } catch (err) {
       setLoginError('Server-Verbindung fehlgeschlagen: ' + (err.message || 'Bitte Internet prüfen.'));
     } finally {
@@ -2086,6 +2141,8 @@ const shoppingNoteBlock = useMemo(() => safeNotes[0] || { id: 1, title: '🛒 Ei
         setFormUsername={setFormUsername}
         formPassword={formPassword}
         setFormPassword={setFormPassword}
+        formEmail={formEmail}
+        setFormEmail={setFormEmail}
         loginFamilyName={loginFamilyName}
         setLoginFamilyName={setLoginFamilyName}
         setupMemberNames={setupMemberNames}
@@ -2094,6 +2151,7 @@ const shoppingNoteBlock = useMemo(() => safeNotes[0] || { id: 1, title: '🛒 Ei
         handleAccountLoginSubmit={handleAccountLoginSubmit}
         handleRegisterSubmit={handleRegisterSubmit}
         handleInstantLocalStart={handleInstantLocalStart}
+        returnTo="/"
       />
     );
   }
@@ -2159,6 +2217,12 @@ const shoppingNoteBlock = useMemo(() => safeNotes[0] || { id: 1, title: '🛒 Ei
 
   const otherSectionsProps = {
     activeSection,
+    accountId,
+    authKey,
+    onAuthKeyUpdated: (nextKey) => {
+      setAuthKey(nextKey);
+      writeAuthSession(accountId, nextKey, familyName);
+    },
     members: safeMembers,
     setMembers,
     schoolData: safeSchoolData,
