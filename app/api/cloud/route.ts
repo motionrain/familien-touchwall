@@ -20,7 +20,6 @@ function getCleanSupabaseUrl() {
 
   let cleanUrl = rawUrl;
   try {
-    // Entfernt automatisch angehängte Pfade wie /rest/v1 oder Schrägstriche am Ende
     cleanUrl = new URL(rawUrl).origin;
   } catch {
     throw new Error(`Ungültige SUPABASE_URL in Vercel: "${rawUrl}"`);
@@ -78,6 +77,184 @@ async function broadcastSync(accountId: string, sourceClientId?: string) {
   } catch {
     // Broadcast-Fehler dürfen den eigentlichen Speichervorgang nie blockieren
   }
+}
+
+// ============================================================================
+// 1B. VORRAT & MÜLLEIMER IN EIGENER TABELLE (tw_pantry_items)
+// ============================================================================
+const KNOWN_PANTRY_KEYS = new Set([
+  'id', 'name', 'barcode', 'quantity', 'location', 'category', 'glutenFree',
+  'expiryDate', 'customEmoji', 'imageUrl', 'reason', 'reasonLabel',
+  'addedAt', 'addedTimestamp', 'trashedAt', 'trashedTimestamp',
+  'fromMobile', 'updatedAt'
+]);
+
+function normalizeGfValue(val: any) {
+  if (val === true || val === 'yes') return 'yes';
+  if (val === false || val === 'no') return 'no';
+  return 'auto';
+}
+
+function mapPantryItemToRow(accountId: string, item: any, status: 'stock' | 'trash') {
+  const extra: Record<string, any> = {};
+  Object.keys(item || {}).forEach(k => {
+    if (!KNOWN_PANTRY_KEYS.has(k) && item[k] !== undefined) {
+      extra[k] = item[k];
+    }
+  });
+
+  return {
+    account_id: accountId,
+    id: String(item.id),
+    status,
+    name: String(item.name || 'Produkt').trim(),
+    barcode: String(item.barcode || '').trim(),
+    quantity: String(item.quantity || '1x').trim() || '1x',
+    location: String(item.location || 'fridge').trim() || 'fridge',
+    category: String(item.category || 'produce').trim() || 'produce',
+    gluten_free: normalizeGfValue(item.glutenFree),
+    expiry_date: String(item.expiryDate || '').trim(),
+    custom_emoji: String(item.customEmoji || '').trim(),
+    image_url: String(item.imageUrl || '').trim(),
+    reason: String(item.reason || '').trim(),
+    reason_label: String(item.reasonLabel || '').trim(),
+    added_at: String(item.addedAt || '').trim(),
+    added_timestamp: Math.trunc(Number(item.addedTimestamp) || 0),
+    trashed_at: String(item.trashedAt || '').trim(),
+    trashed_timestamp: Math.trunc(Number(item.trashedTimestamp) || 0),
+    from_mobile: Boolean(item.fromMobile),
+    updated_at: Math.trunc(Number(item.updatedAt) || Date.now()),
+    extra
+  };
+}
+
+function mapRowToPantryItem(row: any) {
+  return {
+    ...(row.extra && typeof row.extra === 'object' ? row.extra : {}),
+    id: row.id,
+    name: row.name,
+    barcode: row.barcode || '',
+    quantity: row.quantity || '1x',
+    location: row.location || 'fridge',
+    category: row.category || 'produce',
+    glutenFree: row.gluten_free || 'auto',
+    expiryDate: row.expiry_date || '',
+    customEmoji: row.custom_emoji || '',
+    imageUrl: row.image_url || '',
+    reason: row.reason || '',
+    reasonLabel: row.reason_label || '',
+    addedAt: row.added_at || '',
+    addedTimestamp: Number(row.added_timestamp || 0),
+    trashedAt: row.trashed_at || '',
+    trashedTimestamp: Number(row.trashed_timestamp || 0),
+    fromMobile: Boolean(row.from_mobile),
+    updatedAt: Number(row.updated_at || 0)
+  };
+}
+
+function stripPantryFromState(stateObj: any) {
+  const copy = { ...(stateObj || {}) };
+  delete copy.pantryItems;
+  delete copy.pantryTrash;
+  copy.pantryMigrated = true;
+  return copy;
+}
+
+async function syncPantryTableForAccount(
+  supabase: any,
+  accountId: string,
+  stockList: any[],
+  trashList: any[]
+) {
+  // Deduplizieren nach ID (verhindert Primary-Key-Konflikt beim Upsert)
+  const rowMap = new Map<string, any>();
+
+  (Array.isArray(stockList) ? stockList : []).forEach(it => {
+    if (!it || !it.id) return;
+    rowMap.set(String(it.id), mapPantryItemToRow(accountId, it, 'stock'));
+  });
+
+  (Array.isArray(trashList) ? trashList : []).forEach(it => {
+    if (!it || !it.id) return;
+    const idStr = String(it.id);
+    const trashRow = mapPantryItemToRow(accountId, it, 'trash');
+    const existing = rowMap.get(idStr);
+    if (!existing || trashRow.trashed_timestamp >= existing.updated_at) {
+      rowMap.set(idStr, trashRow);
+    }
+  });
+
+  const { data: existingRows, error: selErr } = await supabase
+    .from('tw_pantry_items')
+    .select('id')
+    .eq('account_id', accountId);
+
+  if (selErr) throw selErr;
+
+  const allRows = Array.from(rowMap.values());
+
+  // In 200er-Paketen sicher hochschreiben
+  for (let i = 0; i < allRows.length; i += 200) {
+    const chunk = allRows.slice(i, i + 200);
+    const { error: upErr } = await supabase
+      .from('tw_pantry_items')
+      .upsert(chunk, { onConflict: 'account_id,id' });
+    if (upErr) throw upErr;
+  }
+
+  // Gelöschte Artikel sauber aus tw_pantry_items entfernen
+  const idsToDelete = (existingRows || [])
+    .map((r: any) => String(r.id))
+    .filter((id: string) => !rowMap.has(id));
+
+  for (let i = 0; i < idsToDelete.length; i += 200) {
+    const chunk = idsToDelete.slice(i, i + 200);
+    const { error: delErr } = await supabase
+      .from('tw_pantry_items')
+      .delete()
+      .eq('account_id', accountId)
+      .in('id', chunk);
+    if (delErr) throw delErr;
+  }
+}
+
+async function loadPantryForAccount(supabase: any, accountId: string, accountRow: any) {
+  const { data: rows, error } = await supabase
+    .from('tw_pantry_items')
+    .select('*')
+    .eq('account_id', accountId);
+
+  if (error) throw error;
+
+  const list = Array.isArray(rows) ? rows : [];
+  const legacyStock = Array.isArray(accountRow?.state?.pantryItems) ? accountRow.state.pantryItems : [];
+  const legacyTrash = Array.isArray(accountRow?.state?.pantryTrash) ? accountRow.state.pantryTrash : [];
+
+  // Einmalige automatische Migration bestehender JSON-Vorräte in tw_pantry_items
+  if (list.length === 0 && !accountRow?.state?.pantryMigrated && (legacyStock.length > 0 || legacyTrash.length > 0)) {
+    await syncPantryTableForAccount(supabase, accountId, legacyStock, legacyTrash);
+    await supabase
+      .from('tw_accounts')
+      .update({
+        state: stripPantryFromState(accountRow.state),
+        updated_at: new Date().toISOString()
+      })
+      .eq('account_id', accountId);
+
+    return { pantryItems: legacyStock, pantryTrash: legacyTrash };
+  }
+
+  const pantryItems = list
+    .filter((r: any) => r.status !== 'trash')
+    .map(mapRowToPantryItem)
+    .sort((a: any, b: any) => String(a.expiryDate || '9999').localeCompare(String(b.expiryDate || '9999')));
+
+  const pantryTrash = list
+    .filter((r: any) => r.status === 'trash')
+    .map(mapRowToPantryItem)
+    .sort((a: any, b: any) => Number(b.trashedTimestamp || 0) - Number(a.trashedTimestamp || 0));
+
+  return { pantryItems, pantryTrash };
 }
 
 // ============================================================================
@@ -255,7 +432,6 @@ async function loadCombinedCalendarData(supabase: any, accountId: string, calend
   const status: Record<string, { ok: boolean; msg: string }> = {};
   const allEvents: any[] = [];
 
-  // A. Cloud-Termine aus Supabase laden
   const { data: dbEvents, error: dbErr } = await supabase
     .from('tw_calendar_events')
     .select('*')
@@ -277,7 +453,6 @@ async function loadCombinedCalendarData(supabase: any, accountId: string, calend
     });
   });
 
-  // B. Google Kalender parallel abrufen
   const calEntries = Object.entries(calendarsMap || {}).filter(([, cid]) => String(cid || '').trim() !== '');
 
   if (calEntries.length > 0 && hasGoogleCredentials()) {
@@ -355,7 +530,7 @@ export async function GET() {
     const cleanUrl = getCleanSupabaseUrl();
     return NextResponse.json({
       ok: true,
-      status: 'Touchwall Cloud API bereit',
+      status: 'Touchwall Cloud API bereit (inkl. tw_pantry_items)',
       supabaseHost: new URL(cleanUrl).host,
       supabaseKeyConfigured: Boolean((process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim()),
       googleConfigured: hasGoogleCredentials()
@@ -399,15 +574,22 @@ export async function POST(req: Request) {
 
       const payload = body.payload || {};
       const calendars = payload.calendars || {};
+      const initStock = Array.isArray(payload.pantryItems) ? payload.pantryItems : [];
+      const initTrash = Array.isArray(payload.pantryTrash) ? payload.pantryTrash : [];
 
       const { error } = await supabase.from('tw_accounts').insert({
         account_id: accountId,
         auth_hash: authHash,
-        state: payload,
+        state: stripPantryFromState(payload),
         calendars
       });
 
       if (error) throw error;
+
+      if (initStock.length > 0 || initTrash.length > 0) {
+        await syncPantryTableForAccount(supabase, accountId, initStock, initTrash);
+      }
+
       return NextResponse.json({ ok: true, state: payload });
     }
 
@@ -439,19 +621,27 @@ export async function POST(req: Request) {
     }
 
     // ------------------------------------------------------------------------
-    // LOGIN & LOAD BUNDLE
+    // LOGIN & LOAD BUNDLE (LÄDT VORRAT DIREKT AUS tw_pantry_items)
     // ------------------------------------------------------------------------
     if (action === 'loginAccount' || action === 'loadBundle') {
-      const calendarData = await loadCombinedCalendarData(supabase, accountId, currentCalendars);
+      const [calendarData, pantryData] = await Promise.all([
+        loadCombinedCalendarData(supabase, accountId, currentCalendars),
+        loadPantryForAccount(supabase, accountId, accountRow)
+      ]);
+
       return NextResponse.json({
         ok: true,
-        state: accountRow.state || {},
+        state: {
+          ...(accountRow.state || {}),
+          pantryItems: pantryData.pantryItems,
+          pantryTrash: pantryData.pantryTrash
+        },
         calendarData
       });
     }
 
     // ------------------------------------------------------------------------
-    // SAVE STATE & SAVE DRIVE AND SYNC
+    // SAVE STATE & SAVE DRIVE AND SYNC (SCHREIBT VORRAT IN tw_pantry_items)
     // ------------------------------------------------------------------------
     if (action === 'saveState' || action === 'saveDriveAndSync') {
       const nextState = body.payload || accountRow.state || {};
@@ -462,10 +652,21 @@ export async function POST(req: Request) {
         });
       }
 
+      const hasPantryPayload =
+        Array.isArray(nextState.pantryItems) || Array.isArray(nextState.pantryTrash);
+
+      if (hasPantryPayload) {
+        const stockToSync = Array.isArray(nextState.pantryItems) ? nextState.pantryItems : [];
+        const trashToSync = Array.isArray(nextState.pantryTrash) ? nextState.pantryTrash : [];
+        await syncPantryTableForAccount(supabase, accountId, stockToSync, trashToSync);
+      }
+
+      const cleanState = stripPantryFromState({ ...nextState, calendars: nextCalendars });
+
       const { error } = await supabase
         .from('tw_accounts')
         .update({
-          state: { ...nextState, calendars: nextCalendars },
+          state: cleanState,
           calendars: nextCalendars,
           updated_at: new Date().toISOString()
         })
@@ -704,11 +905,19 @@ export async function POST(req: Request) {
     // RUN DIAGNOSTICS
     // ------------------------------------------------------------------------
     if (action === 'runDiagnostics') {
-      const calendarData = await loadCombinedCalendarData(supabase, accountId, currentCalendars);
+      const [calendarData, pantryData, catalogRes] = await Promise.all([
+        loadCombinedCalendarData(supabase, accountId, currentCalendars),
+        loadPantryForAccount(supabase, accountId, accountRow),
+        supabase.from('tw_product_catalog').select('barcode', { count: 'exact', head: true })
+      ]);
+
       return NextResponse.json({
         ok: true,
         result: {
           supabaseConnected: true,
+          pantryStockInTable: pantryData.pantryItems.length,
+          pantryTrashInTable: pantryData.pantryTrash.length,
+          productCatalogEntries: catalogRes?.count || 0,
           googleServiceAccountConfigured: hasGoogleCredentials(),
           serviceAccountEmail: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || 'Nicht konfiguriert (Cloud-Kalender aktiv)',
           calendarsStatus: calendarData.status,
