@@ -3,6 +3,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import Link from 'next/link';
 import {
   Lock, KeyRound, UserPlus, ShieldCheck, Sparkles,
   Mail, RotateCcw, ArrowLeft, CheckCircle2, Smartphone
@@ -648,7 +649,7 @@ export default function AuthScreen({
               </p>
             </div>
 
-            {/* FUSSZEILE */}
+            {/* FUSSZEILE: PASSWORT-RESET & LOKALER MODUS */}
             <div className="pt-2 border-t border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
               <button
                 type="button"
@@ -670,6 +671,17 @@ export default function AuthScreen({
             </div>
           </>
         )}
+
+        {/* RECHTLICHE LINKS (IMMER SICHTBAR FÜR GOOGLE / MICROSOFT OAUTH-PRÜFUNG) */}
+        <div className="pt-3 border-t border-slate-800/90 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-[11px] font-bold text-slate-400">
+          <Link href="/datenschutz" className="hover:text-sky-300 hover:underline transition-colors">
+            🔒 Datenschutzerklärung
+          </Link>
+          <span className="opacity-30">•</span>
+          <Link href="/nutzungsbedingungen" className="hover:text-sky-300 hover:underline transition-colors">
+            📄 Nutzungsbedingungen
+          </Link>
+        </div>
       </div>
     </div>
   );
