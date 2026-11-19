@@ -142,10 +142,11 @@ function formatAgeDuration(ms) {
   return days === 1 ? 'seit 1 Tag' : ('seit ' + days + ' Tagen');
 }
 
-export function saveLearnedProductToMemory(barcodeKey, productData) {
+export function saveLearnedProductToMemory(barcodeKey, productData, syncToCloud = true) {
+  const cleanKey = String(barcodeKey || '').trim();
+  if (!cleanKey || cleanKey.length < 4 || !productData?.name) return;
+
   try {
-    const cleanKey = String(barcodeKey || '').trim();
-    if (!cleanKey || cleanKey.length < 4 || !productData?.name) return;
     const rawMap = localStorage.getItem('richter_tw_barcode_memory_v1');
     const map = rawMap ? JSON.parse(rawMap) : {};
 
@@ -155,6 +156,7 @@ export function saveLearnedProductToMemory(barcodeKey, productData) {
       location: productData.location || 'fridge',
       category: productData.category || 'produce',
       glutenFree: productData.glutenFree || 'auto',
+      imageUrl: productData.imageUrl || '',
       updatedAt: Date.now()
     };
 
@@ -167,6 +169,25 @@ export function saveLearnedProductToMemory(barcodeKey, productData) {
 
     localStorage.setItem('richter_tw_barcode_memory_v1', JSON.stringify(map));
   } catch (e) {}
+
+  // Synchronisiert das gelernte Produkt zusätzlich in die zentrale Supabase-Datenbank (/api/products)
+  if (syncToCloud && typeof fetch === 'function') {
+    try {
+      fetch('/api/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          barcode: cleanKey,
+          name: productData.name,
+          quantity: productData.quantity || '1x',
+          location: productData.location || 'fridge',
+          category: productData.category || 'produce',
+          glutenFree: productData.glutenFree || 'auto',
+          imageUrl: productData.imageUrl || ''
+        })
+      }).catch(() => {});
+    } catch (e) {}
+  }
 }
 
 export function getLearnedProductFromMemory(barcodeKey) {
@@ -1533,7 +1554,7 @@ export default function PocketScanner({
   };
 
 // ============================================================================
-  // HAUPT-SCAN-VERARBEITUNG INKL. 2-STUNDEN-AUSBUCHUNGS-CHECK
+  // HAUPT-SCAN-VERARBEITUNG INKL. 2-STUNDEN-AUSBUCHUNGS-CHECK & SUPABASE-KATALOG
   // ============================================================================
   const processMergedScanResult = async (mergedScan, skipCheckoutCheck = false) => {
     if (!mergedScan || mergedScan.allPureMarketingUrls) return;
@@ -1597,6 +1618,7 @@ export default function PocketScanner({
       const loc = mergedScan.extractedLocation || learnedHit.location || detectSmartLocation(learnedHit.name, cat);
       setScanName(learnedHit.name);
       if (!mergedScan.extractedWeightQty && learnedHit.quantity) setScanQty(learnedHit.quantity);
+      if (learnedHit.imageUrl) setScanImageUrl(learnedHit.imageUrl);
       setScanCategory(cat);
       setScanLocation(loc);
       setScanGlutenFree(learnedHit.glutenFree || (isProductGlutenFree(learnedHit.name, cat) ? 'yes' : 'auto'));
@@ -1620,11 +1642,64 @@ export default function PocketScanner({
       return;
     }
 
-    // 3. Online-Abfrage über OpenFoodFacts / PetFood / Products
+    // 3. Online-Abfrage: Erst zentrale Supabase-Produktdatenbank (/api/products), dann OpenFoodFacts
     setIsLookingUpProduct(true);
     try {
       const candidatesToTry = mergedScan.lookupCodes.length > 0 ? mergedScan.lookupCodes : [mergedScan.primaryRaw];
 
+      // 3a. Zuerst unsere zentrale Supabase-Produktdatenbank abfragen (für alle Handys & Familien geteilt)
+      for (const candidateCode of candidatesToTry.slice(0, 2)) {
+        try {
+          const catRes = await fetch('/api/products?barcode=' + encodeURIComponent(candidateCode), {
+            cache: 'no-store'
+          });
+          if (catRes.ok) {
+            const catJson = await catRes.json();
+            if (catJson?.found && catJson.product?.name) {
+              const dbProd = catJson.product;
+
+              if (!skipCheckoutCheck) {
+                const matchByDbName = findExistingStockItemEligibleForCheckout(mergedScan, dbProd.name);
+                if (matchByDbName) {
+                  const addedTs = getItemAddedTimestamp(matchByDbName);
+                  const ageMs = addedTs ? (Date.now() - addedTs) : (3 * 60 * 60 * 1000);
+                  triggerVibration([140, 60, 220]);
+                  setScanCheckoutModal({
+                    open: true,
+                    step: 'confirm_remove',
+                    stockItem: matchByDbName,
+                    ageLabel: formatAgeDuration(ageMs),
+                    pendingMergedScan: mergedScan
+                  });
+                  return;
+                }
+              }
+
+              const cat = detectSmartCategory(dbProd.name, dbProd.category);
+              const loc = mergedScan.extractedLocation || dbProd.location || detectSmartLocation(dbProd.name, cat);
+              setScanName(dbProd.name);
+              if (!mergedScan.extractedWeightQty && dbProd.quantity) setScanQty(dbProd.quantity);
+              if (dbProd.imageUrl) setScanImageUrl(dbProd.imageUrl);
+              setScanCategory(cat);
+              setScanLocation(loc);
+              setScanGlutenFree(dbProd.glutenFree || (isProductGlutenFree(dbProd.name, cat) ? 'yes' : 'auto'));
+
+              // Direkt lokal cachen (ohne unnötigen erneuten Cloud-POST)
+              saveLearnedProductToMemory(candidateCode, dbProd, false);
+
+              setEstimatedMhdHint('⚡ Aus Cloud-Katalog geladen! Halte jetzt das MHD in den gelben Streifen.');
+              showToast(
+                '⚡ Cloud-Datenbank: ' + dbProd.name,
+                mergedScan.extractedExpiry ? 'MHD aus Code übernommen!' : '👉 Halte jetzt das MHD in den gelben Streifen!',
+                getFoodEmoji(dbProd.name)
+              );
+              return;
+            }
+          }
+        } catch (e) {}
+      }
+
+      // 3b. OpenFoodFacts / PetFood / Products abfragen
       for (const candidateCode of candidatesToTry.slice(0, 3)) {
         const p = await fetchProductFromAllOpenDatabases(candidateCode);
         if (p) {
@@ -1671,6 +1746,16 @@ export default function PocketScanner({
             setScanCategory(detectedCat);
             setScanLocation(detectedLoc);
             setScanGlutenFree(isGf ? 'yes' : 'auto');
+
+            // Neu gefundenes Produkt direkt für alle anderen Handys in Supabase teilen
+            saveLearnedProductToMemory(candidateCode, {
+              name: smartName,
+              quantity: qty,
+              location: detectedLoc,
+              category: detectedCat,
+              glutenFree: isGf ? 'yes' : 'auto',
+              imageUrl: img
+            }, true);
 
             const freshMatch = estimateProduceByName(smartName);
             if (detectedLoc === 'freezer' && !mergedScan.extractedExpiry) {
@@ -1922,8 +2007,9 @@ export default function PocketScanner({
         quantity: scanQty.trim() || '1x',
         location: scanLocation,
         category: resolvedCategory,
-        glutenFree: resolvedGf
-      });
+        glutenFree: resolvedGf,
+        imageUrl: scanImageUrl
+      }, true);
     }
 
     onAddSingleToCart(
