@@ -14,6 +14,9 @@ import {
 
 import * as Cfg from '../touchwallConfig';
 import AuthScreen from '../AuthScreen';
+import ProductThumb from '../ProductThumb';
+import { uploadProductPhotoToSupabase } from '../productImageUtils';
+import { openCookieSettingsModal } from '../CookieBanner';
 import {
   PUBLIC_CLOUD_BACKEND_URL,
   hasJsonChanged,
@@ -562,7 +565,6 @@ function reconcileFamilyTasks(localTasks, incomingTasks, syncMeta, source = 'clo
   saveLocalSyncMeta(syncMeta);
   return mergedList;
 }
-
 export default function TouchwallPocketApp() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
@@ -600,7 +602,6 @@ export default function TouchwallPocketApp() {
     projects: [],
     collaborators: []
   });
-  
 
   const [cartItems, setCartItems] = useState([]);
 
@@ -618,14 +619,17 @@ export default function TouchwallPocketApp() {
   const [editStockModal, setEditStockModal] = useState({
     open: false,
     id: null,
+    barcode: '',
     name: '',
     quantity: '1x',
     location: 'fridge',
     category: 'produce',
     glutenFree: 'auto',
     expiryDate: '',
-    customEmoji: ''
+    customEmoji: '',
+    imageUrl: ''
   });
+  const [isUploadingEditPhoto, setIsUploadingEditPhoto] = useState(false);
 
   const [notifPermission, setNotifPermission] = useState('default');
   const [installPromptEvent, setInstallPromptEvent] = useState(null);
@@ -1024,7 +1028,7 @@ export default function TouchwallPocketApp() {
     '}'
   ].join('\n');
 
-const callCloudBackend = async (postBody) => {
+  const callCloudBackend = async (postBody) => {
     return callCloudApi(
       PUBLIC_CLOUD_BACKEND_URL,
       'POST',
@@ -1244,7 +1248,6 @@ const callCloudBackend = async (postBody) => {
           const hasTodoistToken = Boolean(
             bundle?.state?.todoistConfig?.apiToken?.trim() || todoistConfig?.apiToken?.trim()
           );
-          // Bei reinem Realtime-State-Signal direkt ohne Todoist-Verzögerung anwenden (< 1 Sek.)
           const applied = applyRemoteBundle(bundle, !isStateOnlyRealtime && hasTodoistToken);
           workingNotes = applied.resolvedNotes;
           workingTasks = applied.resolvedTasks;
@@ -1396,7 +1399,7 @@ const callCloudBackend = async (postBody) => {
     setIsCheckingAuth(false);
   }, []);
 
-  // SUPABASE REALTIME TURBO LIVE-SYNC: Überspringt Google Kalender & Todoist bei reinen State-Änderungen (< 1 Sek.)
+  // SUPABASE REALTIME TURBO LIVE-SYNC
   useTouchwallRealtime(isAuthenticated && accountId && accountId !== 'local' ? accountId : '', (scope) => {
     syncAllNowRef.current?.(false, undefined, undefined, true, scope || 'all');
   });
@@ -1672,14 +1675,38 @@ const callCloudBackend = async (postBody) => {
     setEditStockModal({
       open: true,
       id: item.id,
+      barcode: item.barcode || '',
       name: item.name || '',
       quantity: item.quantity || '1x',
       location: item.location || 'fridge',
       category: detectSmartCategory(item.name, item.category),
       glutenFree: initialGf,
       expiryDate: item.expiryDate || todayStr,
-      customEmoji: item.customEmoji || getFoodEmoji(item.name)
+      customEmoji: item.customEmoji || getFoodEmoji(item.name),
+      imageUrl: item.imageUrl || ''
     });
+  };
+
+  const handleEditStockPhotoUpload = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || isUploadingEditPhoto) return;
+    setIsUploadingEditPhoto(true);
+    showToast('Lade Produktfoto hoch...', 'Wird komprimiert & in Supabase gespeichert...', '📸');
+    try {
+      const publicUrl = await uploadProductPhotoToSupabase({
+        source: file,
+        accountId: accountId || 'local',
+        barcode: editStockModal.barcode || ''
+      });
+      setEditStockModal(prev => ({ ...prev, imageUrl: publicUrl }));
+      playMobileBeep('scan');
+      showToast('Produktfoto gespeichert! ✅', 'Jetzt noch auf „Speichern“ tippen.', '🖼️');
+    } catch (err) {
+      showToast('Foto-Upload fehlgeschlagen', err?.message || 'Bitte erneut versuchen.', '⚠️');
+    } finally {
+      setIsUploadingEditPhoto(false);
+    }
   };
 
   const handleSaveEditStockModal = async (e) => {
@@ -1691,17 +1718,22 @@ const callCloudBackend = async (postBody) => {
 
     const now = Date.now();
     lastLocalEditRef.current = now;
+    const cleanName = editStockModal.name.trim();
+    const cleanQty = editStockModal.quantity.trim() || '1x';
+    const nextImageUrl = editStockModal.imageUrl || '';
+
     const nextStock = safeStock.map(it =>
       it.id === editStockModal.id
         ? {
             ...it,
-            name: editStockModal.name.trim(),
-            quantity: editStockModal.quantity.trim() || '1x',
+            name: cleanName,
+            quantity: cleanQty,
             location: editStockModal.location,
             category: editStockModal.category,
             glutenFree: editStockModal.glutenFree,
             expiryDate: editStockModal.expiryDate,
             customEmoji: editStockModal.customEmoji,
+            imageUrl: nextImageUrl,
             updatedAt: now,
             fromMobile: true
           }
@@ -1709,8 +1741,25 @@ const callCloudBackend = async (postBody) => {
     );
     setPantryItems(nextStock);
     setEditStockModal({ ...editStockModal, open: false });
+
+    if (editStockModal.barcode && cleanName) {
+      fetch('/api/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          barcode: editStockModal.barcode,
+          name: cleanName,
+          quantity: cleanQty,
+          location: editStockModal.location,
+          category: editStockModal.category,
+          glutenFree: editStockModal.glutenFree,
+          imageUrl: nextImageUrl
+        })
+      }).catch(() => {});
+    }
+
     await saveStateToCloud({ pantryItems: nextStock });
-    showToast('Gespeichert & synchronisiert!', editStockModal.name, editStockModal.customEmoji || '✅');
+    showToast('Gespeichert & synchronisiert!', cleanName, editStockModal.customEmoji || '✅');
   };
 
   const handleDeleteFromEditStockModal = async () => {
@@ -2121,6 +2170,7 @@ const callCloudBackend = async (postBody) => {
       category: resolvedCat,
       glutenFree: isProductGlutenFree(cleanName, resolvedCat) ? 'yes' : 'auto',
       expiryDate: expStr,
+      imageUrl: '',
       addedAt: todayStr,
       addedTimestamp: now,
       updatedAt: now,
@@ -2159,6 +2209,7 @@ const callCloudBackend = async (postBody) => {
         category: resolvedCat,
         glutenFree: isProductGlutenFree(cleanName, resolvedCat) ? 'yes' : 'auto',
         expiryDate: expStr,
+        imageUrl: '',
         addedAt: todayStr,
         addedTimestamp: stamp,
         updatedAt: stamp,
@@ -2428,6 +2479,7 @@ if (isCheckingAuth || !isAuthenticated) {
               <PocketScanner
                 cartItems={safeCart}
                 stockItems={safeStock}
+                accountId={accountId}
                 todayStr={todayStr}
                 isSyncing={isSyncing}
                 themeStyles={themeStyles}
@@ -2515,9 +2567,14 @@ if (isCheckingAuth || !isAuthenticated) {
                                   key={it.id}
                                   type="button"
                                   onClick={() => openEditStockItemModal(it)}
-                                  className="px-3 py-1.5 rounded-xl bg-black/50 border border-rose-300/40 text-sm font-black text-white flex items-center gap-2"
+                                  className="px-2.5 py-1.5 rounded-xl bg-black/50 border border-rose-300/40 text-sm font-black text-white flex items-center gap-2"
                                 >
-                                  <span className="text-lg">{getFoodEmoji(it.name, it.customEmoji)}</span>
+                                  <ProductThumb
+                                    item={it}
+                                    sizeClass="w-7 h-7"
+                                    emojiClass="text-base"
+                                    roundedClass="rounded-lg"
+                                  />
                                   <span>{it.name}</span>
                                   <span className="text-rose-300 font-black">({it.quantity})</span>
                                 </button>
@@ -2537,9 +2594,14 @@ if (isCheckingAuth || !isAuthenticated) {
                                   key={it.id}
                                   type="button"
                                   onClick={() => openEditStockItemModal(it)}
-                                  className="px-3 py-1.5 rounded-xl bg-black/45 border border-amber-300/40 text-sm font-black text-white flex items-center gap-2"
+                                  className="px-2.5 py-1.5 rounded-xl bg-black/45 border border-amber-300/40 text-sm font-black text-white flex items-center gap-2"
                                 >
-                                  <span className="text-lg">{getFoodEmoji(it.name, it.customEmoji)}</span>
+                                  <ProductThumb
+                                    item={it}
+                                    sizeClass="w-7 h-7"
+                                    emojiClass="text-base"
+                                    roundedClass="rounded-lg"
+                                  />
                                   <span>{it.name}</span>
                                   <span className="text-amber-300 font-black">
                                     ({it.daysLeft === 1 ? 'morgen' : 'in 2 T.'})
@@ -2744,7 +2806,6 @@ if (isCheckingAuth || !isAuthenticated) {
                           const isWarnWeek = daysLeft > 2 && daysLeft <= 7;
                           const isNewestTop = stockSortMode === 'newest' && idx === 0 && !stockSearchQuery;
                           const isGf = Boolean(item.resolvedGlutenFree);
-                          const emojiIcon = getFoodEmoji(item.name, item.customEmoji);
 
                           const daysLabel = daysLeft <= 0
                             ? '🚨 HEUTE!'
@@ -2772,9 +2833,12 @@ if (isCheckingAuth || !isAuthenticated) {
                             >
                               <div className="flex items-start justify-between gap-3">
                                 <div className="flex items-start gap-3.5 min-w-0 flex-1">
-                                  <span className="w-14 h-14 rounded-2xl bg-black/40 border border-white/15 flex items-center justify-center text-3xl shrink-0 shadow-inner">
-                                    {emojiIcon}
-                                  </span>
+                                  <ProductThumb
+                                    item={item}
+                                    sizeClass="w-14 h-14"
+                                    emojiClass="text-3xl"
+                                    roundedClass="rounded-2xl"
+                                  />
 
                                   <div className="min-w-0 flex-1">
                                     <div className="flex items-center gap-1.5 flex-wrap mb-1">
@@ -2923,9 +2987,12 @@ if (isCheckingAuth || !isAuthenticated) {
                             >
                               <div className="flex items-start justify-between gap-3">
                                 <div className="flex items-start gap-3 min-w-0 flex-1">
-                                  <span className="w-13 h-13 rounded-2xl bg-black/40 border border-white/15 flex items-center justify-center text-3xl shrink-0">
-                                    {getFoodEmoji(tItem.name, tItem.customEmoji)}
-                                  </span>
+                                  <ProductThumb
+                                    item={tItem}
+                                    sizeClass="w-13 h-13"
+                                    emojiClass="text-3xl"
+                                    roundedClass="rounded-2xl"
+                                  />
                                   <div className="min-w-0 flex-1">
                                     <span
                                       className={'inline-block px-2 py-0.5 rounded-md text-[10px] font-black mb-1 ' +
@@ -2993,8 +3060,13 @@ if (isCheckingAuth || !isAuthenticated) {
             onClick={(e) => e.stopPropagation()}
             className={'w-full max-w-md rounded-3xl border-2 border-amber-400 p-6 shadow-2xl space-y-5 text-center my-auto ' + themeStyles.modal}
           >
-            <div className="w-16 h-16 rounded-3xl bg-amber-500/20 border-2 border-amber-400/60 flex items-center justify-center text-4xl mx-auto shadow-inner">
-              {getFoodEmoji(restockPromptItem.name, restockPromptItem.customEmoji)}
+            <div className="flex justify-center">
+              <ProductThumb
+                item={restockPromptItem}
+                sizeClass="w-20 h-20"
+                emojiClass="text-4xl"
+                roundedClass="rounded-3xl"
+              />
             </div>
 
             <div className="space-y-1.5">
@@ -3199,6 +3271,20 @@ if (isCheckingAuth || !isAuthenticated) {
                 <span>📲 Als Android-App installieren</span>
               </button>
             )}
+
+            <div className="pt-2 border-t border-white/10 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[10px] font-bold text-slate-400">
+              <a href="/datenschutz" className="hover:text-sky-300">Datenschutz</a>
+              <span className="opacity-30">•</span>
+              <a href="/nutzungsbedingungen" className="hover:text-sky-300">Nutzungsbedingungen</a>
+              <span className="opacity-30">•</span>
+              <button
+                type="button"
+                onClick={() => { setQuickCockpitOpen(false); openCookieSettingsModal(); }}
+                className="hover:text-sky-300 cursor-pointer"
+              >
+                🍪 Cookie-Einstellungen
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -3211,9 +3297,12 @@ if (isCheckingAuth || !isAuthenticated) {
           >
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-3">
-                <span className="w-12 h-12 rounded-2xl bg-black/35 border border-white/15 flex items-center justify-center text-3xl shrink-0">
-                  {editStockModal.customEmoji || getFoodEmoji(editStockModal.name)}
-                </span>
+                <ProductThumb
+                  item={editStockModal}
+                  sizeClass="w-12 h-12"
+                  emojiClass="text-3xl"
+                  roundedClass="rounded-2xl"
+                />
                 <div>
                   <h3 className="text-base font-black">✏️ Produkt bearbeiten</h3>
                   <p className="text-[11px] opacity-75 font-semibold">
@@ -3228,6 +3317,46 @@ if (isCheckingAuth || !isAuthenticated) {
               >
                 <X className="w-5 h-5" />
               </button>
+            </div>
+
+            {/* PRODUKTBILD BEARBEITEN / HOCHLADEN (SUPABASE STORAGE) */}
+            <div className={'p-2.5 rounded-2xl border flex flex-wrap items-center justify-between gap-2 ' + themeStyles.subtle}>
+              <div className="text-[11px] font-extrabold text-slate-300 flex items-center gap-1.5 min-w-0">
+                <span>🖼️</span>
+                <span className="truncate">
+                  {isUploadingEditPhoto
+                    ? 'Lade Bild nach Supabase...'
+                    : editStockModal.imageUrl
+                    ? (editStockModal.imageUrl.includes('supabase') ? 'Eigenes Foto (Supabase ✓)' : 'Produktbild aktiv ✓')
+                    : 'Noch kein Produktfoto hinterlegt'}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-1.5 shrink-0">
+                <label className="tw-glow-btn px-2.5 py-1.5 rounded-xl text-[11px] font-black flex items-center gap-1 cursor-pointer">
+                  <Camera className="w-3.5 h-3.5" />
+                  <span>{editStockModal.imageUrl ? 'Ändern' : 'Foto aufnehmen'}</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    disabled={isUploadingEditPhoto}
+                    className="hidden"
+                    onChange={handleEditStockPhotoUpload}
+                  />
+                </label>
+
+                {editStockModal.imageUrl && (
+                  <button
+                    type="button"
+                    onClick={() => setEditStockModal(prev => ({ ...prev, imageUrl: '' }))}
+                    title="Produktbild entfernen"
+                    className="px-2 py-1.5 rounded-xl bg-rose-500/20 border border-rose-400/40 text-rose-300 text-[11px] font-black flex items-center cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
             </div>
 
             <div>
@@ -3378,7 +3507,7 @@ if (isCheckingAuth || !isAuthenticated) {
 
             <div className={'p-2.5 rounded-2xl border space-y-1.5 ' + themeStyles.subtle}>
               <div className="flex items-center justify-between">
-                <span className="text-[10px] font-black uppercase">🎨 Emoji anpassen</span>
+                <span className="text-[10px] font-black uppercase">🎨 Fallback-Emoji anpassen</span>
                 <button
                   type="button"
                   onClick={() => setEditStockModal({ ...editStockModal, customEmoji: getFoodEmoji(editStockModal.name) })}
@@ -3422,7 +3551,8 @@ if (isCheckingAuth || !isAuthenticated) {
                 </button>
                 <button
                   type="submit"
-                  className="tw-active-nav px-4 py-2.5 rounded-2xl text-xs font-black flex items-center gap-1.5 shadow-lg"
+                  disabled={isUploadingEditPhoto}
+                  className="tw-active-nav px-4 py-2.5 rounded-2xl text-xs font-black flex items-center gap-1.5 shadow-lg disabled:opacity-50"
                 >
                   <Check className="w-4 h-4" />
                   <span>Speichern</span>
