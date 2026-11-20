@@ -10,6 +10,8 @@ import {
 } from 'lucide-react';
 import { COLOR_PALETTES, PAGE_THEMES, AVATAR_EMOJIS } from './touchwallConfig';
 
+const SHOW_OAUTH_UI = process.env.NEXT_PUBLIC_ENABLE_OAUTH === 'true';
+
 const CALENDAR_PROVIDERS = [
   { id: 'outlook', label: '🟦 Microsoft Outlook / Hotmail (.ics Link)', placeholder: 'https://outlook.live.com/owa/calendar/.../reachcalendar.ics' },
   { id: 'google',  label: '🔵 Google Kalender (E-Mail / ID oder .ics Link)', placeholder: 'name@gmail.com oder https://calendar.google.com/calendar/ical/.../basic.ics' },
@@ -73,7 +75,6 @@ export default function SettingsSection({
   const [newCalUrl, setNewCalUrl] = useState('');
   const [showExpertServerUrl, setShowExpertServerUrl] = useState(false);
 
-  // Konto-Sicherheit, Passwort-Reset & OAuth-Status
   const [securityEmail, setSecurityEmail] = useState('');
   const [hasRecoveryCode, setHasRecoveryCode] = useState(false);
   const [generatedRecoveryCode, setGeneratedRecoveryCode] = useState('');
@@ -479,7 +480,7 @@ export default function SettingsSection({
   }
 
   // =========================================================
-  // ANSICHT: KONTEN, OAUTH (GOOGLE & OUTLOOK), PASSWORT-RESET & MULTI-KALENDER
+  // ANSICHT: KONTEN, SICHERHEIT & MULTI-KALENDER VERKNÜPFUNG
   // =========================================================
   const accountGoogleConn = getOAuthConn('account', 'google');
   const accountMsConn = getOAuthConn('account', 'microsoft');
@@ -487,19 +488,31 @@ export default function SettingsSection({
   return (
     <div className="p-6 flex flex-col gap-6">
 
-      {/* 1. KONTO-SICHERHEIT, PASSWORT-RESET & NACHTRÄGLICHES OAUTH-LOGIN */}
+      {/* 1. KONTO-SICHERHEIT, PASSWORT-RESET & (OPTIONAL) OAUTH-LOGIN */}
       {isCloudAccount && (
         <div className={'rounded-3xl p-6 shadow-xl border-2 border-emerald-500/40 space-y-5 ' + themeStyles.card}>
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
               <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-extrabold">
-                🔐 Konto-Sicherheit, Passwort-Reset & 1-Klick OAuth-Login
+                {SHOW_OAUTH_UI
+                  ? '🔐 Konto-Sicherheit, Passwort-Reset & 1-Klick OAuth-Login'
+                  : '🔐 Konto-Sicherheit & Passwort-Reset'}
               </span>
               <h2 className="text-xl sm:text-2xl font-extrabold mt-2">
-                Google & Outlook verknüpfen • Passwort & Notfall-Code
+                {SHOW_OAUTH_UI
+                  ? 'Google & Outlook verknüpfen • Passwort & Notfall-Code'
+                  : 'Passwort, Reset-E-Mail & Notfall-Code'}
               </h2>
               <p className={'text-xs sm:text-sm mt-1 ' + themeStyles.textMuted}>
-                Auch nach einer normalen Registrierung kannst du hier jederzeit <strong>Google</strong> und <strong>Microsoft / Outlook</strong> für dein Konto (<strong>{effectiveAccountId}</strong>) freischalten sowie Reset-E-Mail und Notfall-Code verwalten.
+                {SHOW_OAUTH_UI ? (
+                  <>
+                    Auch nach einer normalen Registrierung kannst du hier jederzeit <strong>Google</strong> und <strong>Microsoft / Outlook</strong> für dein Konto (<strong>{effectiveAccountId}</strong>) freischalten sowie Reset-E-Mail und Notfall-Code verwalten.
+                  </>
+                ) : (
+                  <>
+                    Verwalte hier deine Reset-E-Mail, dein Passwort und deinen persönlichen Notfall-Recovery-Code für dein Konto (<strong>{effectiveAccountId}</strong>).
+                  </>
+                )}
               </p>
             </div>
             <button
@@ -519,94 +532,96 @@ export default function SettingsSection({
             </div>
           )}
 
-          {/* OAUTH-LOGIN VERKNÜPFUNGEN (KONTOWEIT) */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-            <div className={'p-4 rounded-2xl border flex flex-wrap items-center justify-between gap-3 ' + themeStyles.subtle}>
-              <div className="space-y-0.5 min-w-[180px]">
-                <div className="text-sm font-black flex items-center gap-2">
-                  <GoogleMiniIcon />
-                  <span>Google Konto (OAuth)</span>
+          {/* OAUTH-LOGIN VERKNÜPFUNGEN (KONTOWEIT – ÜBER SHOW_OAUTH_UI STEUERBAR) */}
+          {SHOW_OAUTH_UI && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+              <div className={'p-4 rounded-2xl border flex flex-wrap items-center justify-between gap-3 ' + themeStyles.subtle}>
+                <div className="space-y-0.5 min-w-[180px]">
+                  <div className="text-sm font-black flex items-center gap-2">
+                    <GoogleMiniIcon />
+                    <span>Google Konto (OAuth)</span>
+                  </div>
+                  <div className="text-xs opacity-80 font-semibold">
+                    {accountGoogleConn
+                      ? ('Verbunden: ' + (accountGoogleConn.provider_email || 'Aktiv ✓'))
+                      : (oauthProvidersReady.google ? 'Noch nicht verknüpft' : 'Hinweis: GOOGLE_OAUTH_CLIENT_ID in Vercel ergänzen')}
+                  </div>
                 </div>
-                <div className="text-xs opacity-80 font-semibold">
-                  {accountGoogleConn
-                    ? ('Verbunden: ' + (accountGoogleConn.provider_email || 'Aktiv ✓'))
-                    : (oauthProvidersReady.google ? 'Noch nicht verknüpft' : 'Hinweis: GOOGLE_OAUTH_CLIENT_ID in Vercel ergänzen')}
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                {accountGoogleConn ? (
-                  <>
+                <div className="flex items-center gap-2">
+                  {accountGoogleConn ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => startOAuthLinkFlow('google', 'account')}
+                        className="tw-nav-inactive px-3 py-2 rounded-xl text-xs font-extrabold cursor-pointer"
+                      >
+                        Neu verbinden
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDisconnectOAuth('google', 'account')}
+                        className="px-3 py-2 rounded-xl bg-rose-500/20 border border-rose-400/40 text-rose-300 text-xs font-extrabold flex items-center gap-1 cursor-pointer"
+                      >
+                        <Unlink className="w-3.5 h-3.5" /> Trennen
+                      </button>
+                    </>
+                  ) : (
                     <button
                       type="button"
                       onClick={() => startOAuthLinkFlow('google', 'account')}
-                      className="tw-nav-inactive px-3 py-2 rounded-xl text-xs font-extrabold cursor-pointer"
+                      className="tw-glow-btn px-4 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer"
                     >
-                      Neu verbinden
+                      <GoogleMiniIcon />
+                      <span>Google jetzt verknüpfen</span>
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDisconnectOAuth('google', 'account')}
-                      className="px-3 py-2 rounded-xl bg-rose-500/20 border border-rose-400/40 text-rose-300 text-xs font-extrabold flex items-center gap-1 cursor-pointer"
-                    >
-                      <Unlink className="w-3.5 h-3.5" /> Trennen
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => startOAuthLinkFlow('google', 'account')}
-                    className="tw-glow-btn px-4 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <GoogleMiniIcon />
-                    <span>Google jetzt verknüpfen</span>
-                  </button>
-                )}
+                  )}
+                </div>
               </div>
-            </div>
 
-            <div className={'p-4 rounded-2xl border flex flex-wrap items-center justify-between gap-3 ' + themeStyles.subtle}>
-              <div className="space-y-0.5 min-w-[180px]">
-                <div className="text-sm font-black flex items-center gap-2">
-                  <MicrosoftMiniIcon />
-                  <span>Outlook / Microsoft (OAuth)</span>
+              <div className={'p-4 rounded-2xl border flex flex-wrap items-center justify-between gap-3 ' + themeStyles.subtle}>
+                <div className="space-y-0.5 min-w-[180px]">
+                  <div className="text-sm font-black flex items-center gap-2">
+                    <MicrosoftMiniIcon />
+                    <span>Outlook / Microsoft (OAuth)</span>
+                  </div>
+                  <div className="text-xs opacity-80 font-semibold">
+                    {accountMsConn
+                      ? ('Verbunden: ' + (accountMsConn.provider_email || 'Aktiv ✓'))
+                      : (oauthProvidersReady.microsoft ? 'Noch nicht verknüpft' : 'Hinweis: MICROSOFT_OAUTH_CLIENT_ID in Vercel ergänzen')}
+                  </div>
                 </div>
-                <div className="text-xs opacity-80 font-semibold">
-                  {accountMsConn
-                    ? ('Verbunden: ' + (accountMsConn.provider_email || 'Aktiv ✓'))
-                    : (oauthProvidersReady.microsoft ? 'Noch nicht verknüpft' : 'Hinweis: MICROSOFT_OAUTH_CLIENT_ID in Vercel ergänzen')}
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                {accountMsConn ? (
-                  <>
+                <div className="flex items-center gap-2">
+                  {accountMsConn ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => startOAuthLinkFlow('microsoft', 'account')}
+                        className="tw-nav-inactive px-3 py-2 rounded-xl text-xs font-extrabold cursor-pointer"
+                      >
+                        Neu verbinden
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDisconnectOAuth('microsoft', 'account')}
+                        className="px-3 py-2 rounded-xl bg-rose-500/20 border border-rose-400/40 text-rose-300 text-xs font-extrabold flex items-center gap-1 cursor-pointer"
+                      >
+                        <Unlink className="w-3.5 h-3.5" /> Trennen
+                      </button>
+                    </>
+                  ) : (
                     <button
                       type="button"
                       onClick={() => startOAuthLinkFlow('microsoft', 'account')}
-                      className="tw-nav-inactive px-3 py-2 rounded-xl text-xs font-extrabold cursor-pointer"
+                      className="tw-glow-btn px-4 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer"
                     >
-                      Neu verbinden
+                      <MicrosoftMiniIcon />
+                      <span>Outlook jetzt verknüpfen</span>
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDisconnectOAuth('microsoft', 'account')}
-                      className="px-3 py-2 rounded-xl bg-rose-500/20 border border-rose-400/40 text-rose-300 text-xs font-extrabold flex items-center gap-1 cursor-pointer"
-                    >
-                      <Unlink className="w-3.5 h-3.5" /> Trennen
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => startOAuthLinkFlow('microsoft', 'account')}
-                    className="tw-glow-btn px-4 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <MicrosoftMiniIcon />
-                    <span>Outlook jetzt verknüpfen</span>
-                  </button>
-                )}
+                  )}
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
           {/* RESET-E-MAIL, PASSWORT & NOTFALL-RECOVERY-CODE */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-3.5">
@@ -710,7 +725,15 @@ export default function SettingsSection({
             </span>
             <h2 className="text-2xl font-extrabold mt-2">Externe Kalender & Todoist verbinden</h2>
             <p className={'text-sm mt-1 ' + themeStyles.textMuted}>
-              Euer integrierter Cloud-Kalender ist sofort bereit. Zusätzlich könnt ihr unten bei jeder Person per <strong>1-Klick Google / Outlook OAuth</strong> (Zwei-Wege-Sync) oder per <strong>.ics-Link</strong> beliebig viele Kalender verknüpfen!
+              {SHOW_OAUTH_UI ? (
+                <>
+                  Euer integrierter Cloud-Kalender ist sofort bereit. Zusätzlich könnt ihr unten bei jeder Person per <strong>1-Klick Google / Outlook OAuth</strong> (Zwei-Wege-Sync) oder per <strong>.ics-Link</strong> beliebig viele Kalender verknüpfen!
+                </>
+              ) : (
+                <>
+                  Euer integrierter Cloud-Kalender ist sofort bereit. Zusätzlich könnt ihr unten bei jeder Person beliebig viele <strong>Microsoft Outlook</strong>-, <strong>Google</strong>-, <strong>Apple iCloud</strong>- oder <strong>Schul-Kalender</strong> verknüpfen!
+                </>
+              )}
             </p>
           </div>
           <button
@@ -736,7 +759,7 @@ export default function SettingsSection({
         </div>
       </div>
 
-      {/* 3. FAMILIENMITGLIEDER & KALENDER-VERKNÜPFUNGEN (OAUTH + ICS) */}
+      {/* 3. FAMILIENMITGLIEDER & KALENDER-VERKNÜPFUNGEN */}
       <div className={'rounded-3xl border overflow-hidden divide-y ' + themeStyles.card + ' ' + themeStyles.divider}>
         {(Array.isArray(members) ? members : []).map(m => {
           const isCustom = !['all', 'hans', 'sarah', 'dean', 'valentina'].includes(m.id);
@@ -809,7 +832,7 @@ export default function SettingsSection({
                 )}
 
                 <div className="flex flex-wrap items-center gap-2">
-                  {isCloudAccount && (
+                  {SHOW_OAUTH_UI && isCloudAccount && (
                     <>
                       <button
                         type="button"
@@ -843,7 +866,7 @@ export default function SettingsSection({
                     className="tw-glow-btn px-3.5 py-2.5 rounded-xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
                   >
                     <Plus className="w-4 h-4" />
-                    <span>+ ICS / ID</span>
+                    <span>{SHOW_OAUTH_UI ? '+ ICS / ID' : '+ Kalender verknüpfen (Outlook / Google / iCloud)'}</span>
                   </button>
 
                   {isCustom && (
@@ -861,13 +884,13 @@ export default function SettingsSection({
                 </div>
               </div>
 
-              {/* AKTIVE KALENDER-VERKNÜPFUNGEN (CLOUD + OAUTH + ICS) */}
+              {/* AKTIVE KALENDER-VERKNÜPFUNGEN */}
               <div className="flex flex-wrap items-center gap-2 pl-0 sm:pl-14">
                 <span className="px-3 py-1 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-xs font-extrabold flex items-center gap-1.5">
                   ☁️ Integrierter Touchwall-Kalender ✓
                 </span>
 
-                {memberGoogleOAuth && (
+                {SHOW_OAUTH_UI && memberGoogleOAuth && (
                   <div className="px-3 py-1 rounded-xl bg-sky-500/20 border border-sky-400/50 text-sky-100 text-xs font-extrabold flex items-center gap-2">
                     <GoogleMiniIcon />
                     <span>Google OAuth: {memberGoogleOAuth.provider_email || 'Verbunden'}</span>
@@ -882,7 +905,7 @@ export default function SettingsSection({
                   </div>
                 )}
 
-                {memberMsOAuth && (
+                {SHOW_OAUTH_UI && memberMsOAuth && (
                   <div className="px-3 py-1 rounded-xl bg-indigo-500/20 border border-indigo-400/50 text-indigo-100 text-xs font-extrabold flex items-center gap-2">
                     <MicrosoftMiniIcon />
                     <span>Outlook OAuth: {memberMsOAuth.provider_email || 'Verbunden'}</span>
@@ -968,7 +991,15 @@ export default function SettingsSection({
 
                   <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
                     <span className="text-[11px] opacity-80 font-semibold">
-                      💡 <strong>Tipp:</strong> Für echten Zwei-Wege-Sync nutze oben <strong>Google OAuth</strong> oder <strong>Outlook OAuth</strong>. Für reine Lese-Kalender (z.B. Apple iCloud, Schule, Verein) einfach den <strong>ICS-Link</strong> hier einfügen!
+                      {SHOW_OAUTH_UI ? (
+                        <>
+                          💡 <strong>Tipp:</strong> Für echten Zwei-Wege-Sync nutze oben <strong>Google OAuth</strong> oder <strong>Outlook OAuth</strong>. Für reine Lese-Kalender (z.B. Apple iCloud, Schule, Verein) einfach den <strong>ICS-Link</strong> hier einfügen!
+                        </>
+                      ) : (
+                        <>
+                          💡 <strong>Tipp für Outlook / Apple / Google:</strong> Kopiere in deinen Kalender-Einstellungen unter „Kalender teilen / veröffentlichen“ einfach den <strong>ICS-Link</strong> hier hinein!
+                        </>
+                      )}
                     </span>
                     <div className="flex gap-2">
                       <button
