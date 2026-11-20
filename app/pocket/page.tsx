@@ -3,6 +3,14 @@
 /* eslint-disable @next/next/no-img-element */
 'use client';
 
+//
+//
+// ============================================================================
+// PART 01: IMPORTS & KONFIGURATION
+// ============================================================================
+//
+//
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -63,9 +71,14 @@ const {
   deleteTodoistTask
 } = Cfg;
 
+//
+//
 // ============================================================================
-// DIREKT INTEGRIERTE HILFSFUNKTIONEN (VERHINDERT JEGLICHEN IMPORT-FEHLER!)
+// PART 02: PRODUKT-, MARKEN- & GLUTENFREI-HELFER
 // ============================================================================
+//
+//
+
 const FOOD_EMOJI_PICKER = [
   '🌭', '🥩', '🍗', '🥓', '🍔', '🐟', '🥚', '🧀', '🧈', '🥛',
   '🥣', '🥬', '🥒', '🍅', '🫑', '🥕', '🥔', '🧅', '🥦', '🌽',
@@ -274,6 +287,14 @@ function isProductGlutenFree(itemOrName, customCategory = '', manualFlag = undef
   }
   return false;
 }
+
+//
+//
+// ============================================================================
+// PART 03: AUTH-, DATUMS- & SYNC-RECONCILIATION-HELFER
+// ============================================================================
+//
+//
 
 function writeAuthSession(accountId, authKey, familyName) {
   try {
@@ -565,6 +586,15 @@ function reconcileFamilyTasks(localTasks, incomingTasks, syncMeta, source = 'clo
   saveLocalSyncMeta(syncMeta);
   return mergedList;
 }
+
+//
+//
+// ============================================================================
+// PART 04: HAUPTKOMPONENTE, STATES, REFS & BERECHNETE LISTEN (MEMOS)
+// ============================================================================
+//
+//
+
 export default function TouchwallPocketApp() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
@@ -644,6 +674,7 @@ export default function TouchwallPocketApp() {
   const isNetworkSavingRef = useRef(false);
   const isSyncRunningRef = useRef(false);
   const lastLocalEditRef = useRef(0);
+  const swipeRef = useRef({ x: 0, y: 0, blocked: false });
 
   const [isSyncing, setIsSyncing] = useState(false);
   const [toast, setToast] = useState(null);
@@ -740,6 +771,14 @@ export default function TouchwallPocketApp() {
       localStorage.setItem('richter_tw_pocket_cart_v1', JSON.stringify(clean));
     } catch (e) {}
   };
+
+  //
+  //
+  // ============================================================================
+  // PART 05: PWA, PUSH-BENACHRICHTIGUNGEN, MHD-WÄCHTER & UI-HELFER
+  // ============================================================================
+  //
+  //
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -1027,6 +1066,14 @@ export default function TouchwallPocketApp() {
     '  box-shadow: 0 6px 16px -3px var(--tw-btn-glow) !important;',
     '}'
   ].join('\n');
+
+  //
+  //
+  // ============================================================================
+  // PART 06: CLOUD-BACKEND, REALTIME-SYNC & INITIALISIERUNG
+  // ============================================================================
+  //
+  //
 
   const callCloudBackend = async (postBody) => {
     return callCloudApi(
@@ -1419,6 +1466,14 @@ export default function TouchwallPocketApp() {
     setSelectedPerson(personId);
     try { localStorage.setItem('richter_tw_pocket_person', personId); } catch (e) {}
   };
+
+  //
+  //
+  // ============================================================================
+  // PART 07: EINKAUFSWAGEN-, VORRATS- & MÜLLEIMER-HANDLER
+  // ============================================================================
+  //
+  //
 
   const handleAddSingleToCart = (nameVal, barcodeVal, qtyVal, locVal, catVal, expVal, imgVal, gfVal = 'auto') => {
     const now = Date.now();
@@ -1838,7 +1893,23 @@ export default function TouchwallPocketApp() {
     await handleMoveStockItemToTrashFromPocket(item, 'consumed', true);
   };
 
-  const handleCreateMobileEvent = async ({ title, date, time, member }) => {
+  //
+  //
+  // ============================================================================
+  // PART 08: KALENDER-, AUFGABEN-, EINKAUFS- & AUTH-HANDLER
+  // ============================================================================
+  //
+  //
+
+  const handleCreateMobileEvent = async ({
+    title,
+    date,
+    time,
+    member,
+    notifyTime = '30m',
+    notifyChannel = 'wall_push',
+    notifyUsers
+  }) => {
     lastLocalEditRef.current = Date.now();
     const newEv = {
       id: String(Date.now()),
@@ -1846,9 +1917,9 @@ export default function TouchwallPocketApp() {
       date,
       time,
       member,
-      notifyTime: '30m',
-      notifyChannel: 'wall_push',
-      notifyUsers: [member],
+      notifyTime,
+      notifyChannel,
+      notifyUsers: Array.isArray(notifyUsers) && notifyUsers.length > 0 ? notifyUsers : [member],
       fromGoogle: true,
       fromMobile: true
     };
@@ -1861,6 +1932,46 @@ export default function TouchwallPocketApp() {
         const res = await callCloudBackend({ action: 'createEvent', event: newEv });
         if (res?.result?.events) {
           setEvents(mergeCalendarEventsSafe(res.result.events, pendingCalendarOpsRef, syncMetaRef.current));
+        }
+      } catch (err) {}
+    }
+  };
+
+  const handleUpdateMobileEvent = async (originalEv, updatedFields) => {
+    if (!originalEv) return;
+    lastLocalEditRef.current = Date.now();
+    const updatedEv = {
+      ...originalEv,
+      ...updatedFields,
+      fromMobile: true
+    };
+
+    registerPendingCalendarOp(pendingCalendarOpsRef, 'create', updatedEv);
+    setEvents(prev =>
+      (Array.isArray(prev) ? prev : []).map(item =>
+        String(item.id) === String(originalEv.id) ? updatedEv : item
+      )
+    );
+    showToast('Termin aktualisiert', updatedEv.title, '✏️');
+
+    if (accountId && accountId !== 'local') {
+      try {
+        const res = await callCloudBackend({ action: 'updateEvent', event: updatedEv });
+        if (res?.ok && res?.result?.events) {
+          setEvents(mergeCalendarEventsSafe(res.result.events, pendingCalendarOpsRef, syncMetaRef.current));
+          return;
+        }
+        // Fallback, falls /api/cloud kein eigenes updateEvent ausführt
+        await callCloudBackend({
+          action: 'deleteEvent',
+          eventId: String(originalEv.id),
+          member: originalEv.member,
+          title: originalEv.title,
+          date: originalEv.date
+        });
+        const createRes = await callCloudBackend({ action: 'createEvent', event: updatedEv });
+        if (createRes?.result?.events) {
+          setEvents(mergeCalendarEventsSafe(createRes.result.events, pendingCalendarOpsRef, syncMetaRef.current));
         }
       } catch (err) {}
     }
@@ -2359,7 +2470,15 @@ export default function TouchwallPocketApp() {
       '&returnTo=/pocket';
   };
 
-if (isCheckingAuth || !isAuthenticated) {
+//
+//
+// ============================================================================
+// PART 09: AUTH-GUARD, FILTER-LISTEN & KATEGORIEN-WISCH-STEUERUNG
+// ============================================================================
+//
+//
+
+  if (isCheckingAuth || !isAuthenticated) {
     return (
       <AuthScreen
         isCheckingAuth={isCheckingAuth}
@@ -2397,6 +2516,64 @@ if (isCheckingAuth || !isAuthenticated) {
 
   const activePersonObj = safeMembers.find(m => m.id === selectedPerson);
 
+  const POCKET_TABS = [
+    { id: 'agenda',   label: 'Kalender', icon: Calendar,     badge: filteredEvents.filter(e => e.date === todayStr).length },
+    { id: 'tasks',    label: 'Aufgaben', icon: CheckSquare,  badge: openTasks.length },
+    { id: 'scanner',  label: 'Scanner',  icon: Camera,       badge: safeCart.length },
+    { id: 'shopping', label: 'Einkauf',  icon: ShoppingCart, badge: openShop.length + safeCart.length },
+    {
+      id: 'stock',
+      label: 'Bestand',
+      icon: Package,
+      badge: mhdAlertGroups.finalToday.length + mhdAlertGroups.warnTwoDays.length > 0
+        ? (mhdAlertGroups.finalToday.length + mhdAlertGroups.warnTwoDays.length)
+        : safeStock.length,
+      urgent: mhdAlertGroups.finalToday.length > 0
+    }
+  ];
+
+  const handleMainTouchStart = (e) => {
+    if (quickCockpitOpen || editStockModal.open || restockPromptItem || e.touches.length !== 1) {
+      swipeRef.current.blocked = true;
+      return;
+    }
+    const target = e.target;
+    const isBlockedArea = Boolean(
+      target?.closest?.('[data-no-swipe="true"], input, textarea, select, [class*="overflow-x-auto"]')
+    );
+    swipeRef.current = {
+      x: e.touches[0].clientX,
+      y: e.touches[0].clientY,
+      blocked: isBlockedArea
+    };
+  };
+
+  const handleMainTouchEnd = (e) => {
+    if (swipeRef.current.blocked || !e.changedTouches?.[0]) return;
+    const dx = e.changedTouches[0].clientX - swipeRef.current.x;
+    const dy = e.changedTouches[0].clientY - swipeRef.current.y;
+
+    // Nur bei eindeutiger horizontaler Wischbewegung wechseln (kein Versehen beim Scrollen)
+    if (Math.abs(dx) < 68 || Math.abs(dx) < Math.abs(dy) * 1.45) return;
+
+    const currentIdx = POCKET_TABS.findIndex(t => t.id === activeTab);
+    if (currentIdx === -1) return;
+
+    if (dx < 0 && currentIdx < POCKET_TABS.length - 1) {
+      setActiveTab(POCKET_TABS[currentIdx + 1].id);
+    } else if (dx > 0 && currentIdx > 0) {
+      setActiveTab(POCKET_TABS[currentIdx - 1].id);
+    }
+  };
+
+  //
+  //
+  // ============================================================================
+  // PART 10: HAUPT-LAYOUT, KALENDER, AUFGABEN, SCANNER & EINKAUF
+  // ============================================================================
+  //
+  //
+
   return (
     <div
       style={{
@@ -2407,16 +2584,18 @@ if (isCheckingAuth || !isAuthenticated) {
         '--tw-btn-rest-base': themeStyles.dark ? '#1e222d' : '#e2e8f0',
         '--tw-btn-rest-text': themeStyles.dark ? '#e2e8f0' : '#1e293b'
       }}
-      className={'h-[100dvh] w-screen overflow-hidden flex flex-col select-none ' + themeStyles.outer}
+      className={'h-[100dvh] w-screen overflow-hidden flex flex-col md:flex-row-reverse select-none ' + themeStyles.outer}
     >
       <style>{pocketStyles}</style>
 
       <main
+        onTouchStart={handleMainTouchStart}
+        onTouchEnd={handleMainTouchEnd}
         className={
-          'flex-1 overflow-x-hidden ' +
+          'flex-1 min-w-0 overflow-x-hidden ' +
           (activeTab === 'agenda'
             ? 'overflow-hidden flex flex-col p-0 '
-            : 'overflow-y-auto px-2.5 pt-2.5 pb-5 ') +
+            : 'overflow-y-auto px-2.5 sm:px-4 pt-2.5 sm:pt-4 pb-5 ') +
           themeStyles.viewport
         }
       >
@@ -2431,10 +2610,11 @@ if (isCheckingAuth || !isAuthenticated) {
             getMemberStyles={getMemberStyles}
             renderAvatar={renderAvatar}
             onCreateEvent={handleCreateMobileEvent}
+            onUpdateEvent={handleUpdateMobileEvent}
             onDeleteEvent={handleDeleteMobileEvent}
           />
         ) : (
-          <div className="max-w-lg w-full mx-auto space-y-3">
+          <div className="max-w-6xl w-full mx-auto space-y-3">
             {activeTab === 'tasks' && (
               <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
                 <button
@@ -2513,6 +2693,13 @@ if (isCheckingAuth || !isAuthenticated) {
               />
             )}
 
+            {/*
+            //
+            // ============================================================================
+            // PART 11: VORRATS- & MÜLLEIMER-ANSICHT (HANDY & TABLET GRID)
+            // ============================================================================
+            //
+            */}
             {activeTab === 'stock' && (
               <div className="space-y-3">
                 <div className="grid grid-cols-2 gap-1.5 p-1 rounded-2xl bg-black/35 border border-white/10">
@@ -2681,7 +2868,7 @@ if (isCheckingAuth || !isAuthenticated) {
                             <span className="text-[11px] font-black uppercase text-sky-400 block">
                               ↕️ Sortierung wählen:
                             </span>
-                            <div className="grid grid-cols-2 gap-1.5">
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
                               {[
                                 { id: 'newest',     label: '🕒 Neueste oben' },
                                 { id: 'expiry',     label: '📅 Nach MHD' },
@@ -2787,16 +2974,16 @@ if (isCheckingAuth || !isAuthenticated) {
                       </div>
                     </div>
 
-                    <div className="space-y-3">
-                      {sortedStockForTab.length === 0 ? (
-                        <div className={'p-8 rounded-3xl border text-center space-y-2 ' + themeStyles.card}>
-                          <div className="text-3xl">🥫</div>
-                          <div className="text-sm font-extrabold opacity-70">
-                            Keine Produkte für diese Suche oder Filterung gefunden.
-                          </div>
+                    {sortedStockForTab.length === 0 ? (
+                      <div className={'p-8 rounded-3xl border text-center space-y-2 ' + themeStyles.card}>
+                        <div className="text-3xl">🥫</div>
+                        <div className="text-sm font-extrabold opacity-70">
+                          Keine Produkte für diese Suche oder Filterung gefunden.
                         </div>
-                      ) : (
-                        sortedStockForTab.map((item, idx) => {
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                        {sortedStockForTab.map((item, idx) => {
                           const catObj = FOOD_CATEGORIES.find(c => c.id === item.resolvedCategory) || FOOD_CATEGORIES[1];
                           const locObj = STORAGE_PILLS.find(l => l.id === item.location) || STORAGE_PILLS[0];
                           const decPreview = decrementItemPieceCount(item.quantity);
@@ -2819,7 +3006,7 @@ if (isCheckingAuth || !isAuthenticated) {
                             <div
                               key={item.id}
                               onClick={() => openEditStockItemModal(item)}
-                              className={'p-4 rounded-3xl border flex flex-col gap-3.5 cursor-pointer shadow-md transition-all ' +
+                              className={'p-4 rounded-3xl border flex flex-col justify-between gap-3.5 cursor-pointer shadow-md transition-all ' +
                                 themeStyles.card + ' ' +
                                 (isFinalDayZero
                                   ? 'border-rose-500 border-2 bg-rose-950/35'
@@ -2937,9 +3124,9 @@ if (isCheckingAuth || !isAuthenticated) {
                               </div>
                             </div>
                           );
-                        })
-                      )}
-                    </div>
+                        })}
+                      </div>
+                    )}
                   </>
                 ) : (
                   <div className="space-y-3">
@@ -2975,13 +3162,13 @@ if (isCheckingAuth || !isAuthenticated) {
                         </div>
                       </div>
                     ) : (
-                      <div className="space-y-2.5">
+                      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2.5">
                         {safeTrash.map(tItem => {
                           const isWasted = tItem.reason === 'expired' || tItem.reason === 'wasted';
                           return (
                             <div
                               key={tItem.id}
-                              className={'p-4 rounded-3xl border flex flex-col gap-3 shadow-sm ' +
+                              className={'p-4 rounded-3xl border flex flex-col justify-between gap-3 shadow-sm ' +
                                 themeStyles.card + ' ' +
                                 (isWasted ? 'border-rose-500/60' : 'border-emerald-500/40')}
                             >
@@ -3051,8 +3238,16 @@ if (isCheckingAuth || !isAuthenticated) {
         )}
       </main>
 
+      {/*
+      //
+      // ============================================================================
+      // PART 12: MODALS (RESTOCK, QUICK-COCKPIT, EDIT), ADAPTIVE NAVIGATION & TOAST
+      // ============================================================================
+      //
+      */}
       {restockPromptItem && typeof document !== 'undefined' && createPortal(
         <div
+          data-no-swipe="true"
           onClick={() => setRestockPromptItem(null)}
           className="fixed inset-0 w-screen h-screen z-[9999] bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 select-none"
         >
@@ -3114,12 +3309,13 @@ if (isCheckingAuth || !isAuthenticated) {
 
       {quickCockpitOpen && (
         <div
+          data-no-swipe="true"
           onClick={() => setQuickCockpitOpen(false)}
-          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-end justify-center p-3"
+          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-end md:items-center justify-center p-3"
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className={'w-full max-w-md rounded-3xl border-2 p-4 shadow-2xl space-y-4 mb-14 max-h-[82dvh] overflow-y-auto ' + themeStyles.modal}
+            className={'w-full max-w-md rounded-3xl border-2 p-4 shadow-2xl space-y-4 mb-14 md:mb-0 max-h-[82dvh] overflow-y-auto ' + themeStyles.modal}
           >
             <div className="flex items-center justify-between gap-2 border-b border-white/10 pb-3">
               <div className="flex items-center gap-2.5 min-w-0">
@@ -3290,7 +3486,10 @@ if (isCheckingAuth || !isAuthenticated) {
       )}
 
       {editStockModal.open && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-3 overflow-y-auto">
+        <div
+          data-no-swipe="true"
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-3 overflow-y-auto"
+        >
           <form
             onSubmit={handleSaveEditStockModal}
             className={'w-full max-w-md rounded-3xl border-2 p-4 sm:p-5 shadow-2xl space-y-3.5 my-auto ' + themeStyles.modal}
@@ -3563,36 +3762,34 @@ if (isCheckingAuth || !isAuthenticated) {
         </div>
       )}
 
-      {/* UNTERE NAVIGATION */}
-      <nav className={'shrink-0 z-40 border-t px-1.5 py-1.5 flex items-center justify-around gap-1 shadow-2xl ' + themeStyles.header}>
-        {[
-          { id: 'agenda',   label: 'Kalender', icon: Calendar,     badge: filteredEvents.filter(e => e.date === todayStr).length },
-          { id: 'tasks',    label: 'Aufgaben', icon: CheckSquare,  badge: openTasks.length },
-          { id: 'scanner',  label: 'Scanner',  icon: Camera,       badge: safeCart.length },
-          { id: 'shopping', label: 'Einkauf',  icon: ShoppingCart, badge: openShop.length + safeCart.length },
-          {
-            id: 'stock',
-            label: 'Bestand',
-            icon: Package,
-            badge: mhdAlertGroups.finalToday.length + mhdAlertGroups.warnTwoDays.length > 0
-              ? (mhdAlertGroups.finalToday.length + mhdAlertGroups.warnTwoDays.length)
-              : safeStock.length,
-            urgent: mhdAlertGroups.finalToday.length > 0
-          }
-        ].map(tab => {
+      {/* ADAPTIVE NAVIGATION: Handy = schlanke Bottom-Bar | Tablet (md+) = schmale Seitenleiste links */}
+      <nav
+        className={
+          'shrink-0 z-40 border-t md:border-t-0 md:border-r px-1.5 py-1.5 md:w-[76px] ' +
+          'flex md:flex-col items-center justify-around md:justify-start gap-1 md:gap-2 shadow-2xl ' +
+          themeStyles.header
+        }
+      >
+        {POCKET_TABS.map(tab => {
           const Icon = tab.icon;
           const active = activeTab === tab.id;
           return (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={'relative flex-1 py-2 rounded-2xl flex flex-col items-center gap-0.5 text-[10px] font-extrabold ' + (active ? 'tw-active-nav' : 'tw-nav-inactive opacity-85')}
+              className={
+                'relative flex-1 md:flex-none md:w-full py-1.5 md:py-2.5 rounded-2xl flex flex-col items-center gap-0.5 text-[10px] font-extrabold ' +
+                (active ? 'tw-active-nav' : 'tw-nav-inactive opacity-85')
+              }
             >
               <Icon className="w-4 h-4 sm:w-5 sm:h-5" />
-              <span>{tab.label}</span>
+              <span className="truncate max-w-full px-0.5">{tab.label}</span>
               {tab.badge > 0 && (
-                <span className={'absolute top-1 right-1 px-1.5 py-0.2 rounded-full text-[9px] font-black ' +
-                  (tab.urgent ? 'bg-rose-500 text-white animate-pulse' : 'bg-amber-500 text-slate-950')}
+                <span
+                  className={
+                    'absolute top-1 right-1 px-1.5 rounded-full text-[9px] font-black ' +
+                    (tab.urgent ? 'bg-rose-500 text-white animate-pulse' : 'bg-amber-500 text-slate-950')
+                  }
                 >
                   {tab.badge}
                 </span>
@@ -3604,8 +3801,10 @@ if (isCheckingAuth || !isAuthenticated) {
         <button
           type="button"
           onClick={() => setQuickCockpitOpen(prev => !prev)}
-          className={'relative px-2.5 py-1.5 rounded-2xl flex flex-col items-center justify-center gap-0.5 text-[10px] font-extrabold shrink-0 ' +
-            (quickCockpitOpen ? 'tw-active-nav' : 'tw-glow-btn')}
+          className={
+            'relative px-2.5 md:px-1 py-1.5 md:py-2.5 md:w-full md:mt-auto rounded-2xl flex flex-col items-center justify-center gap-0.5 text-[10px] font-extrabold shrink-0 ' +
+            (quickCockpitOpen ? 'tw-active-nav' : 'tw-glow-btn')
+          }
         >
           {activePersonObj && selectedPerson !== 'all' ? (
             renderAvatar(activePersonObj, 'w-5 h-5', 'text-[9px]')
@@ -3620,7 +3819,7 @@ if (isCheckingAuth || !isAuthenticated) {
       </nav>
 
       {toast && (
-        <div className="fixed bottom-20 left-4 right-4 z-50 px-4 py-3 rounded-2xl bg-slate-900/95 border border-sky-400 text-white shadow-2xl flex items-center gap-3">
+        <div className="fixed bottom-20 md:bottom-5 left-4 md:left-24 right-4 md:max-w-md z-50 px-4 py-3 rounded-2xl bg-slate-900/95 border border-sky-400 text-white shadow-2xl flex items-center gap-3">
           <span className="text-2xl">{toast.icon}</span>
           <div>
             <div className="text-[10px] font-black uppercase text-amber-400">{toast.title}</div>
