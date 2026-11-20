@@ -260,4 +260,4 @@ Für Anfragen zu kommerziellen Lizenzen, Kooperationen oder individuellen Anpass
 
 * **Eigentümer & Rechteinhaber:** Hans Richter
 * **Copyright:** `© Hans Richter 2026, Eigentümer der Entwicklung`
-* **Kontakt:** *(Hier deine bevorzugte E-Mail-Adresse oder GitHub-Kontaktseite eintragen)*
+* **Kontakt:** *hgr3sm@googlemail.com* / *https://github.com/motionrain*
