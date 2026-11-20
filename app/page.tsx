@@ -3,6 +3,14 @@
 /* eslint-disable @next/next/no-img-element */
 'use client';
 
+//
+//
+// ============================================================================
+// PART 01: IMPORTS & BASIS-KONFIGURATION
+// ============================================================================
+//
+//
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Calendar, GraduationCap, CheckSquare, Utensils, FileText,
@@ -63,6 +71,14 @@ const {
   pushTodoistTaskToPhoneNow
 } = Cfg;
 
+//
+//
+// ============================================================================
+// PART 02: MERGE- & SYNC-HILFSFUNKTIONEN (EINKAUFSLISTE & AUFGABEN)
+// ============================================================================
+//
+//
+
 function getShopNormKey(textStr) {
   return String(textStr || '').toLowerCase().trim();
 }
@@ -77,9 +93,7 @@ function getTaskNormKey(task) {
   return String(task.member || 'all').toLowerCase() + '::' + getTaskTitleKey(task);
 }
 
-// ============================================================================
-// 1. STABILER MERGE FÜR DIE EINKAUFSLISTE (CLOUD vs. TODOIST UNTERSCHEIDUNG)
-// ============================================================================
+// 1. Stabiler Merge für die Einkaufsliste (Cloud vs. Todoist Unterscheidung)
 function reconcileShoppingNotes(localNotes, incomingNotes, syncMeta, source = 'cloud') {
   const baseNotes = Array.isArray(incomingNotes) && incomingNotes.length > 0
     ? incomingNotes
@@ -189,9 +203,7 @@ function reconcileShoppingNotes(localNotes, incomingNotes, syncMeta, source = 'c
   return baseNotes.map((n, idx) => idx === 0 ? { ...n, items: finalFirstItems } : n);
 }
 
-// ============================================================================
-// 2. STABILER MERGE FÜR FAMILIEN-AUFGABEN (CLOUD vs. TODOIST UNTERSCHEIDUNG)
-// ============================================================================
+// 2. Stabiler Merge für Familien-Aufgaben (Cloud vs. Todoist Unterscheidung)
 function reconcileFamilyTasks(localTasks, incomingTasks, syncMeta, source = 'cloud') {
   const localList = Array.isArray(localTasks) ? localTasks : [];
   const incomingList = Array.isArray(incomingTasks) ? incomingTasks : [];
@@ -314,6 +326,14 @@ function reconcileFamilyTasks(localTasks, incomingTasks, syncMeta, source = 'clo
   return mergedList;
 }
 
+//
+//
+// ============================================================================
+// PART 03: STATES, REFS & BASIS-HELFER (AUTH, DATEN, MODALS)
+// ============================================================================
+//
+//
+
 export default function TouchwallApp() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
@@ -435,6 +455,14 @@ export default function TouchwallApp() {
       localStorage.setItem('richter_tw_theme_lock', nextThemeId);
     } catch (e) {}
   };
+
+  //
+  //
+  // ============================================================================
+  // PART 04: SICHERE DATEN-WRAPPER (MEMOS), THEME & AVATAR-RENDERER
+  // ============================================================================
+  //
+  //
 
   const safeMembers = useMemo(() => {
     return (Array.isArray(members) && members.length > 0 ? members : DEFAULT_MEMBERS).map(m => ({
@@ -564,7 +592,14 @@ export default function TouchwallApp() {
         {chIcon} {userBadges ? userBadges + ' • ' : ''}{ev.notifyTime}
       </span>
     );
-  };
+
+    //
+  //
+  // ============================================================================
+  // PART 05: UHRZEIT, BROWSER-PUSH & TERMIN-/AUFGABEN-ALARME
+  // ============================================================================
+  //
+  //
 
   useEffect(() => {
     syncMetaRef.current = loadLocalSyncMeta();
@@ -685,7 +720,15 @@ export default function TouchwallApp() {
     return () => clearInterval(timer);
   }, [isAuthenticated, safeEvents, safeTasks, safeMembers, todayStr]);
 
-const createAndSelectTodoistProject = async (projectName) => {
+  //
+  //
+  // ============================================================================
+  // PART 06: TODOIST-INTEGRATION & 2-WEGE-SYNC
+  // ============================================================================
+  //
+  //
+
+  const createAndSelectTodoistProject = async (projectName) => {
     const token = safeTodoistConfig.apiToken.trim();
     if (!token || !projectName?.trim()) return null;
     try {
@@ -825,6 +868,14 @@ const createAndSelectTodoistProject = async (projectName) => {
       clearInterval(todoistInterval);
     };
   }, [isAuthenticated]);
+
+  //
+  //
+  // ============================================================================
+  // PART 07: CLOUD-SYNC, REALTIME, AUTO-SAVE & INITIAL-LADEN
+  // ============================================================================
+  //
+  //
 
   const callGoogleAppsScript = async (targetUrl, method = 'POST', postBody = null) => {
     return callCloudApi(targetUrl || appsScriptUrl || PUBLIC_CLOUD_BACKEND_URL, method, postBody, accountId, authKey);
@@ -1280,6 +1331,14 @@ const createAndSelectTodoistProject = async (projectName) => {
     }, 250);
   }, [isAuthenticated, accountId, authKey, familyName, safeMembers, safeMeals, safeNotes, safeSchoolData, safeTasks, safePantryItems, safePantryTrash, currentTheme, customLogoUrl, safeTodoistConfig, appsScriptUrl]);
 
+  //
+  //
+  // ============================================================================
+  // PART 08: LOGIN, REGISTRIERUNG, LOKAL-MODUS & LOGOUT
+  // ============================================================================
+  //
+  //
+
   const handleRegisterSubmit = async (e) => {
     if (e && typeof e.preventDefault === 'function') e.preventDefault();
     setLoginError('');
@@ -1457,7 +1516,15 @@ const createAndSelectTodoistProject = async (projectName) => {
     setIsAuthenticated(false);
   };
 
-const shoppingNoteBlock = useMemo(() => safeNotes[0] || { id: 1, title: '🛒 Einkaufsliste', items: [] }, [safeNotes]);
+    //
+  //
+  // ============================================================================
+  // PART 09: NOTIZEN, EINKAUFSLISTE & AUFGABEN-AKTIONEN
+  // ============================================================================
+  //
+  //
+
+  const shoppingNoteBlock = useMemo(() => safeNotes[0] || { id: 1, title: '🛒 Einkaufsliste', items: [] }, [safeNotes]);
 
   const setShoppingTileProjectId = (projId) => {
     lastLocalEditTimeRef.current = Date.now();
@@ -1862,6 +1929,14 @@ const shoppingNoteBlock = useMemo(() => safeNotes[0] || { id: 1, title: '🛒 Ei
     setFamilyTasks(prev => (Array.isArray(prev) ? prev : []).filter(t => !(t.member === memberId && t.done)));
   };
 
+  //
+  //
+  // ============================================================================
+  // PART 10: KALENDER-, DESIGN- & BACKUP-AKTIONEN
+  // ============================================================================
+  //
+  //
+
   const duplicateEventToTarget = async (sourceEv, targetMemberId, targetDateStr) => {
     const newDate = targetDateStr || sourceEv.date || todayStr;
     const newMember = targetMemberId || sourceEv.member || 'all';
@@ -2127,6 +2202,14 @@ const shoppingNoteBlock = useMemo(() => safeNotes[0] || { id: 1, title: '🛒 Ei
     a.remove();
   };
 
+  //
+  //
+  // ============================================================================
+  // PART 11: AUTH-CHECK & PROPS-PAKETE FÜR UNTER-KOMPONENTEN
+  // ============================================================================
+  //
+  //
+
   if (isCheckingAuth || !isAuthenticated) {
     return (
       <AuthScreen
@@ -2270,6 +2353,14 @@ const shoppingNoteBlock = useMemo(() => safeNotes[0] || { id: 1, title: '🛒 Ei
     renderAvatar,
     showToast
   };
+
+  //
+  //
+  // ============================================================================
+  // PART 12: HAUPT-LAYOUT (SIDEBAR, HEADER, VIEWPORT & MODALS)
+  // ============================================================================
+  //
+  //
 
   return (
     <div
@@ -2518,6 +2609,7 @@ const shoppingNoteBlock = useMemo(() => safeNotes[0] || { id: 1, title: '🛒 Ei
 
             {activeSection === 'vorrat' && (
               <PantrySection
+                accountId={accountId}
                 pantryItems={safePantryItems}
                 setPantryItems={setPantryItems}
                 pantryTrash={safePantryTrash}
