@@ -1,144 +1,214 @@
 // @ts-nocheck
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
 
-export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
-function getSupabaseAdmin() {
-  const rawUrl = (process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || '')
-    .trim()
-    .replace(/^["']|["']$/g, '');
-  const key = (process.env.SUPABASE_SERVICE_ROLE_KEY || '')
-    .trim()
-    .replace(/^["']|["']$/g, '');
+//
+//
+// ============================================================================
+// PART 01: KONFIGURATION & SUPABASE-HELFER
+// ============================================================================
+//
+//
 
-  if (!rawUrl || !key) {
-    throw new Error('SUPABASE_URL oder SUPABASE_SERVICE_ROLE_KEY fehlt.');
-  }
+const PRODUCTS_TABLE = 'products';
 
-  const cleanUrl = new URL(rawUrl).origin;
-  return createClient(cleanUrl, key, { auth: { persistSession: false } });
+function getSupabaseConfig() {
+  const url = (process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace(/\/$/, '');
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+  return { url, serviceKey };
 }
 
-function buildLookupKeys(rawBarcode: string) {
-  const clean = String(rawBarcode || '').trim();
-  if (!clean || clean.length < 4) return [];
-
-  const keys = [clean];
-  const digits = clean.replace(/\D/g, '');
-
-  if (digits && digits !== clean && digits.length >= 8) {
-    keys.push(digits);
-  }
-  // 13-stellige Frischetheken-Codes (20... bis 29...): auch 7-stelligen Artikelstamm prüfen
-  if (digits.length === 13 && /^2[0-9]/.test(digits)) {
-    keys.push(digits.slice(0, 7));
-  }
-  return Array.from(new Set(keys));
+function normalizeBarcode(raw: string) {
+  return String(raw || '').trim().slice(0, 64);
 }
 
-// GET /api/products?barcode=4001234567890
+function mapDbRowToProduct(row: any) {
+  if (!row) return null;
+  return {
+    barcode: row.barcode || '',
+    name: row.name || '',
+    quantity: row.quantity || '1x',
+    location: row.location || 'fridge',
+    category: row.category || 'produce',
+    glutenFree: row.gluten_free ?? row.glutenFree ?? 'auto',
+    imageUrl: row.image_url ?? row.imageUrl ?? '',
+    updatedAt: row.updated_at || null
+  };
+}
+
+async function fetchProductRowByCode(url: string, serviceKey: string, code: string) {
+  const endpoint =
+    `${url}/rest/v1/${PRODUCTS_TABLE}?barcode=eq.${encodeURIComponent(code)}&select=*&limit=1`;
+
+  const res = await fetch(endpoint, {
+    method: 'GET',
+    headers: {
+      apikey: serviceKey,
+      Authorization: `Bearer ${serviceKey}`,
+      Accept: 'application/json'
+    },
+    cache: 'no-store'
+  });
+
+  if (!res.ok) return null;
+  const rows = await res.json();
+  return Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+}
+
+//
+//
+// ============================================================================
+// PART 02: GET – PRODUKT PER BARCODE (INKL. GEWICHTS-EAN PRÄFIX) ABRUFEN
+// ============================================================================
+//
+//
+
 export async function GET(req: Request) {
   try {
-    const { searchParams } = new URL(req.url);
-    const rawBarcode = searchParams.get('barcode') || '';
-    const keys = buildLookupKeys(rawBarcode);
+    const { url, serviceKey } = getSupabaseConfig();
+    if (!url || !serviceKey) {
+      return NextResponse.json(
+        { ok: false, found: false, error: 'SUPABASE_URL oder SUPABASE_SERVICE_ROLE_KEY fehlt.' },
+        { status: 500 }
+      );
+    }
 
-    if (keys.length === 0) {
+    const { searchParams } = new URL(req.url);
+    const barcode = normalizeBarcode(searchParams.get('barcode') || '');
+
+    if (!barcode || barcode.length < 4) {
       return NextResponse.json({ ok: true, found: false, product: null });
     }
 
-    const supabase = getSupabaseAdmin();
-    const { data, error } = await supabase
-      .from('tw_product_catalog')
-      .select('*')
-      .in('barcode', keys);
+    // 1. Exakter Barcode-Treffer
+    let row = await fetchProductRowByCode(url, serviceKey, barcode);
 
-    if (error) throw error;
+    // 2. Fallback für 13-stellige Gewichts-/Frischetheken-Barcodes (beginnen mit 2) über 7-stelligen Präfix
+    if (!row) {
+      const digits = barcode.replace(/\D/g, '');
+      if (digits.length === 13 && /^2[0-9]/.test(digits)) {
+        row = await fetchProductRowByCode(url, serviceKey, digits.slice(0, 7));
+      }
+    }
 
-    const list = Array.isArray(data) ? data : [];
-    // Exakten Treffer bevorzugen, sonst Prefix-Treffer
-    const hit = list.find(row => row.barcode === keys[0]) || list[0] || null;
-
-    if (!hit) {
+    if (!row || !row.name) {
       return NextResponse.json({ ok: true, found: false, product: null });
     }
 
     return NextResponse.json({
       ok: true,
       found: true,
-      product: {
-        barcode: hit.barcode,
-        name: hit.name,
-        quantity: hit.quantity || '1x',
-        location: hit.location || 'fridge',
-        category: hit.category || 'produce',
-        glutenFree: hit.gluten_free || 'auto',
-        imageUrl: hit.image_url || '',
-        scanCount: Number(hit.scan_count || 1)
-      }
+      product: mapDbRowToProduct(row)
     });
-  } catch (err: any) {
+  } catch (err) {
     return NextResponse.json(
-      { ok: false, found: false, error: err?.message || 'Produkt-Abfrage fehlgeschlagen' },
+      { ok: false, found: false, error: err?.message || 'Fehler beim Laden des Produkts.' },
       { status: 500 }
     );
   }
 }
 
-// POST /api/products  -> Lernt oder aktualisiert ein gescanntes Produkt in Supabase
+//
+//
+// ============================================================================
+// PART 03: POST – PRODUKT INKL. BILD-URL IN SUPABASE SPEICHERN (UPSERT)
+// ============================================================================
+//
+//
+
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
-    const rawBarcode = String(body.barcode || '').trim();
-    const name = String(body.name || '').trim();
-
-    if (!rawBarcode || rawBarcode.length < 4 || !name) {
-      return NextResponse.json({ ok: false, error: 'barcode oder name fehlt.' }, { status: 400 });
+    const { url, serviceKey } = getSupabaseConfig();
+    if (!url || !serviceKey) {
+      return NextResponse.json(
+        { ok: false, error: 'SUPABASE_URL oder SUPABASE_SERVICE_ROLE_KEY fehlt.' },
+        { status: 500 }
+      );
     }
 
-    const keysToSave = buildLookupKeys(rawBarcode);
-    const supabase = getSupabaseAdmin();
+    const body = await req.json();
+    const barcode = normalizeBarcode(body?.barcode || '');
+    const name = String(body?.name || '').trim().slice(0, 160);
 
-    const { data: existingRows } = await supabase
-      .from('tw_product_catalog')
-      .select('barcode, scan_count')
-      .in('barcode', keysToSave);
+    if (!barcode || barcode.length < 4 || !name) {
+      return NextResponse.json(
+        { ok: false, error: 'Ungültige Produktdaten (barcode und name erforderlich).' },
+        { status: 400 }
+      );
+    }
 
-    const existingMap = new Map();
-    (existingRows || []).forEach((r: any) => existingMap.set(r.barcode, Number(r.scan_count || 0)));
+    const quantity = String(body?.quantity || '1x').trim().slice(0, 48);
+    const location = String(body?.location || 'fridge').trim().slice(0, 32);
+    const category = String(body?.category || 'produce').trim().slice(0, 32);
+    const glutenFree = String(body?.glutenFree || 'auto').trim().slice(0, 16);
+    const imageUrl = typeof body?.imageUrl === 'string' ? body.imageUrl.trim().slice(0, 1024) : '';
+    const updatedAt = new Date().toISOString();
 
-    const nowIso = new Date().toISOString();
-    const gfValue =
-      body.glutenFree === true || body.glutenFree === 'yes'
-        ? 'yes'
-        : body.glutenFree === false || body.glutenFree === 'no'
-        ? 'no'
-        : 'auto';
+    const rowsToUpsert: any[] = [
+      {
+        barcode,
+        name,
+        quantity,
+        location,
+        category,
+        gluten_free: glutenFree,
+        image_url: imageUrl,
+        updated_at: updatedAt
+      }
+    ];
 
-    const rowsToUpsert = keysToSave.map(codeKey => ({
-      barcode: codeKey,
-      name,
-      quantity: String(body.quantity || '1x').trim() || '1x',
-      location: String(body.location || 'fridge').trim() || 'fridge',
-      category: String(body.category || 'produce').trim() || 'produce',
-      gluten_free: gfValue,
-      image_url: String(body.imageUrl || '').trim(),
-      scan_count: (existingMap.get(codeKey) || 0) + 1,
-      updated_at: nowIso
-    }));
+    // Bei 13-stelligen Gewichts-/PLU-Barcodes (2xxxxxx...) zusätzlich den 7-stelligen Stammcode merken
+    const digits = barcode.replace(/\D/g, '');
+    if (digits.length === 13 && /^2[0-9]/.test(digits)) {
+      const prefix7 = digits.slice(0, 7);
+      if (prefix7 !== barcode) {
+        rowsToUpsert.push({
+          barcode: prefix7,
+          name,
+          quantity,
+          location,
+          category,
+          gluten_free: glutenFree,
+          image_url: imageUrl,
+          updated_at: updatedAt
+        });
+      }
+    }
 
-    const { error } = await supabase
-      .from('tw_product_catalog')
-      .upsert(rowsToUpsert, { onConflict: 'barcode' });
+    const upsertRes = await fetch(
+      `${url}/rest/v1/${PRODUCTS_TABLE}?on_conflict=barcode`,
+      {
+        method: 'POST',
+        headers: {
+          apikey: serviceKey,
+          Authorization: `Bearer ${serviceKey}`,
+          'Content-Type': 'application/json',
+          Prefer: 'resolution=merge-duplicates,return=representation'
+        },
+        body: JSON.stringify(rowsToUpsert)
+      }
+    );
 
-    if (error) throw error;
+    if (!upsertRes.ok) {
+      const errText = await upsertRes.text();
+      return NextResponse.json(
+        { ok: false, error: 'Supabase-Speicherfehler: ' + errText },
+        { status: 502 }
+      );
+    }
 
-    return NextResponse.json({ ok: true, savedKeys: keysToSave });
-  } catch (err: any) {
+    const savedRows = await upsertRes.json();
+    const savedPrimary = Array.isArray(savedRows) ? savedRows[0] : rowsToUpsert[0];
+
+    return NextResponse.json({
+      ok: true,
+      product: mapDbRowToProduct(savedPrimary)
+    });
+  } catch (err) {
     return NextResponse.json(
-      { ok: false, error: err?.message || 'Produkt konnte nicht gespeichert werden' },
+      { ok: false, error: err?.message || 'Unbekannter Fehler beim Speichern.' },
       { status: 500 }
     );
   }
