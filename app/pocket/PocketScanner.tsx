@@ -11,6 +11,11 @@ import {
   PackagePlus, ChevronDown, ChevronUp, Wand2, Tag, X
 } from 'lucide-react';
 import * as Cfg from '../touchwallConfig';
+import ProductThumb from '../ProductThumb';
+import {
+  extractOpenFoodFactsImage,
+  uploadProductPhotoToSupabase
+} from '../productImageUtils';
 import {
   FOOD_CATEGORIES,
   STORAGE_PILLS,
@@ -575,6 +580,7 @@ function parseUniversalBarcodePayload(rawVal) {
     extractedWeightQty: null,
     extractedLocation: null,
     extractedBatch: null,
+    extractedImageUrl: null,
     isPureMarketingUrl: false
   };
 
@@ -585,6 +591,7 @@ function parseUniversalBarcodePayload(rawVal) {
     result.extractedName = learnedDirect.name;
     result.extractedWeightQty = learnedDirect.quantity;
     result.extractedLocation = learnedDirect.location;
+    if (learnedDirect.imageUrl) result.extractedImageUrl = learnedDirect.imageUrl;
   }
 
   if (clean.startsWith('{') && clean.endsWith('}')) {
@@ -594,6 +601,7 @@ function parseUniversalBarcodePayload(rawVal) {
       if (obj.qty || obj.q || obj.weight) result.extractedWeightQty = String(obj.qty || obj.q || obj.weight).trim();
       if (obj.exp || obj.e || obj.mhd) result.extractedExpiry = String(obj.exp || obj.e || obj.mhd).trim();
       if (obj.loc || obj.l) result.extractedLocation = String(obj.loc || obj.l).trim();
+      if (obj.img || obj.imageUrl) result.extractedImageUrl = String(obj.img || obj.imageUrl).trim();
       if (obj.ean || obj.gtin) result.lookupCodes.push(String(obj.ean || obj.gtin).trim());
       return result;
     } catch (e) {}
@@ -719,6 +727,7 @@ function parseUniversalBarcodePayload(rawVal) {
     if (learnedPlu?.name && !result.extractedName) {
       result.extractedName = learnedPlu.name;
       result.extractedLocation = learnedPlu.location;
+      if (learnedPlu.imageUrl) result.extractedImageUrl = learnedPlu.imageUrl;
     }
     result.lookupCodes.push(digitsOnly, prefix7 + '000000');
   }
@@ -786,6 +795,7 @@ function mergeMultipleBarcodesFromFrame(detectedList) {
     extractedWeightQty: null,
     extractedLocation: null,
     extractedBatch: null,
+    extractedImageUrl: null,
     allPureMarketingUrls: parsedItems.every(x => x.parsed.isPureMarketingUrl)
   };
 
@@ -799,6 +809,7 @@ function mergeMultipleBarcodesFromFrame(detectedList) {
     if (!combined.extractedWeightQty && parsed.extractedWeightQty) combined.extractedWeightQty = parsed.extractedWeightQty;
     if (!combined.extractedLocation && parsed.extractedLocation) combined.extractedLocation = parsed.extractedLocation;
     if (!combined.extractedBatch && parsed.extractedBatch) combined.extractedBatch = parsed.extractedBatch;
+    if (!combined.extractedImageUrl && parsed.extractedImageUrl) combined.extractedImageUrl = parsed.extractedImageUrl;
   });
 
   return combined;
@@ -807,6 +818,7 @@ function mergeMultipleBarcodesFromFrame(detectedList) {
 export default function PocketScanner({
   cartItems,
   stockItems = [],
+  accountId = '',
   todayStr,
   isSyncing,
   themeStyles,
@@ -848,6 +860,7 @@ export default function PocketScanner({
   const [scanGlutenFree, setScanGlutenFree] = useState('auto');
   const [scanExpiry, setScanExpiry] = useState('');
   const [scanImageUrl, setScanImageUrl] = useState('');
+  const [isUploadingProductPhoto, setIsUploadingProductPhoto] = useState(false);
   const [estimatedMhdHint, setEstimatedMhdHint] = useState('');
 
   const [isLookingUpProduct, setIsLookingUpProduct] = useState(false);
@@ -882,6 +895,9 @@ export default function PocketScanner({
 
   const stockItemsRef = useRef(stockItems);
   stockItemsRef.current = Array.isArray(stockItems) ? stockItems : [];
+
+  const effectiveAccountId =
+    accountId || (typeof localStorage !== 'undefined' ? localStorage.getItem('richter_tw_account_id') || 'local' : 'local');
 
   const triggerVibration = (pattern) => {
     try {
@@ -960,6 +976,58 @@ export default function PocketScanner({
     }
   };
 
+  // ============================================================================
+  // PRODUKTFOTO KOMPRIMIEREN & IN SUPABASE STORAGE HOCHLADEN
+  // ============================================================================
+  const runSupabaseProductPhotoUpload = async (source) => {
+    if (!source || isUploadingProductPhoto) return;
+    setIsUploadingProductPhoto(true);
+    showToast('Lade Produktfoto hoch...', 'Wird komprimiert & in Supabase gespeichert...', '📸');
+    try {
+      const publicUrl = await uploadProductPhotoToSupabase({
+        source,
+        accountId: effectiveAccountId,
+        barcode: scannedBarcode
+      });
+      setScanImageUrl(publicUrl);
+
+      if (scannedBarcode && scanName.trim()) {
+        const resolvedCat = scanCategory === 'auto' ? detectSmartCategory(scanName) : scanCategory;
+        saveLearnedProductToMemory(scannedBarcode, {
+          name: simplifyProductName(scanName),
+          quantity: scanQty.trim() || '1x',
+          location: scanLocation,
+          category: resolvedCat,
+          glutenFree: scanGlutenFree,
+          imageUrl: publicUrl
+        }, true);
+      }
+
+      playMobileBeep('scan');
+      triggerVibration([80, 40, 100]);
+      showToast('Produktfoto gespeichert! ✅', 'Erscheint direkt auf deiner Touchwall.', '🖼️');
+    } catch (err) {
+      showToast('Foto-Upload fehlgeschlagen', err?.message || 'Bitte erneut versuchen.', '⚠️');
+    } finally {
+      setIsUploadingProductPhoto(false);
+    }
+  };
+
+  const handleProductPhotoFileChange = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    await runSupabaseProductPhotoUpload(file);
+  };
+
+  const handleSnapProductPhotoFromLiveCamera = async () => {
+    if (!videoRef.current || videoRef.current.readyState < 2) {
+      showToast('Kamera nicht aktiv', 'Starte erst die Kamera oder nutze „📸 Foto wählen“.', '📷');
+      return;
+    }
+    await runSupabaseProductPhotoUpload(videoRef.current);
+  };
+
   // Schneidet exakt den sichtbaren Fokus-Rahmen aus (inkl. echtem Digital-Zoom, falls 2x aktiv!)
   const grabFocusedFrameCanvas = (tightForMhd = true) => {
     const vid = videoRef.current;
@@ -968,7 +1036,6 @@ export default function PocketScanner({
     const vw = vid.videoWidth || 1280;
     const vh = vid.videoHeight || 720;
 
-    // Wenn 2x aktiv ist, aber kein Hardware-Zoom greift, schneiden wir entsprechend enger in die Mitte!
     const digitalZoomFactor = zoomActive && !hardwareZoomSupportedRef.current ? 1.85 : 1.0;
 
     const baseW = tightForMhd ? 0.78 : 0.90;
@@ -979,7 +1046,6 @@ export default function PocketScanner({
     const cropX = Math.max(0, Math.floor((vw - cropW) / 2));
     const cropY = Math.max(0, Math.floor((vh - cropH) / 2));
 
-    // Auf knackige Zielbreite skalieren (ideal für Gemini Vision & Tesseract OCR)
     const maxOutW = tightForMhd ? 960 : 1024;
     const scale = cropW > maxOutW ? maxOutW / cropW : (cropW < 540 ? 540 / cropW : 1);
 
@@ -1052,6 +1118,7 @@ export default function PocketScanner({
     setScanLocation(produceItem.location);
     setScanCategory(produceItem.category);
     setScanGlutenFree('yes');
+    setScanImageUrl('');
     setScanExpiry(estDate);
     setDetectedMhdCandidate(estDate);
     setMhdSourceBadge('Frische-KI');
@@ -1455,7 +1522,7 @@ export default function PocketScanner({
           (scanPhase === 'hunting_mhd' && localOcrMissCountRef.current >= 1 && now - lastAiMhdCallRef.current >= 2400)
         );
 
-      // 1. DIREKT-SCHUSS AN GEMINI VISION-KI (bei Tippen / Button oder im hunting_mhd Auto-Modus)
+      // 1. DIREKT-SCHUSS AN GEMINI VISION-KI
       if (shouldTryAiNow) {
         lastAiMhdCallRef.current = now;
         const aiRes = await callVisionAiScanner(baseCanvas, 'mhd');
@@ -1468,7 +1535,7 @@ export default function PocketScanner({
         }
       }
 
-      // 2. VERBESSERTES LOKALES MULTI-PASS OCR (Kontrast -> Invertiert für weiße Schrift -> Rohbild)
+      // 2. VERBESSERTES LOKALES MULTI-PASS OCR
       const worker = await getFastMhdOcrWorker();
       const passes = silentMode ? ['contrast', 'invert'] : ['contrast', 'invert', 'raw'];
       let combinedRawSnippet = '';
@@ -1533,11 +1600,13 @@ export default function PocketScanner({
   }, [cameraActive, isMhdLockedByOcr, scanPhase, scannerMode, scanName, autoAddWhenBothScanned]);
 
   const fetchProductFromAllOpenDatabases = async (candidateCode) => {
+    const fields =
+      '?fields=product_name,product_name_de,generic_name,generic_name_de,brands,quantity,categories_tags,allergens_tags,labels_tags,image_front_small_url,image_front_thumb_url,image_small_url,image_url';
     const endpoints = [
-      'https://de.openfoodfacts.org/api/v2/product/' + encodeURIComponent(candidateCode) + '.json',
-      'https://world.openfoodfacts.org/api/v2/product/' + encodeURIComponent(candidateCode) + '.json',
-      'https://world.openpetfoodfacts.org/api/v2/product/' + encodeURIComponent(candidateCode) + '.json',
-      'https://world.openproductsfacts.org/api/v2/product/' + encodeURIComponent(candidateCode) + '.json'
+      'https://de.openfoodfacts.org/api/v2/product/' + encodeURIComponent(candidateCode) + '.json' + fields,
+      'https://world.openfoodfacts.org/api/v2/product/' + encodeURIComponent(candidateCode) + '.json' + fields,
+      'https://world.openpetfoodfacts.org/api/v2/product/' + encodeURIComponent(candidateCode) + '.json' + fields,
+      'https://world.openproductsfacts.org/api/v2/product/' + encodeURIComponent(candidateCode) + '.json' + fields
     ];
 
     for (const url of endpoints) {
@@ -1553,7 +1622,7 @@ export default function PocketScanner({
     return null;
   };
 
-// ============================================================================
+  // ============================================================================
   // HAUPT-SCAN-VERARBEITUNG INKL. 2-STUNDEN-AUSBUCHUNGS-CHECK & SUPABASE-KATALOG
   // ============================================================================
   const processMergedScanResult = async (mergedScan, skipCheckoutCheck = false) => {
@@ -1582,6 +1651,7 @@ export default function PocketScanner({
     }
 
     setScannedBarcode(primaryCodeKey);
+    setScanImageUrl(mergedScan.extractedImageUrl || '');
     if (mergedScan.formats) setLastDetectedFormat(mergedScan.formats);
     localOcrMissCountRef.current = 0;
 
@@ -1647,7 +1717,7 @@ export default function PocketScanner({
     try {
       const candidatesToTry = mergedScan.lookupCodes.length > 0 ? mergedScan.lookupCodes : [mergedScan.primaryRaw];
 
-      // 3a. Zuerst unsere zentrale Supabase-Produktdatenbank abfragen (für alle Handys & Familien geteilt)
+      // 3a. Zuerst unsere zentrale Supabase-Produktdatenbank abfragen
       for (const candidateCode of candidatesToTry.slice(0, 2)) {
         try {
           const catRes = await fetch('/api/products?barcode=' + encodeURIComponent(candidateCode), {
@@ -1679,12 +1749,11 @@ export default function PocketScanner({
               const loc = mergedScan.extractedLocation || dbProd.location || detectSmartLocation(dbProd.name, cat);
               setScanName(dbProd.name);
               if (!mergedScan.extractedWeightQty && dbProd.quantity) setScanQty(dbProd.quantity);
-              if (dbProd.imageUrl) setScanImageUrl(dbProd.imageUrl);
+              setScanImageUrl(dbProd.imageUrl || '');
               setScanCategory(cat);
               setScanLocation(loc);
               setScanGlutenFree(dbProd.glutenFree || (isProductGlutenFree(dbProd.name, cat) ? 'yes' : 'auto'));
 
-              // Direkt lokal cachen (ohne unnötigen erneuten Cloud-POST)
               saveLearnedProductToMemory(candidateCode, dbProd, false);
 
               setEstimatedMhdHint('⚡ Aus Cloud-Katalog geladen! Halte jetzt das MHD in den gelben Streifen.');
@@ -1699,7 +1768,7 @@ export default function PocketScanner({
         } catch (e) {}
       }
 
-      // 3b. OpenFoodFacts / PetFood / Products abfragen
+      // 3b. OpenFoodFacts / PetFood / Products abfragen (inkl. Produktbild!)
       for (const candidateCode of candidatesToTry.slice(0, 3)) {
         const p = await fetchProductFromAllOpenDatabases(candidateCode);
         if (p) {
@@ -1716,7 +1785,7 @@ export default function PocketScanner({
 
           const smartName = simplifyProductName(nameWithTk || rawBrand, rawBrand);
           const qty = mergedScan.extractedWeightQty || (p.quantity ? String(p.quantity).trim() : '1x');
-          const img = p.image_front_small_url || p.image_thumb_url || '';
+          const img = extractOpenFoodFactsImage(p);
 
           if (!skipCheckoutCheck && smartName) {
             const matchByResolvedName = findExistingStockItemEligibleForCheckout(mergedScan, smartName);
@@ -1735,7 +1804,7 @@ export default function PocketScanner({
             }
           }
 
-          if (img) setScanImageUrl(img);
+          setScanImageUrl(img || '');
           if (smartName) {
             const detectedCat = detectSmartCategory(smartName, 'auto', offCats);
             const detectedLoc = mergedScan.extractedLocation || detectSmartLocation(smartName, detectedCat, offCats);
@@ -1747,7 +1816,6 @@ export default function PocketScanner({
             setScanLocation(detectedLoc);
             setScanGlutenFree(isGf ? 'yes' : 'auto');
 
-            // Neu gefundenes Produkt direkt für alle anderen Handys in Supabase teilen
             saveLearnedProductToMemory(candidateCode, {
               name: smartName,
               quantity: qty,
@@ -1769,7 +1837,7 @@ export default function PocketScanner({
             triggerVibration([100, 50, 100]);
             showToast(
               '✅ ' + smartName,
-              'Halte jetzt das MHD in den gelben Streifen!',
+              img ? 'Produktbild geladen! Halte jetzt das MHD in den gelben Streifen.' : 'Halte jetzt das MHD in den gelben Streifen!',
               getFoodEmoji(smartName)
             );
             return;
@@ -2058,8 +2126,13 @@ export default function PocketScanner({
             (scanCheckoutModal.step === 'confirm_remove' ? 'border-rose-500 ' : 'border-amber-400 ') +
             themeStyles.modal}
         >
-          <div className="w-16 h-16 rounded-3xl bg-black/40 border-2 border-white/15 flex items-center justify-center text-4xl mx-auto shadow-inner">
-            {getFoodEmoji(item.name, item.customEmoji)}
+          <div className="flex justify-center">
+            <ProductThumb
+              item={item}
+              sizeClass="w-20 h-20"
+              emojiClass="text-4xl"
+              roundedClass="rounded-3xl"
+            />
           </div>
 
           {scanCheckoutModal.step === 'confirm_remove' ? (
@@ -2323,7 +2396,7 @@ export default function PocketScanner({
                   </div>
                 </div>
 
-                {/* Zielrahmen: In Phase 2 enger Streifen exakt passend zum MHD-Ausschnitt */}
+                {/* Zielrahmen */}
                 <div
                   className={
                     'absolute pointer-events-none rounded-xl border-2 shadow-[0_0_0_9999px_rgba(0,0,0,0.42)] flex flex-col justify-center transition-all duration-200 ' +
@@ -2338,9 +2411,14 @@ export default function PocketScanner({
                 </div>
 
                 {(scanName || lastOcrRawHint) && (
-                  <div className="absolute bottom-2 left-2 right-2 bg-black/85 border border-amber-400/60 rounded-xl px-3 py-1.5 flex items-center justify-between gap-2 z-10">
+                  <div className="absolute bottom-2 left-2 right-2 bg-black/85 border border-amber-400/60 rounded-xl px-2.5 py-1.5 flex items-center justify-between gap-2 z-10">
                     <div className="flex items-center gap-2 min-w-0">
-                      <span className="text-lg shrink-0">{scanName ? getFoodEmoji(scanName) : '📅'}</span>
+                      <ProductThumb
+                        item={{ name: scanName, imageUrl: scanImageUrl }}
+                        sizeClass="w-8 h-8"
+                        emojiClass="text-base"
+                        roundedClass="rounded-lg"
+                      />
                       <div className="min-w-0 leading-tight">
                         {scanName && <div className="text-xs font-black text-white truncate">{scanName}</div>}
                         {lastOcrRawHint && !isMhdLockedByOcr && (
@@ -2484,7 +2562,7 @@ export default function PocketScanner({
             </div>
           )}
 
-          {/* EINGABE-FORMULAR MIT GROSSEM ICON & GROSSER SCHRIFT */}
+          {/* EINGABE-FORMULAR MIT PRODUKTBILD-VORSCHAU & SUPABASE-FOTO-UPLOAD */}
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -2493,9 +2571,12 @@ export default function PocketScanner({
             className="space-y-2.5"
           >
             <div className="flex items-center gap-2">
-              <span className="w-14 h-14 rounded-2xl bg-black/35 border border-white/15 flex items-center justify-center text-3xl shrink-0 shadow-inner">
-                {getFoodEmoji(scanName)}
-              </span>
+              <ProductThumb
+                item={{ name: scanName, imageUrl: scanImageUrl }}
+                sizeClass="w-14 h-14"
+                emojiClass="text-3xl"
+                roundedClass="rounded-2xl"
+              />
 
               <div className="relative flex-1 min-w-0">
                 <input
@@ -2529,6 +2610,58 @@ export default function PocketScanner({
                 <span>🌾✓</span>
                 <span>{isCurrentScanGf ? 'GF' : 'Normal'}</span>
               </button>
+            </div>
+
+            {/* PRODUKTBILD-STEUERUNG (SUPABASE UPLOAD / KAMERA-SCHNAPPSCHUSS / ENTFERNEN) */}
+            <div className="flex flex-wrap items-center justify-between gap-2 px-2.5 py-2 rounded-2xl bg-black/25 border border-white/10">
+              <div className="text-[11px] font-extrabold text-slate-300 flex items-center gap-1.5 min-w-0">
+                <span>🖼️</span>
+                <span className="truncate">
+                  {isUploadingProductPhoto
+                    ? 'Lade Bild nach Supabase...'
+                    : scanImageUrl
+                    ? (scanImageUrl.includes('supabase') ? 'Eigenes Foto (Supabase ✓)' : 'Produktbild geladen ✓')
+                    : 'Kein Produktbild – optional abfotografieren:'}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-1.5 shrink-0">
+                {cameraActive && (
+                  <button
+                    type="button"
+                    disabled={isUploadingProductPhoto}
+                    onClick={handleSnapProductPhotoFromLiveCamera}
+                    className="tw-glow-btn px-2.5 py-1.5 rounded-xl text-[11px] font-black flex items-center gap-1 cursor-pointer"
+                  >
+                    <Camera className="w-3.5 h-3.5" />
+                    <span>Aus Kamera</span>
+                  </button>
+                )}
+
+                <label className="tw-nav-inactive px-2.5 py-1.5 rounded-xl text-[11px] font-black flex items-center gap-1 cursor-pointer">
+                  <Camera className="w-3.5 h-3.5 text-sky-300" />
+                  <span>{scanImageUrl ? 'Neu fotografieren' : 'Foto aufnehmen'}</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    disabled={isUploadingProductPhoto}
+                    className="hidden"
+                    onChange={handleProductPhotoFileChange}
+                  />
+                </label>
+
+                {scanImageUrl && (
+                  <button
+                    type="button"
+                    onClick={() => setScanImageUrl('')}
+                    title="Produktbild entfernen"
+                    className="px-2 py-1.5 rounded-xl bg-rose-500/20 border border-rose-400/40 text-rose-300 text-[11px] font-black flex items-center cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="grid grid-cols-12 gap-1.5 items-center">
@@ -2661,9 +2794,9 @@ export default function PocketScanner({
 
             <button
               type="submit"
-              disabled={!scanName.trim() || (!scanExpiry && !detectedMhdCandidate)}
+              disabled={!scanName.trim() || (!scanExpiry && !detectedMhdCandidate) || isUploadingProductPhoto}
               className={'w-full min-h-[54px] py-3.5 rounded-2xl font-black text-base shadow-xl flex items-center justify-center gap-2 ' +
-                (!scanName.trim() || (!scanExpiry && !detectedMhdCandidate) ? 'bg-slate-700 text-slate-400 opacity-50' : 'tw-active-nav')}
+                (!scanName.trim() || (!scanExpiry && !detectedMhdCandidate) || isUploadingProductPhoto ? 'bg-slate-700 text-slate-400 opacity-50' : 'tw-active-nav')}
             >
               <ShoppingCart className="w-5 h-5" />
               <span>
@@ -2766,7 +2899,7 @@ export default function PocketScanner({
         </div>
       )}
 
-      {/* EINKAUFSWAGEN UNTER DEM SCANNER MIT GROSSEN PRODUKT-TEXTEN & GROSSEN ICONS */}
+      {/* EINKAUFSWAGEN UNTER DEM SCANNER MIT PRODUKTBILDERN & GROSSEN TEXTEN */}
       <div className={'p-3.5 rounded-3xl border space-y-3 ' + themeStyles.card}>
         <div className="flex items-center justify-between gap-2">
           <div>
@@ -2808,9 +2941,12 @@ export default function PocketScanner({
                     (idx === 0 ? 'border-amber-400/80 bg-amber-500/10' : themeStyles.subtle)}
                 >
                   <div className="flex items-center gap-3 min-w-0 flex-1">
-                    <span className="w-13 h-13 rounded-2xl bg-black/35 border border-white/10 flex items-center justify-center text-3xl shrink-0">
-                      {getFoodEmoji(cItem.name)}
-                    </span>
+                    <ProductThumb
+                      item={cItem}
+                      sizeClass="w-13 h-13"
+                      emojiClass="text-3xl"
+                      roundedClass="rounded-2xl"
+                    />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
                         {idx === 0 && (
