@@ -2151,8 +2151,7 @@ export default function PocketScanner({
       setIsScanningReceipt(false);
     }
   };
-
-//
+  //
 //
 // ============================================================================
 // PART 04: STATES, PHASEN-SPERR-REFS & RESET-HELFER
