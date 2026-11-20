@@ -2151,1324 +2151,1002 @@ export default function PocketScanner({
       setIsScanningReceipt(false);
     }
   };
-  //
+
 //
-// ============================================================================
-// PART 04: STATES, PHASEN-SPERR-REFS & RESET-HELFER
-// ============================================================================
-//
-//
-
-export default function PocketScanner({
-  cartItems,
-  stockItems = [],
-  accountId = '',
-  todayStr,
-  isSyncing,
-  themeStyles,
-  onAddSingleToCart,
-  onAddBatchToCart,
-  onRemoveCartItem,
-  onTransferSingleCartItemToStock,
-  onTransferAllCartToStock,
-  onCheckoutStockItemByScan,
-  onAddShopItem,
-  showToast
-}) {
-  const [scannerMode, setScannerMode] = useState('barcode'); // 'barcode' | 'object_ai' | 'receipt'
-  const [cameraActive, setCameraActive] = useState(false);
-  const [torchOn, setTorchOn] = useState(false);
-  const [zoomActive, setZoomActive] = useState(false);
-  const [showProduceDrawer, setShowProduceDrawer] = useState(false);
-  const [activeFormatCount, setActiveFormatCount] = useState(13);
-  const [lastDetectedFormat, setLastDetectedFormat] = useState('');
-
-  // 2-PHASEN-SCANNER-STATUS ('barcode' | 'hunting_mhd' | 'mhd_locked')
-  const [scanPhase, setScanPhase] = useState('barcode');
-  const [autoAddWhenBothScanned, setAutoAddWhenBothScanned] = useState(false);
-
-  // 2-STUNDEN BARCODE-AUSBUCHUNGS-MODAL
-  const [scanCheckoutModal, setScanCheckoutModal] = useState({
-    open: false,
-    step: 'confirm_remove',
-    stockItem: null,
-    ageLabel: '',
-    pendingMergedScan: null
-  });
-
-  const [scannedBarcode, setScannedBarcode] = useState('');
-  const [scanName, setScanName] = useState('');
-  const [scanQty, setScanQty] = useState('1x');
-  const [scanLocation, setScanLocation] = useState('fridge');
-  const [scanCategory, setScanCategory] = useState('auto');
-  const [scanGlutenFree, setScanGlutenFree] = useState('auto');
-  const [scanExpiry, setScanExpiry] = useState('');
-  const [scanImageUrl, setScanImageUrl] = useState('');
-  const [isUploadingProductPhoto, setIsUploadingProductPhoto] = useState(false);
-  const [estimatedMhdHint, setEstimatedMhdHint] = useState('');
-
-  const [isLookingUpProduct, setIsLookingUpProduct] = useState(false);
-  const [detectedMhdCandidate, setDetectedMhdCandidate] = useState('');
-  const [isMhdLockedByOcr, setIsMhdLockedByOcr] = useState(false);
-  const [lastOcrRawHint, setLastOcrRawHint] = useState('');
-  const [mhdSourceBadge, setMhdSourceBadge] = useState(''); // 'KI' | 'OCR' | 'Code'
-  const [isReadingMhd, setIsReadingMhd] = useState(false);
-  const [isReadingFullLabel, setIsReadingFullLabel] = useState(false);
-  const [isDetectingObject, setIsDetectingObject] = useState(false);
-
-  const [isScanningReceipt, setIsScanningReceipt] = useState(false);
-  const [receiptItems, setReceiptItems] = useState([]);
-
-  const videoRef = useRef(null);
-  const streamRef = useRef(null);
-  const scanLoopRef = useRef(null);
-  const mhdAutoLoopRef = useRef(null);
-  const ocrWorkerRef = useRef(null);
-  const zxingReaderRef = useRef(null);
-  const mobileNetModelRef = useRef(null);
-  const wakeLockRef = useRef(null);
-  const hardwareZoomSupportedRef = useRef(false);
-  const aiEndpointAvailableRef = useRef(true);
-  const lastAiMhdCallRef = useRef(0);
-  const localOcrMissCountRef = useRef(0);
-  const lastScannedCodeRef = useRef('');
-  const lastScanTimeRef = useRef(0);
-  const isReadingMhdRef = useRef(false);
-  const scanCheckoutOpenRef = useRef(false);
-  scanCheckoutOpenRef.current = Boolean(scanCheckoutModal.open);
-
-  // SYNCHRONE PHASEN-SPERR-REFS (VERHINDERT BARCODE-SCANS IM MHD-MODUS)
-  const scanPhaseRef = useRef('barcode');
-  scanPhaseRef.current = scanPhase;
-  const scannerModeRef = useRef('barcode');
-  scannerModeRef.current = scannerMode;
-  const scanNameRef = useRef('');
-  scanNameRef.current = scanName;
-  const isLookingUpRef = useRef(false);
-  isLookingUpRef.current = isLookingUpProduct;
-  const pendingZxingCandidateRef = useRef({ code: '', hits: 0, ts: 0 });
-
-  const stockItemsRef = useRef(stockItems);
-  stockItemsRef.current = Array.isArray(stockItems) ? stockItems : [];
-
-  const effectiveAccountId =
-    accountId || (typeof localStorage !== 'undefined' ? localStorage.getItem('richter_tw_account_id') || 'local' : 'local');
-
-  const resetScannerToBarcodePhase = () => {
-    setScanName('');
-    scanNameRef.current = '';
-    setScannedBarcode('');
-    setLastDetectedFormat('');
-    setScanImageUrl('');
-    setDetectedMhdCandidate('');
-    setScanExpiry('');
-    setMhdSourceBadge('');
-    setIsMhdLockedByOcr(false);
-    setEstimatedMhdHint('');
-    setLastOcrRawHint('');
-    localOcrMissCountRef.current = 0;
-    lastScannedCodeRef.current = '';
-    pendingZxingCandidateRef.current = { code: '', hits: 0, ts: 0 };
-    scanPhaseRef.current = 'barcode';
-    setScanPhase('barcode');
-  };
-
-  //
   //
   // ============================================================================
-  // PART 05: KAMERA-STEUERUNG, SUPABASE-FOTO & 2-STUNDEN-AUSBUCHUNGS-CHECK
+  // PART 08: FORMULAR-HANDLER & 2-STUFEN AUSBUCHUNGS-MODAL
   // ============================================================================
   //
   //
 
-  const triggerVibration = (pattern) => {
-    try {
-      if (typeof navigator !== 'undefined' && navigator.vibrate) {
-        navigator.vibrate(pattern);
-      }
-    } catch (e) {}
-  };
+  const handleNameInputChange = (val) => {
+    setScanName(val);
+    scanNameRef.current = val;
+    const cat = detectSmartCategory(val, scanCategory);
+    const loc = detectSmartLocation(val, cat);
+    setScanLocation(loc);
 
-  const requestScreenWakeLock = async () => {
-    try {
-      if (typeof navigator !== 'undefined' && 'wakeLock' in navigator && !wakeLockRef.current) {
-        wakeLockRef.current = await navigator.wakeLock.request('screen');
-      }
-    } catch (e) {}
-  };
-
-  const releaseScreenWakeLock = async () => {
-    try {
-      if (wakeLockRef.current) {
-        await wakeLockRef.current.release();
-        wakeLockRef.current = null;
-      }
-    } catch (e) {}
-  };
-
-  const stopCameraStream = () => {
-    if (scanLoopRef.current) clearInterval(scanLoopRef.current);
-    if (mhdAutoLoopRef.current) clearInterval(mhdAutoLoopRef.current);
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(t => t.stop());
-      streamRef.current = null;
-    }
-    releaseScreenWakeLock();
-    setCameraActive(false);
-    setTorchOn(false);
-    setZoomActive(false);
-  };
-
-  useEffect(() => {
-    return () => {
-      stopCameraStream();
-      if (ocrWorkerRef.current) {
-        ocrWorkerRef.current.terminate?.().catch(() => {});
-        ocrWorkerRef.current = null;
-      }
-    };
-  }, []);
-
-  const toggleCameraTorch = async () => {
-    try {
-      const track = streamRef.current?.getVideoTracks?.()?.[0];
-      if (!track) return;
-      const next = !torchOn;
-      await track.applyConstraints({ advanced: [{ torch: next }] });
-      setTorchOn(next);
-    } catch (e) {
-      showToast('Kameralicht', 'Taschenlampe wird auf diesem Gerät nicht unterstützt.', '🔦');
+    const matched = estimateProduceByName(val);
+    if (matched) {
+      setScanCategory(matched.category);
+      setEstimatedMhdHint(
+        matched.emoji + ' ' + matched.name + ': Empfohlenes MHD +' + matched.days + ' Tage (' + matched.hint + ')'
+      );
+    } else {
+      setEstimatedMhdHint('');
     }
   };
 
-  const toggleCameraZoom = async () => {
-    const next = !zoomActive;
-    setZoomActive(next);
-    hardwareZoomSupportedRef.current = false;
-    try {
-      const track = streamRef.current?.getVideoTracks?.()?.[0];
-      const caps = track?.getCapabilities?.();
-      if (track && caps && caps.zoom) {
-        const targetZoom = next ? Math.min(2.2, caps.zoom.max || 2.0) : Math.max(1.0, caps.zoom.min || 1.0);
-        await track.applyConstraints({ advanced: [{ zoom: targetZoom }] });
-        hardwareZoomSupportedRef.current = true;
-      }
-    } catch (e) {
-      hardwareZoomSupportedRef.current = false;
-    }
+  const handleSimplifyCurrentNameClick = () => {
+    if (!scanName.trim()) return;
+    const simplified = simplifyProductName(scanName);
+    setScanName(simplified);
+    scanNameRef.current = simplified;
+    const cat = detectSmartCategory(simplified);
+    const loc = detectSmartLocation(simplified, cat);
+    setScanCategory(cat);
+    setScanLocation(loc);
+    showToast('Name vereinfacht ✨', simplified, getFoodEmoji(simplified));
   };
 
-  // Produktfoto komprimieren & in Supabase Storage hochladen
-  const runSupabaseProductPhotoUpload = async (source) => {
-    if (!source || isUploadingProductPhoto) return;
-    setIsUploadingProductPhoto(true);
-    showToast('Lade Produktfoto hoch...', 'Wird komprimiert & in Supabase gespeichert...', '📸');
-    try {
-      const publicUrl = await uploadProductPhotoToSupabase({
-        source,
-        accountId: effectiveAccountId,
-        barcode: scannedBarcode
-      });
-      setScanImageUrl(publicUrl);
-
-      if (scannedBarcode && scanName.trim()) {
-        const resolvedCat = scanCategory === 'auto' ? detectSmartCategory(scanName) : scanCategory;
-        saveLearnedProductToMemory(scannedBarcode, {
-          name: simplifyProductName(scanName),
-          quantity: scanQty.trim() || '1x',
-          location: scanLocation,
-          category: resolvedCat,
-          glutenFree: scanGlutenFree,
-          imageUrl: publicUrl
-        }, true);
-      }
-
-      playMobileBeep('scan');
-      triggerVibration([80, 40, 100]);
-      showToast('Produktfoto gespeichert! ✅', 'Erscheint direkt auf deiner Touchwall.', '🖼️');
-    } catch (err) {
-      showToast('Foto-Upload fehlgeschlagen', err?.message || 'Bitte erneut versuchen.', '⚠️');
-    } finally {
-      setIsUploadingProductPhoto(false);
-    }
-  };
-
-  const handleProductPhotoFileChange = async (e) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file) return;
-    await runSupabaseProductPhotoUpload(file);
-  };
-
-  const handleSnapProductPhotoFromLiveCamera = async () => {
-    if (!videoRef.current || videoRef.current.readyState < 2) {
-      showToast('Kamera nicht aktiv', 'Starte erst die Kamera oder nutze „📸 Foto wählen“.', '📷');
+  const triggerAddCurrentScanToCart = (overrideExpiry = '') => {
+    const finalExp = overrideExpiry || scanExpiry || detectedMhdCandidate;
+    const rawName = (scanName || scanNameRef.current).trim();
+    if (!rawName || !finalExp) {
+      showToast('Pflichtfelder', 'Bitte Produktname und Ablaufdatum (MHD) wählen.', '⚠️');
       return;
     }
-    await runSupabaseProductPhotoUpload(videoRef.current);
-  };
+    const finalName = simplifyProductName(rawName);
+    const resolvedCategory = scanCategory === 'auto' ? detectSmartCategory(finalName) : scanCategory;
+    const resolvedGf = scanGlutenFree === 'auto'
+      ? (isProductGlutenFree(finalName, resolvedCategory) ? 'yes' : 'no')
+      : scanGlutenFree;
 
-  // Schneidet exakt den sichtbaren Fokus-Rahmen aus (inkl. echtem Digital-Zoom, falls 2x aktiv)
-  const grabFocusedFrameCanvas = (tightForMhd = true) => {
-    const vid = videoRef.current;
-    if (!vid || vid.readyState < 2) return null;
+    if (scannedBarcode) {
+      saveLearnedProductToMemory(scannedBarcode, {
+        name: finalName,
+        quantity: scanQty.trim() || '1x',
+        location: scanLocation,
+        category: resolvedCategory,
+        glutenFree: resolvedGf,
+        imageUrl: scanImageUrl
+      }, true);
+    }
 
-    const vw = vid.videoWidth || 1280;
-    const vh = vid.videoHeight || 720;
-
-    const digitalZoomFactor = zoomActive && !hardwareZoomSupportedRef.current ? 1.85 : 1.0;
-
-    const baseW = tightForMhd ? 0.78 : 0.90;
-    const baseH = tightForMhd ? 0.36 : 0.78;
-
-    const cropW = Math.max(240, Math.floor((vw * baseW) / digitalZoomFactor));
-    const cropH = Math.max(120, Math.floor((vh * baseH) / digitalZoomFactor));
-    const cropX = Math.max(0, Math.floor((vw - cropW) / 2));
-    const cropY = Math.max(0, Math.floor((vh - cropH) / 2));
-
-    const maxOutW = tightForMhd ? 960 : 1024;
-    const scale = cropW > maxOutW ? maxOutW / cropW : (cropW < 540 ? 540 / cropW : 1);
-
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.round(cropW * scale);
-    canvas.height = Math.round(cropH * scale);
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(vid, cropX, cropY, cropW, cropH, 0, 0, canvas.width, canvas.height);
-    return canvas;
-  };
-
-  // Prüft, ob der gescannte Barcode bereits seit >= 2 Stunden im Bestand liegt
-  const findExistingStockItemEligibleForCheckout = (mergedScan, candidateName = '') => {
-    const currentStock = stockItemsRef.current || [];
-    if (currentStock.length === 0) return null;
-
-    const now = Date.now();
-    const codesToCheck = new Set(
-      [...(mergedScan?.lookupCodes || []), mergedScan?.primaryRaw]
-        .map(c => String(c || '').trim())
-        .filter(Boolean)
+    onAddSingleToCart(
+      finalName,
+      scannedBarcode,
+      scanQty.trim(),
+      scanLocation,
+      resolvedCategory,
+      finalExp,
+      scanImageUrl,
+      resolvedGf
     );
 
-    const learnedHit =
-      getLearnedProductFromMemory(mergedScan?.lookupCodes?.[0]) ||
-      getLearnedProductFromMemory(mergedScan?.primaryRaw);
-    const targetNameLower = String(candidateName || learnedHit?.name || mergedScan?.extractedName || '')
-      .toLowerCase()
-      .trim();
-
-    const matches = currentStock.filter(st => {
-      if (!st) return false;
-      const stCode = String(st.barcode || '').trim();
-      if (stCode && codesToCheck.has(stCode)) return true;
-
-      const stDigits = stCode.replace(/\D/g, '');
-      if (stDigits.length === 13 && /^2[0-9]/.test(stDigits)) {
-        const prefix7 = stDigits.slice(0, 7);
-        for (const c of codesToCheck) {
-          const cDigits = c.replace(/\D/g, '');
-          if (cDigits.length === 13 && cDigits.startsWith(prefix7)) return true;
-        }
-      }
-
-      if (targetNameLower && String(st.name || '').toLowerCase().trim() === targetNameLower) {
-        return true;
-      }
-      return false;
-    });
-
-    if (matches.length === 0) return null;
-
-    matches.sort((a, b) => String(a.expiryDate || '9999').localeCompare(String(b.expiryDate || '9999')));
-
-    const eligibleMatch = matches.find(st => {
-      const addedTs = getItemAddedTimestamp(st);
-      if (!addedTs) return true;
-      return (now - addedTs) >= TWO_HOURS_GRACE_MS;
-    });
-
-    return eligibleMatch || null;
+    setScanCategory('auto');
+    setScanGlutenFree('auto');
+    resetScannerToBarcodePhase();
   };
 
-  const applyFreshProduceSelection = (produceItem, showFeedbackToast = true) => {
-    if (!produceItem) return;
-    const estDate = formatDateStr(addDays(new Date(), produceItem.days));
-    setScanName(produceItem.name);
-    scanNameRef.current = produceItem.name;
-    setScanLocation(produceItem.location);
-    setScanCategory(produceItem.category);
-    setScanGlutenFree('yes');
-    setScanImageUrl('');
-    setScanExpiry(estDate);
-    setDetectedMhdCandidate(estDate);
-    setMhdSourceBadge('Frische-KI');
-    setIsMhdLockedByOcr(true);
-    scanPhaseRef.current = 'mhd_locked';
-    setScanPhase('mhd_locked');
-    setEstimatedMhdHint(
-      produceItem.emoji + ' ' + produceItem.name + ' → MHD +' + produceItem.days + ' Tage (' + produceItem.hint + ')'
+  // Rendert das 2-stufige Ausbuchungs-Modal immer exakt mittig auf dem Handy-Bildschirm
+  const renderCheckoutPortalModal = () => {
+    if (!scanCheckoutModal.open || !scanCheckoutModal.stockItem) return null;
+    const item = scanCheckoutModal.stockItem;
+    const locObj = STORAGE_PILLS.find(l => l.id === item.location) || STORAGE_PILLS[0];
+    const decPreview = decrementItemPieceCount(item.quantity);
+
+    const modalNode = (
+      <div
+        onClick={() => setScanCheckoutModal({ open: false, step: 'confirm_remove', stockItem: null, ageLabel: '', pendingMergedScan: null })}
+        className="fixed inset-0 w-screen h-screen z-[9999] bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 select-none"
+      >
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className={'w-full max-w-md rounded-3xl border-2 p-5 shadow-2xl space-y-4 text-center ' +
+            (scanCheckoutModal.step === 'confirm_remove' ? 'border-rose-500 ' : 'border-amber-400 ') +
+            themeStyles.modal}
+        >
+          <div className="flex justify-center">
+            <ProductThumb
+              item={item}
+              sizeClass="w-20 h-20"
+              emojiClass="text-4xl"
+              roundedClass="rounded-3xl"
+            />
+          </div>
+
+          {scanCheckoutModal.step === 'confirm_remove' ? (
+            <>
+              <div className="space-y-1.5">
+                <span className="inline-block px-3 py-1 rounded-full bg-rose-500/25 border border-rose-400/50 text-rose-300 text-xs font-black uppercase">
+                  🥫 Bereits im Bestand ({scanCheckoutModal.ageLabel})
+                </span>
+                <h3 className="text-xl font-black leading-snug pt-1">
+                  {item.name}
+                </h3>
+                <div className="text-xs font-extrabold text-amber-300">
+                  Menge: {item.quantity} • {locObj.label} • MHD: {item.expiryDate.slice(8, 10)}.{item.expiryDate.slice(5, 7)}.{item.expiryDate.slice(2, 4)}
+                </div>
+                <p className="text-sm font-bold opacity-90 pt-2">
+                  Soll dieses Produkt jetzt ausgebucht und in den Mülleimer gelegt werden?
+                </p>
+              </div>
+
+              <div className="space-y-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (typeof onCheckoutStockItemByScan === 'function') {
+                      onCheckoutStockItemByScan(item, 'trash');
+                    }
+                    triggerVibration([120, 50, 120]);
+                    setScanCheckoutModal(prev => ({
+                      ...prev,
+                      step: 'ask_shopping'
+                    }));
+                  }}
+                  className="w-full py-3.5 px-4 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white text-sm font-black flex items-center justify-center gap-2 shadow-lg"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>🗑️ Ja, ausbuchen & in Mülleimer legen</span>
+                </button>
+
+                {decPreview.remaining > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (typeof onCheckoutStockItemByScan === 'function') {
+                        onCheckoutStockItemByScan(item, 'decrement');
+                      }
+                      setScanCheckoutModal({ open: false, step: 'confirm_remove', stockItem: null, ageLabel: '', pendingMergedScan: null });
+                    }}
+                    className="tw-glow-btn w-full py-3 px-4 rounded-2xl text-xs font-black flex items-center justify-center gap-2"
+                  >
+                    <span>🍽️ Nur 1 Stück entnehmen (Rest: {decPreview.nextQtyStr})</span>
+                  </button>
+                )}
+
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const pending = scanCheckoutModal.pendingMergedScan;
+                      setScanCheckoutModal({ open: false, step: 'confirm_remove', stockItem: null, ageLabel: '', pendingMergedScan: null });
+                      if (pending) {
+                        processMergedScanResult(pending, true);
+                      }
+                    }}
+                    className="tw-nav-inactive py-3 px-3 rounded-2xl text-xs font-black text-sky-300"
+                  >
+                    ➕ Nein, neu einbuchen
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setScanCheckoutModal({ open: false, step: 'confirm_remove', stockItem: null, ageLabel: '', pendingMergedScan: null });
+                    }}
+                    className="tw-nav-inactive py-3 px-3 rounded-2xl text-xs font-bold"
+                  >
+                    Abbrechen
+                  </button>
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="space-y-1.5">
+                <span className="inline-block px-3 py-1 rounded-full bg-emerald-500/25 border border-emerald-400/50 text-emerald-300 text-xs font-black uppercase">
+                  🗑️ Ausgebucht & im Mülleimer
+                </span>
+                <h3 className="text-xl font-black leading-snug pt-1">
+                  {item.name}
+                </h3>
+                <p className="text-sm font-bold opacity-90 pt-2">
+                  Soll dieses Produkt wieder auf die Einkaufsliste gesetzt werden?
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setScanCheckoutModal({ open: false, step: 'confirm_remove', stockItem: null, ageLabel: '', pendingMergedScan: null });
+                    showToast('Ausgebucht 🗑️', '„' + item.name + '“ liegt jetzt im Mülleimer.', '🗑️');
+                  }}
+                  className="tw-nav-inactive py-3.5 px-4 rounded-2xl text-sm font-black"
+                >
+                  Nein
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (typeof onAddShopItem === 'function') {
+                      onAddShopItem(item.name);
+                    }
+                    triggerVibration([90, 40, 120]);
+                    setScanCheckoutModal({ open: false, step: 'confirm_remove', stockItem: null, ageLabel: '', pendingMergedScan: null });
+                  }}
+                  className="py-3.5 px-4 rounded-2xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-sm font-black flex items-center justify-center gap-2 shadow-lg"
+                >
+                  <ShoppingCart className="w-4 h-4 stroke-[2.5]" />
+                  <span>Ja, Einkaufsliste</span>
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
     );
-    setShowProduceDrawer(false);
-    playMobileBeep('scan');
-    triggerVibration([90, 40, 120]);
-    if (showFeedbackToast) {
-      showToast(
-        produceItem.name + ' gewählt!',
-        'Lagerort & MHD (+' + produceItem.days + ' Tage) automatisch gesetzt.',
-        produceItem.emoji
-      );
+
+    if (typeof document !== 'undefined' && document.body) {
+      return createPortal(modalNode, document.body);
     }
+    return modalNode;
   };
+
+  const detectedScanCatObj = FOOD_CATEGORIES.find(
+    c => c.id === (scanCategory === 'auto' ? detectSmartCategory(scanName) : scanCategory)
+  ) || FOOD_CATEGORIES[1];
+
+  const isCurrentScanGf = isProductGlutenFree(scanName, detectedScanCatObj.id, scanGlutenFree);
+
+  const sortedCart = Array.isArray(cartItems)
+    ? [...cartItems].sort((a, b) => Number(b.scannedAt || 0) - Number(a.scannedAt || 0))
+    : [];
 
   //
   //
   // ============================================================================
-  // PART 06: ZXING, FRISCHE-KI, GEMINI VISION-KI & MHD-OCR (NUR IN PHASE 2)
+  // PART 09: MODUS-LEISTE, LIVE-KAMERA-SUCHER (MIT SPERR-RESET) & FORMULAR
   // ============================================================================
   //
   //
 
-  const getZXingMultiFormatReader = async () => {
-    if (zxingReaderRef.current) return zxingReaderRef.current;
-    if (typeof window === 'undefined') return null;
+  return (
+    <div className="space-y-3">
+      {renderCheckoutPortalModal()}
 
-    try {
-      if (!window.ZXing) {
-        await new Promise((resolve, reject) => {
-          const s = document.createElement('script');
-          s.src = 'https://cdn.jsdelivr.net/npm/@zxing/library@0.21.2/umd/index.min.js';
-          s.onload = resolve;
-          s.onerror = reject;
-          document.head.appendChild(s);
-        });
-      }
-      if (window.ZXing?.BrowserMultiFormatReader) {
-        const hints = new Map();
-        if (window.ZXing.DecodeHintType && window.ZXing.BarcodeFormat) {
-          const formats = [
-            window.ZXing.BarcodeFormat.EAN_13,
-            window.ZXing.BarcodeFormat.EAN_8,
-            window.ZXing.BarcodeFormat.UPC_A,
-            window.ZXing.BarcodeFormat.UPC_E,
-            window.ZXing.BarcodeFormat.CODE_128,
-            window.ZXing.BarcodeFormat.CODE_39,
-            window.ZXing.BarcodeFormat.CODE_93,
-            window.ZXing.BarcodeFormat.ITF,
-            window.ZXing.BarcodeFormat.CODABAR,
-            window.ZXing.BarcodeFormat.QR_CODE,
-            window.ZXing.BarcodeFormat.DATA_MATRIX,
-            window.ZXing.BarcodeFormat.PDF_417,
-            window.ZXing.BarcodeFormat.AZTEC,
-            window.ZXing.BarcodeFormat.RSS_14,
-            window.ZXing.BarcodeFormat.RSS_EXPANDED
-          ].filter(Boolean);
-          hints.set(window.ZXing.DecodeHintType.POSSIBLE_FORMATS, formats);
-          hints.set(window.ZXing.DecodeHintType.TRY_HARDER, true);
-        }
-        const reader = new window.ZXing.BrowserMultiFormatReader(hints);
-        zxingReaderRef.current = reader;
-        return reader;
-      }
-    } catch (e) {}
-    return null;
-  };
+      {/* 1. KOMPAKTE MODUS-LEISTE + KAMERA-SCHALTER */}
+      <div className="flex items-center gap-1.5">
+        <div className="grid grid-cols-3 gap-1 flex-1 p-1 rounded-2xl bg-black/35 border border-white/10">
+          <button
+            type="button"
+            onClick={() => { setScannerMode('barcode'); setShowProduceDrawer(false); }}
+            className={'py-2.5 px-2 rounded-xl text-xs font-black flex items-center justify-center gap-1 ' + (scannerMode === 'barcode' ? 'tw-active-nav' : 'tw-nav-inactive')}
+          >
+            <ScanLine className="w-4 h-4" />
+            <span>Scanner</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => { setScannerMode('object_ai'); setShowProduceDrawer(true); }}
+            className={'py-2.5 px-2 rounded-xl text-xs font-black flex items-center justify-center gap-1 ' + (scannerMode === 'object_ai' ? 'tw-active-nav' : 'tw-nav-inactive')}
+          >
+            <Apple className="w-4 h-4" />
+            <span>🍎 Frische-KI</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => { stopCameraStream(); setScannerMode('receipt'); }}
+            className={'py-2.5 px-2 rounded-xl text-xs font-black flex items-center justify-center gap-1 ' + (scannerMode === 'receipt' ? 'tw-active-nav' : 'tw-nav-inactive')}
+          >
+            <FileText className="w-4 h-4" />
+            <span>🧾 Bon</span>
+          </button>
+        </div>
 
-  const loadMobileNetModel = async () => {
-    if (mobileNetModelRef.current) return mobileNetModelRef.current;
-    if (typeof window === 'undefined') return null;
+        {scannerMode !== 'receipt' && (
+          !cameraActive ? (
+            <button
+              type="button"
+              onClick={startLiveBarcodeCamera}
+              className="tw-active-nav px-4 py-3 rounded-2xl text-xs font-black flex items-center gap-1.5 shrink-0 shadow-lg"
+            >
+              <Camera className="w-4 h-4" /> Kamera
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={stopCameraStream}
+              className="px-3.5 py-3 rounded-2xl bg-rose-600 text-white text-xs font-black shrink-0 shadow-lg"
+            >
+              ✕ Aus
+            </button>
+          )
+        )}
+      </div>
 
-    if (!window.tf) {
-      await new Promise((resolve, reject) => {
-        const s = document.createElement('script');
-        s.src = 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js';
-        s.onload = resolve;
-        s.onerror = reject;
-        document.head.appendChild(s);
-      });
-    }
-    if (!window.mobilenet) {
-      await new Promise((resolve, reject) => {
-        const s = document.createElement('script');
-        s.src = 'https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js';
-        s.onload = resolve;
-        s.onerror = reject;
-        document.head.appendChild(s);
-      });
-    }
+      {scannerMode !== 'receipt' ? (
+        <div className={'p-3.5 rounded-3xl border space-y-3 shadow-lg ' + themeStyles.card}>
+          {/* LIVE-KAMERA-SUCHER MIT STRIKTER 2-PHASEN-TRENNUNG & KI-MHD-STREIFEN */}
+          {cameraActive && (
+            <div className="space-y-2">
+              <div
+                onClick={() => scannerMode === 'object_ai' ? recognizeProduceFromCamera() : captureMhdFromLiveCamera(false, true)}
+                className={
+                  'relative rounded-2xl overflow-hidden border-2 bg-black aspect-[16/10] cursor-pointer transition-colors ' +
+                  (scanPhase === 'mhd_locked'
+                    ? 'border-emerald-400 shadow-[0_0_20px_rgba(16,185,129,0.5)]'
+                    : scanPhase === 'hunting_mhd'
+                    ? 'border-amber-400 shadow-[0_0_20px_rgba(245,158,11,0.45)]'
+                    : 'border-sky-400')
+                }
+              >
+                <video
+                  ref={videoRef}
+                  style={zoomActive && !hardwareZoomSupportedRef.current ? { transform: 'scale(1.85)', transformOrigin: 'center center' } : undefined}
+                  className="w-full h-full object-cover transition-transform duration-200"
+                  playsInline
+                  muted
+                />
 
-    const model = await window.mobilenet.load({ version: 2, alpha: 0.5 });
-    mobileNetModelRef.current = model;
-    return model;
-  };
+                <div className="absolute top-2 left-2 right-2 flex items-center justify-between gap-2 z-10">
+                  <span
+                    className={
+                      'text-[11px] font-black px-2.5 py-1 rounded-xl border truncate ' +
+                      (scanPhase === 'mhd_locked'
+                        ? 'bg-emerald-950/90 text-emerald-300 border-emerald-400'
+                        : scanPhase === 'hunting_mhd'
+                        ? 'bg-amber-950/90 text-amber-200 border-amber-400 animate-pulse'
+                        : 'bg-black/80 text-sky-300 border-sky-400/40')
+                    }
+                  >
+                    {isLookingUpProduct || isReadingFullLabel
+                      ? '⏳ Erkenne Produkt...'
+                      : isReadingMhd && scanPhase === 'hunting_mhd'
+                      ? '🤖 KI liest MHD-Datum...'
+                      : scanPhase === 'mhd_locked'
+                      ? ('🎉 MHD (' + (mhdSourceBadge || 'OK') + '): ' + detectedMhdCandidate.slice(8, 10) + '.' + detectedMhdCandidate.slice(5, 7) + '.' + detectedMhdCandidate.slice(0, 4))
+                      : scanPhase === 'hunting_mhd'
+                      ? '🔒 Barcode aus • MHD in gelben Streifen (tippen = KI)'
+                      : ('📷 Phase 1: Barcode scannen (' + activeFormatCount + ' Typen)')}
+                  </span>
 
-  const detectProduceByCenterColor = (canvas) => {
-    try {
-      const ctx = canvas.getContext('2d');
-      const w = canvas.width;
-      const h = canvas.height;
-      const data = ctx.getImageData(Math.floor(w * 0.25), Math.floor(h * 0.25), Math.floor(w * 0.5), Math.floor(h * 0.5)).data;
-      let rSum = 0, gSum = 0, bSum = 0, count = 0;
-      for (let i = 0; i < data.length; i += 16) {
-        rSum += data[i];
-        gSum += data[i + 1];
-        bSum += data[i + 2];
-        count++;
-      }
-      const r = rSum / count;
-      const g = gSum / count;
-      const b = bSum / count;
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); toggleCameraZoom(); }}
+                      className={'px-2.5 py-1 rounded-xl text-[11px] font-black flex items-center gap-1 border ' +
+                        (zoomActive ? 'bg-sky-500 text-white border-white' : 'bg-black/75 text-white border-white/20')}
+                    >
+                      <ZoomIn className="w-3.5 h-3.5" /> 2x
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); toggleCameraTorch(); }}
+                      className={'px-2.5 py-1 rounded-xl text-[11px] font-black flex items-center gap-1 border ' +
+                        (torchOn ? 'bg-amber-400 text-slate-950 border-white' : 'bg-black/75 text-white border-white/20')}
+                    >
+                      <Zap className="w-3.5 h-3.5" /> Licht
+                    </button>
+                  </div>
+                </div>
 
-      if (g > r * 1.18 && g > b * 1.25) {
-        return g < 110
-          ? FRESH_PRODUCE_MHD_DB.find(x => x.id === 'cucumber')
-          : FRESH_PRODUCE_MHD_DB.find(x => x.id === 'salad');
-      }
-      if (r > 165 && g > 95 && g < 165 && b < 80) {
-        return FRESH_PRODUCE_MHD_DB.find(x => x.id === 'orange');
-      }
-      if (r > 170 && g > 160 && b < 95) {
-        return FRESH_PRODUCE_MHD_DB.find(x => x.id === 'banana');
-      }
-      if (r > g * 1.35 && r > b * 1.35) {
-        return FRESH_PRODUCE_MHD_DB.find(x => x.id === 'apple');
-      }
-    } catch (e) {}
-    return null;
-  };
+                {/* Zielrahmen */}
+                <div
+                  className={
+                    'absolute pointer-events-none rounded-xl border-2 shadow-[0_0_0_9999px_rgba(0,0,0,0.42)] flex flex-col justify-center transition-all duration-200 ' +
+                    (scanPhase === 'hunting_mhd'
+                      ? 'inset-x-6 top-[32%] bottom-[32%] border-amber-400'
+                      : scanPhase === 'mhd_locked'
+                      ? 'inset-x-6 top-[32%] bottom-[32%] border-emerald-400'
+                      : 'inset-x-5 top-[22%] bottom-[22%] border-sky-400')
+                  }
+                >
+                  <div className="w-full h-0.5 bg-emerald-400/90 shadow-[0_0_10px_#10b981] animate-pulse" />
+                </div>
 
-  const recognizeProduceFromCamera = async () => {
-    if (!videoRef.current || videoRef.current.readyState < 2) {
-      showToast('Kamera starten', 'Bitte schalte oben rechts zuerst die Kamera ein.', '📷');
-      return;
-    }
-    if (isDetectingObject) return;
-    setIsDetectingObject(true);
-    showToast('KI-Objekterkennung läuft...', 'Erkenne Obst/Gemüse & schätze Haltbarkeit...', '🍎');
+                {(scanName || lastOcrRawHint || scanPhase !== 'barcode') && (
+                  <div className="absolute bottom-2 left-2 right-2 bg-black/85 border border-amber-400/60 rounded-xl px-2.5 py-1.5 flex items-center justify-between gap-2 z-10">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <ProductThumb
+                        item={{ name: scanName, imageUrl: scanImageUrl }}
+                        sizeClass="w-8 h-8"
+                        emojiClass="text-base"
+                        roundedClass="rounded-lg"
+                      />
+                      <div className="min-w-0 leading-tight">
+                        {scanName && <div className="text-xs font-black text-white truncate">{scanName}</div>}
+                        {lastOcrRawHint && !isMhdLockedByOcr && (
+                          <div className="text-[10px] font-bold text-sky-300 truncate">{lastOcrRawHint}</div>
+                        )}
+                      </div>
+                    </div>
 
-    try {
-      const vid = videoRef.current;
-      const canvas = document.createElement('canvas');
-      canvas.width = 320;
-      canvas.height = 240;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(vid, 0, 0, canvas.width, canvas.height);
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span className="text-[10px] font-black text-amber-300">
+                        {isMhdLockedByOcr ? '✅ MHD OK' : (isReadingMhd ? '🤖 Lese...' : '⏳ Suche MHD')}
+                      </span>
+                      {scanPhase !== 'barcode' && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            resetScannerToBarcodePhase();
+                          }}
+                          className="px-2 py-1 rounded-lg bg-sky-500/30 border border-sky-400/60 text-sky-200 text-[10px] font-black cursor-pointer"
+                        >
+                          🔄 Neu
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
 
-      let matchedProduce = null;
-      try {
-        const model = await loadMobileNetModel();
-        if (model) {
-          const predictions = await model.classify(canvas, 5);
-          if (Array.isArray(predictions)) {
-            for (const pred of predictions) {
-              const cls = String(pred.className || '').toLowerCase();
-              const found = FRESH_PRODUCE_MHD_DB.find(item =>
-                item.aiLabels.some(lbl => cls.includes(lbl))
+              <div className="grid grid-cols-4 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMhdLockedByOcr(false);
+                    captureMhdFromLiveCamera(false, true);
+                  }}
+                  disabled={isReadingMhd}
+                  className="tw-active-nav py-2.5 px-2 rounded-xl text-[11px] font-black flex items-center justify-center gap-1 shadow-md"
+                >
+                  <ScanLine className={'w-3.5 h-3.5 shrink-0 ' + (isReadingMhd ? 'animate-spin' : '')} />
+                  <span>{isReadingMhd ? 'KI...' : '📅 KI-MHD'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => captureProductLabelFromLiveCamera(false)}
+                  disabled={isReadingFullLabel}
+                  className="py-2.5 px-2 rounded-xl bg-sky-600 text-white text-[11px] font-black flex items-center justify-center gap-1 shadow-md"
+                >
+                  <Tag className={'w-3.5 h-3.5 shrink-0 ' + (isReadingFullLabel ? 'animate-spin' : '')} />
+                  <span>🏷️ Etikett</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={recognizeProduceFromCamera}
+                  disabled={isDetectingObject}
+                  className="py-2.5 px-2 rounded-xl bg-emerald-600 text-white text-[11px] font-black flex items-center justify-center gap-1 shadow-md"
+                >
+                  <Sparkles className={'w-3.5 h-3.5 shrink-0 ' + (isDetectingObject ? 'animate-spin' : '')} />
+                  <span>🍎 KI</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setAutoAddWhenBothScanned(prev => !prev)}
+                  title="Legt Produkte automatisch in den Einkaufswagen, sobald Barcode UND MHD erfasst wurden"
+                  className={'py-2.5 px-2 rounded-xl text-[10px] font-black flex items-center justify-center gap-1 border ' +
+                    (autoAddWhenBothScanned
+                      ? 'bg-amber-500 text-slate-950 border-amber-300 shadow-md'
+                      : 'tw-nav-inactive text-slate-300')}
+                >
+                  <span>⚡ Auto</span>
+                </button>
+              </div>
+
+              {detectedMhdCandidate && (
+                <div className="p-3 rounded-2xl bg-emerald-500/20 border-2 border-emerald-400 flex items-center justify-between gap-2 shadow-lg">
+                  <div>
+                    <div className="text-xs font-black uppercase text-emerald-300">
+                      ✅ MHD erkannt{mhdSourceBadge ? (' (' + mhdSourceBadge + ')') : ''}:
+                    </div>
+                    <div className="text-base font-black text-white">
+                      📅 {detectedMhdCandidate.slice(8, 10)}.{detectedMhdCandidate.slice(5, 7)}.{detectedMhdCandidate.slice(0, 4)}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDetectedMhdCandidate('');
+                        setScanExpiry('');
+                        setMhdSourceBadge('');
+                        setLastOcrRawHint('');
+                        localOcrMissCountRef.current = 0;
+                        setIsMhdLockedByOcr(false);
+                        scanPhaseRef.current = 'hunting_mhd';
+                        setScanPhase('hunting_mhd');
+                      }}
+                      className="px-2.5 py-2 rounded-xl bg-black/40 text-xs font-black text-rose-300"
+                    >
+                      Neu suchen
+                    </button>
+                    {scanName.trim() && (
+                      <button
+                        type="button"
+                        onClick={() => triggerAddCurrentScanToCart(detectedMhdCandidate)}
+                        className="tw-active-nav px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-md"
+                      >
+                        <ShoppingCart className="w-4 h-4" />
+                        <span>In Wagen</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* EINKLAPPBARES FRISCHE-DROPDOWN */}
+          <div className="rounded-2xl bg-emerald-500/10 border border-emerald-400/30 overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setShowProduceDrawer(prev => !prev)}
+              className="w-full px-3.5 py-2.5 flex items-center justify-between text-left text-xs font-black text-emerald-300"
+            >
+              <span>🥒🍎🥩 Schnellwahl: Frisches Obst, Gemüse & Fleisch (Auto-MHD)</span>
+              {showProduceDrawer ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            </button>
+
+            {showProduceDrawer && (
+              <div className="px-2.5 pb-2.5 pt-1 border-t border-emerald-400/20 space-y-2">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 max-h-48 overflow-y-auto pr-0.5">
+                  {FRESH_PRODUCE_MHD_DB.map(prod => (
+                    <button
+                      key={prod.id}
+                      type="button"
+                      onClick={() => applyFreshProduceSelection(prod, true)}
+                      className="px-2.5 py-2 rounded-xl bg-black/40 border border-white/10 hover:border-emerald-400 flex items-center gap-2 text-left"
+                    >
+                      <span className="text-2xl shrink-0">{prod.emoji}</span>
+                      <div className="min-w-0 leading-tight">
+                        <div className="text-xs font-extrabold text-white truncate">{prod.name.split(' ')[0]}</div>
+                        <div className="text-[10px] font-black text-emerald-400">+{prod.days} Tage</div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {estimatedMhdHint && (
+            <div className="px-3 py-2 rounded-xl bg-emerald-500/15 border border-emerald-400/35 text-xs font-extrabold text-emerald-200">
+              {estimatedMhdHint}
+            </div>
+          )}
+
+          {/* EINGABE-FORMULAR MIT PRODUKTBILD-VORSCHAU & SUPABASE-FOTO-UPLOAD */}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              triggerAddCurrentScanToCart();
+            }}
+            className="space-y-2.5"
+          >
+            <div className="flex items-center gap-2">
+              <ProductThumb
+                item={{ name: scanName, imageUrl: scanImageUrl }}
+                sizeClass="w-14 h-14"
+                emojiClass="text-3xl"
+                roundedClass="rounded-2xl"
+              />
+
+              <div className="relative flex-1 min-w-0">
+                <input
+                  type="text"
+                  required
+                  value={scanName}
+                  onChange={(e) => handleNameInputChange(e.target.value)}
+                  placeholder="Produktname (z.B. Vollmilch / Schwarzwaldmilch)..."
+                  className={'w-full h-14 pl-3.5 pr-16 rounded-2xl border text-base font-black ' + themeStyles.input}
+                />
+                {scanName.trim().length > 3 && (
+                  <button
+                    type="button"
+                    onClick={handleSimplifyCurrentNameClick}
+                    className="absolute right-1.5 top-2 bottom-2 px-2.5 rounded-xl bg-sky-500/25 border border-sky-400/40 text-sky-200 text-[11px] font-black flex items-center gap-1"
+                  >
+                    <Wand2 className="w-3.5 h-3.5" />
+                    <span>Kürzen</span>
+                  </button>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setScanGlutenFree(prev => (isCurrentScanGf ? 'no' : 'yes'))}
+                className={'h-14 px-3 rounded-2xl text-xs font-black shrink-0 border flex flex-col items-center justify-center leading-tight ' +
+                  (isCurrentScanGf
+                    ? 'bg-emerald-500/25 border-emerald-400/60 text-emerald-300'
+                    : 'bg-black/25 border-white/10 text-slate-400')}
+              >
+                <span>🌾✓</span>
+                <span>{isCurrentScanGf ? 'GF' : 'Normal'}</span>
+              </button>
+            </div>
+
+            {/* PRODUKTBILD-STEUERUNG (SUPABASE UPLOAD / KAMERA-SCHNAPPSCHUSS / ENTFERNEN) */}
+            <div className="flex flex-wrap items-center justify-between gap-2 px-2.5 py-2 rounded-2xl bg-black/25 border border-white/10">
+              <div className="text-[11px] font-extrabold text-slate-300 flex items-center gap-1.5 min-w-0">
+                <span>🖼️</span>
+                <span className="truncate">
+                  {isUploadingProductPhoto
+                    ? 'Lade Bild nach Supabase...'
+                    : scanImageUrl
+                    ? (scanImageUrl.includes('supabase') ? 'Eigenes Foto (Supabase ✓)' : 'Produktbild geladen ✓')
+                    : 'Kein Produktbild – optional abfotografieren:'}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-1.5 shrink-0">
+                {cameraActive && (
+                  <button
+                    type="button"
+                    disabled={isUploadingProductPhoto}
+                    onClick={handleSnapProductPhotoFromLiveCamera}
+                    className="tw-glow-btn px-2.5 py-1.5 rounded-xl text-[11px] font-black flex items-center gap-1 cursor-pointer"
+                  >
+                    <Camera className="w-3.5 h-3.5" />
+                    <span>Aus Kamera</span>
+                  </button>
+                )}
+
+                <label className="tw-nav-inactive px-2.5 py-1.5 rounded-xl text-[11px] font-black flex items-center gap-1 cursor-pointer">
+                  <Camera className="w-3.5 h-3.5 text-sky-300" />
+                  <span>{scanImageUrl ? 'Neu fotografieren' : 'Foto aufnehmen'}</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    disabled={isUploadingProductPhoto}
+                    className="hidden"
+                    onChange={handleProductPhotoFileChange}
+                  />
+                </label>
+
+                {scanImageUrl && (
+                  <button
+                    type="button"
+                    onClick={() => setScanImageUrl('')}
+                    title="Produktbild entfernen"
+                    className="px-2 py-1.5 rounded-xl bg-rose-500/20 border border-rose-400/40 text-rose-300 text-[11px] font-black flex items-center cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-12 gap-1.5 items-center">
+              <div className="col-span-4 flex items-center bg-black/25 p-1 rounded-2xl border border-white/10 h-12">
+                <button
+                  type="button"
+                  onClick={() => setScanQty(stepMobileQty(scanQty, -1))}
+                  className="tw-nav-inactive w-9 h-full rounded-xl font-black text-base flex items-center justify-center shrink-0"
+                >
+                  -
+                </button>
+                <input
+                  type="text"
+                  value={scanQty}
+                  onChange={(e) => setScanQty(e.target.value)}
+                  className="w-full bg-transparent text-center text-sm font-black focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => setScanQty(stepMobileQty(scanQty, 1))}
+                  className="tw-glow-btn w-9 h-full rounded-xl font-black text-base flex items-center justify-center shrink-0"
+                >
+                  +
+                </button>
+              </div>
+
+              <select
+                value={scanLocation}
+                onChange={(e) => setScanLocation(e.target.value)}
+                className={'col-span-4 h-12 px-2.5 rounded-2xl border text-xs sm:text-sm font-extrabold ' + themeStyles.input}
+              >
+                {STORAGE_PILLS.map(loc => (
+                  <option key={loc.id} value={loc.id} className="bg-slate-800 text-white">
+                    {loc.label}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={scanCategory}
+                onChange={(e) => setScanCategory(e.target.value)}
+                className={'col-span-4 h-12 px-2.5 rounded-2xl border text-xs sm:text-sm font-extrabold ' + themeStyles.input}
+              >
+                <option value="auto" className="bg-slate-800 text-amber-300">
+                  ✨ {detectedScanCatObj.icon} {detectedScanCatObj.title.split(',')[0]}
+                </option>
+                {FOOD_CATEGORIES.map(cat => (
+                  <option key={cat.id} value={cat.id} className="bg-slate-800 text-white">
+                    {cat.icon} {cat.title}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-400/40 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-black uppercase text-amber-300">
+                  📅 Ablaufdatum (MHD)
+                </span>
+                <div className="flex items-center gap-1">
+                  {[
+                    { l: '+4T', d: 4 },
+                    { l: '+1W', d: 7 },
+                    { l: '+2W', d: 14 },
+                    { l: '+6M (TK)', d: 180 }
+                  ].map(b => (
+                    <button
+                      key={b.d}
+                      type="button"
+                      onClick={() => {
+                        const d = formatDateStr(addDays(new Date(), b.d));
+                        setScanExpiry(d);
+                        setDetectedMhdCandidate(d);
+                        setMhdSourceBadge('Schnellwahl');
+                        setIsMhdLockedByOcr(true);
+                        scanPhaseRef.current = 'mhd_locked';
+                        setScanPhase('mhd_locked');
+                        triggerVibration(50);
+                      }}
+                      className="tw-glow-btn px-2.5 py-1 rounded-lg text-[11px] font-black"
+                    >
+                      {b.l}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-12 gap-2">
+                <select
+                  value=""
+                  onChange={(e) => {
+                    const days = Number(e.target.value);
+                    if (!days) return;
+                    const d = formatDateStr(addDays(new Date(), days));
+                    setScanExpiry(d);
+                    setDetectedMhdCandidate(d);
+                    setMhdSourceBadge('Auswahl');
+                    setIsMhdLockedByOcr(true);
+                    scanPhaseRef.current = 'mhd_locked';
+                    setScanPhase('mhd_locked');
+                  }}
+                  className={'col-span-5 h-11 px-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+                >
+                  <option value="" className="bg-slate-800 text-amber-300">⏳ MHD-Zeitraum...</option>
+                  <option value="3" className="bg-slate-800 text-white">+3 Tage (Frisch)</option>
+                  <option value="5" className="bg-slate-800 text-white">+5 Tage</option>
+                  <option value="7" className="bg-slate-800 text-white">+1 Woche</option>
+                  <option value="10" className="bg-slate-800 text-white">+10 Tage</option>
+                  <option value="14" className="bg-slate-800 text-white">+2 Wochen</option>
+                  <option value="30" className="bg-slate-800 text-white">+1 Monat</option>
+                  <option value="90" className="bg-slate-800 text-white">+3 Monate</option>
+                  <option value="180" className="bg-slate-800 text-white">+6 Monate (TK)</option>
+                  <option value="365" className="bg-slate-800 text-white">+1 Jahr (Vorrat)</option>
+                </select>
+
+                <input
+                  type="date"
+                  required
+                  min={todayStr}
+                  value={scanExpiry}
+                  onChange={(e) => {
+                    setScanExpiry(e.target.value);
+                    setDetectedMhdCandidate(e.target.value);
+                    setMhdSourceBadge('Manuell');
+                    setIsMhdLockedByOcr(true);
+                    scanPhaseRef.current = 'mhd_locked';
+                    setScanPhase('mhd_locked');
+                  }}
+                  className={'col-span-7 h-11 px-3 rounded-xl border text-sm font-black ' + themeStyles.input}
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={!scanName.trim() || (!scanExpiry && !detectedMhdCandidate) || isUploadingProductPhoto}
+              className={'w-full min-h-[54px] py-3.5 rounded-2xl font-black text-base shadow-xl flex items-center justify-center gap-2 ' +
+                (!scanName.trim() || (!scanExpiry && !detectedMhdCandidate) || isUploadingProductPhoto ? 'bg-slate-700 text-slate-400 opacity-50' : 'tw-active-nav')}
+            >
+              <ShoppingCart className="w-5 h-5" />
+              <span>
+                {(scanExpiry || detectedMhdCandidate)
+                  ? ('🛒 In Einkaufswagen (' + (scanExpiry || detectedMhdCandidate).slice(8, 10) + '.' + (scanExpiry || detectedMhdCandidate).slice(5, 7) + '.)')
+                  : '⚠️ Erst Ablaufdatum (MHD) scannen oder wählen'}
+              </span>
+            </button>
+          </form>
+        </div>
+      ) : (
+        /*
+        //
+        // ============================================================================
+        // PART 10: KASSENBON-ANSICHT & EINKAUFSWAGEN
+        // ============================================================================
+        //
+        */
+        <div className={'p-4 rounded-3xl border space-y-3.5 shadow-md ' + themeStyles.card}>
+          <h2 className="font-black text-lg">🧾 Kassenbon abfotografieren</h2>
+          <label className="tw-active-nav w-full min-h-[54px] py-3.5 rounded-2xl font-black text-sm flex items-center justify-center gap-2 cursor-pointer shadow-lg">
+            <Camera className="w-5 h-5" />
+            <span>{isScanningReceipt ? '⏳ Lese & vereinfache Bon...' : '📸 Kassenbon jetzt fotografieren'}</span>
+            <input
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={handleReceiptPhotoUpload}
+            />
+          </label>
+
+          {receiptItems.length > 0 && (
+            <div className="space-y-2.5 pt-1">
+              {receiptItems.map((rit, idx) => (
+                <div key={rit.id} className={'p-3.5 rounded-2xl border space-y-2.5 ' + themeStyles.subtle}>
+                  <div className="flex items-center gap-2.5">
+                    <input
+                      type="checkbox"
+                      checked={rit.selected}
+                      onChange={() => {
+                        const next = [...receiptItems];
+                        next[idx].selected = !next[idx].selected;
+                        setReceiptItems(next);
+                      }}
+                      className="w-6 h-6 accent-emerald-500 rounded"
+                    />
+                    <span className="text-2xl">{getFoodEmoji(rit.name)}</span>
+                    <input
+                      type="text"
+                      value={rit.name}
+                      onChange={(e) => {
+                        const next = [...receiptItems];
+                        next[idx].name = e.target.value;
+                        setReceiptItems(next);
+                      }}
+                      className="flex-1 bg-transparent text-base font-black focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-2 pl-8">
+                    <select
+                      value={rit.location}
+                      onChange={(e) => {
+                        const next = [...receiptItems];
+                        next[idx].location = e.target.value;
+                        setReceiptItems(next);
+                      }}
+                      className={'px-2.5 py-1.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+                    >
+                      {STORAGE_PILLS.map(l => (
+                        <option key={l.id} value={l.id} className="bg-slate-800 text-white">{l.label}</option>
+                      ))}
+                    </select>
+
+                    <input
+                      type="date"
+                      required
+                      value={rit.expiryDate}
+                      onChange={(e) => {
+                        const next = [...receiptItems];
+                        next[idx].expiryDate = e.target.value;
+                        setReceiptItems(next);
+                      }}
+                      className={'px-3 py-1.5 rounded-xl border text-xs font-black ' + themeStyles.input}
+                    />
+                  </div>
+                </div>
+              ))}
+
+              <button
+                type="button"
+                onClick={() => {
+                  const selected = receiptItems.filter(it => it.selected && it.name.trim() && it.expiryDate);
+                  if (selected.length === 0) return;
+                  onAddBatchToCart(selected);
+                  setReceiptItems([]);
+                }}
+                className="tw-active-nav w-full min-h-[52px] py-3.5 rounded-2xl font-black text-sm flex items-center justify-center gap-2 shadow-lg"
+              >
+                <ShoppingCart className="w-5 h-5" />
+                <span>🛒 Markierte Bon-Artikel in den Einkaufswagen</span>
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* EINKAUFSWAGEN UNTER DEM SCANNER MIT PRODUKTBILDERN & GROSSEN TEXTEN */}
+      <div className={'p-3.5 rounded-3xl border space-y-3 ' + themeStyles.card}>
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <span className="font-black text-sm uppercase text-amber-400 flex items-center gap-1.5">
+              <ShoppingCart className="w-4 h-4" />
+              <span>🛒 Einkaufswagen ({sortedCart.length})</span>
+            </span>
+            <p className="text-[11px] opacity-75 font-semibold">
+              Zuletzt gescanntes Produkt steht ganz oben
+            </p>
+          </div>
+
+          {sortedCart.length > 0 && (
+            <button
+              type="button"
+              disabled={isSyncing}
+              onClick={onTransferAllCartToStock}
+              className="tw-active-nav px-4 py-2.5 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-md"
+            >
+              <PackagePlus className="w-4 h-4" />
+              <span>Alle in Bestand ({sortedCart.length})</span>
+            </button>
+          )}
+        </div>
+
+        {sortedCart.length === 0 ? (
+          <div className="py-5 text-center text-sm opacity-55 font-bold">
+            🛒 Dein Einkaufswagen ist noch leer.
+          </div>
+        ) : (
+          <div className="space-y-2.5">
+            {sortedCart.map((cItem, idx) => {
+              const locObj = STORAGE_PILLS.find(l => l.id === cItem.location) || STORAGE_PILLS[0];
+              const isGf = isProductGlutenFree(cItem);
+              return (
+                <div
+                  key={cItem.id}
+                  className={'p-3.5 rounded-2xl border flex items-center justify-between gap-3 ' +
+                    (idx === 0 ? 'border-amber-400/80 bg-amber-500/10' : themeStyles.subtle)}
+                >
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                    <ProductThumb
+                      item={cItem}
+                      sizeClass="w-13 h-13"
+                      emojiClass="text-3xl"
+                      roundedClass="rounded-2xl"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
+                        {idx === 0 && (
+                          <span className="px-2 py-0.5 rounded bg-amber-500 text-slate-950 text-[10px] font-black shrink-0">
+                            NEU
+                          </span>
+                        )}
+                        {isGf && (
+                          <span className="px-2 py-0.5 rounded bg-emerald-500/25 border border-emerald-400/50 text-emerald-300 text-[10px] font-black shrink-0">
+                            🌾✓ GF
+                          </span>
+                        )}
+                      </div>
+                      <div className="font-black text-base leading-snug break-words">
+                        {cItem.name}
+                      </div>
+                      <div className="text-xs text-amber-300 font-extrabold mt-0.5">
+                        {cItem.quantity} • {locObj.label} • MHD: {cItem.expiryDate.slice(8, 10)}.{cItem.expiryDate.slice(5, 7)}.{cItem.expiryDate.slice(2, 4)}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => onTransferSingleCartItemToStock(cItem)}
+                      className="tw-glow-btn px-3 py-2.5 rounded-xl text-xs font-black flex items-center gap-1"
+                    >
+                      <Check className="w-4 h-4 text-emerald-300" />
+                      <span>Bestand</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onRemoveCartItem(cItem.id)}
+                      className="tw-nav-inactive p-2.5 rounded-xl text-rose-400"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
               );
-              if (found) {
-                matchedProduce = found;
-                break;
-              }
-            }
-          }
-        }
-      } catch (e) {}
-
-      if (!matchedProduce) {
-        matchedProduce = detectProduceByCenterColor(canvas);
-      }
-
-      if (matchedProduce) {
-        applyFreshProduceSelection(matchedProduce, true);
-      } else {
-        setShowProduceDrawer(true);
-        showToast('Bitte näher heranhalten', 'Oder wähle das Frischeprodukt direkt im aufgeklappten Menü!', '🔍');
-      }
-    } catch (err) {
-      setShowProduceDrawer(true);
-    } finally {
-      setIsDetectingObject(false);
-    }
-  };
-
-  const getFastMhdOcrWorker = async () => {
-    if (ocrWorkerRef.current) return ocrWorkerRef.current;
-
-    if (typeof window !== 'undefined' && !window.Tesseract) {
-      await new Promise((resolve, reject) => {
-        const s = document.createElement('script');
-        s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
-        s.onload = resolve;
-        s.onerror = reject;
-        document.head.appendChild(s);
-      });
-    }
-
-    if (window.Tesseract?.createWorker) {
-      const worker = await window.Tesseract.createWorker('eng');
-      await worker.setParameters({
-        tessedit_pageseg_mode: '6',
-        tessedit_char_whitelist: '0123456789.,/-:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz '
-      });
-      ocrWorkerRef.current = worker;
-      return worker;
-    }
-    return null;
-  };
-
-  // KI-Vision Aufruf (/api/mhd-ai via Gemini 2.5 Flash)
-  const callVisionAiScanner = async (canvas, mode = 'mhd') => {
-    if (!aiEndpointAvailableRef.current || !canvas) return null;
-    try {
-      const imageBase64 = canvas.toDataURL('image/jpeg', 0.86);
-      const res = await fetch('/api/mhd-ai', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageBase64, mode, todayStr }),
-        cache: 'no-store'
-      });
-      const json = await res.json();
-      if (json?.fallbackToLocal && String(json?.error || '').includes('GEMINI_API_KEY fehlt')) {
-        aiEndpointAvailableRef.current = false;
-        return null;
-      }
-      if (json?.ok) return json;
-    } catch (e) {}
-    return null;
-  };
-
-  const lockDetectedMhdDate = (parsedDate, sourceLabel = 'KI', rawHint = '') => {
-    if (!parsedDate) return;
-    localOcrMissCountRef.current = 0;
-    setDetectedMhdCandidate(parsedDate);
-    setScanExpiry(parsedDate);
-    setMhdSourceBadge(sourceLabel);
-    if (rawHint) setLastOcrRawHint(rawHint);
-    setIsMhdLockedByOcr(true);
-    scanPhaseRef.current = 'mhd_locked';
-    setScanPhase('mhd_locked');
-
-    playMobileBeep('scan');
-    triggerVibration([180, 70, 260]);
-
-    const niceDate = parsedDate.slice(8, 10) + '.' + parsedDate.slice(5, 7) + '.' + parsedDate.slice(0, 4);
-    const activeName = scanNameRef.current.trim();
-    if (autoAddWhenBothScanned && activeName) {
-      triggerAddCurrentScanToCart(parsedDate);
-      showToast('⚡ Automatisch im Wagen!', activeName + ' (MHD: ' + niceDate + ')', getFoodEmoji(activeName));
-    } else {
-      showToast('📅 MHD erkannt (' + sourceLabel + '): ' + niceDate, 'Tippe auf „🛒 In Einkaufswagen“!', '🎉');
-    }
-  };
-
-  const captureProductLabelFromLiveCamera = async (silentFallback = false) => {
-    if (!videoRef.current || videoRef.current.readyState < 2) {
-      if (!silentFallback) showToast('Kamera nicht bereit', 'Bitte zuerst die Kamera starten.', '⚠️');
-      return false;
-    }
-    if (isReadingFullLabel) return false;
-    setIsReadingFullLabel(true);
-    if (!silentFallback) {
-      showToast('KI liest Verpackung...', 'Erkenne Produktname, Marke, Menge & MHD...', '🏷️');
-    }
-
-    try {
-      const baseCanvas = grabFocusedFrameCanvas(false);
-      if (!baseCanvas) return false;
-
-      // 1. Zuerst KI-Vision probieren (liest Name + Marke + Menge + MHD auf einen Schlag)
-      const aiRes = await callVisionAiScanner(baseCanvas, 'label');
-      if (aiRes && (aiRes.productName || aiRes.expiryDate)) {
-        if (aiRes.productName) {
-          const finalName = simplifyProductName(aiRes.productName, aiRes.brand || '');
-          const cat = detectSmartCategory(finalName);
-          const loc = detectSmartLocation(finalName, cat);
-          setScanName(finalName);
-          scanNameRef.current = finalName;
-          setScanCategory(cat);
-          setScanLocation(loc);
-          setScanGlutenFree(isProductGlutenFree(finalName, cat) ? 'yes' : 'auto');
-          if (aiRes.quantity) setScanQty(String(aiRes.quantity).trim());
-        }
-        if (aiRes.expiryDate) {
-          lockDetectedMhdDate(aiRes.expiryDate, 'KI-Etikett', aiRes.rawText || aiRes.expiryDate);
-        } else if (aiRes.productName) {
-          setIsMhdLockedByOcr(false);
-          scanPhaseRef.current = 'hunting_mhd';
-          setScanPhase('hunting_mhd');
-          playMobileBeep('scan');
-          triggerVibration([90, 45, 90]);
-          showToast('KI-Etikett erkannt! 🏷️', aiRes.productName + ' – halte jetzt das MHD in den Rahmen!', getFoodEmoji(aiRes.productName));
-        }
-        return true;
-      }
-
-      // 2. Fallback: Lokales Tesseract-OCR (Deutsch)
-      if (typeof window !== 'undefined' && !window.Tesseract) {
-        await new Promise((resolve, reject) => {
-          const s = document.createElement('script');
-          s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
-          s.onload = resolve;
-          s.onerror = reject;
-          document.head.appendChild(s);
-        });
-      }
-
-      const enhanced = buildMhdCanvasVariant(baseCanvas, 'contrast');
-      const res = await window.Tesseract.recognize(enhanced, 'deu');
-      const fullText = String(res?.data?.text || '');
-      if (!fullText.trim()) return false;
-
-      let foundFoodTitle = '';
-      for (const kw of LABEL_FOOD_KEYWORDS) {
-        const reg = new RegExp('\\b' + kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
-        if (reg.test(fullText)) {
-          foundFoodTitle = kw;
-          break;
-        }
-      }
-
-      let foundBrand = '';
-      for (const kb of KNOWN_BRAND_PREFIXES) {
-        const reg = new RegExp('\\b' + kb.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
-        if (reg.test(fullText)) {
-          foundBrand = kb;
-          break;
-        }
-      }
-
-      if (!foundFoodTitle) {
-        const cleanLines = fullText
-          .split(/\r?\n/)
-          .map(l => l.replace(/[^a-zA-ZäöüÄÖÜß0-9\s\-,.]/g, '').trim())
-          .filter(l =>
-            l.length >= 4 &&
-            l.length <= 36 &&
-            !/aufgezogen|geschlachtet|geboren|deutschland|verzehr|durcherhitzen|tropfsaft|lagerung|packung|mikrowellen|ch\.|g-nr|mindestens|haltbar|zutaten|nährwerte|brennwert|kühl|trocken/i.test(l)
-          );
-        if (cleanLines.length > 0) {
-          foundFoodTitle = cleanLines[0];
-        }
-      }
-
-      const weightMatch = fullText.match(/\b(\d{2,4})\s*(g|gr|kg|ml|l)\b/i);
-      const parsedExp = extractExpiryDateFromText(fullText);
-
-      if (foundFoodTitle) {
-        const finalName = simplifyProductName(foundFoodTitle, foundBrand);
-        const cat = detectSmartCategory(finalName);
-        const loc = detectSmartLocation(finalName, cat);
-
-        setScanName(finalName);
-        scanNameRef.current = finalName;
-        setScanCategory(cat);
-        setScanLocation(loc);
-        setScanGlutenFree(isProductGlutenFree(finalName, cat) ? 'yes' : 'auto');
-        if (weightMatch) {
-          setScanQty(weightMatch[1] + weightMatch[2].toLowerCase());
-        }
-
-        if (parsedExp) {
-          lockDetectedMhdDate(parsedExp, 'Etikett', foundFoodTitle);
-        } else {
-          setIsMhdLockedByOcr(false);
-          scanPhaseRef.current = 'hunting_mhd';
-          setScanPhase('hunting_mhd');
-          playMobileBeep('scan');
-          triggerVibration([90, 45, 90]);
-          showToast('Etikett gelesen! 🏷️', finalName + ' – halte jetzt das MHD in den Rahmen!', getFoodEmoji(finalName));
-        }
-        return true;
-      } else if (parsedExp) {
-        lockDetectedMhdDate(parsedExp, 'OCR', parsedExp);
-        return true;
-      }
-    } catch (e) {} finally {
-      setIsReadingFullLabel(false);
-    }
-    return false;
-  };
-
-  // Turbo MHD-Scanner: Gemini Flash Vision-KI + Multi-Pass Lokales OCR
-  const captureMhdFromLiveCamera = async (silentMode = false, preferVisionAi = false) => {
-    if (scanCheckoutOpenRef.current) return;
-    if (!videoRef.current || videoRef.current.readyState < 2) {
-      if (!silentMode) showToast('Kamera nicht bereit', 'Bitte zuerst die Kamera starten.', '⚠️');
-      return;
-    }
-    if (isReadingMhdRef.current) return;
-
-    isReadingMhdRef.current = true;
-    setIsReadingMhd(true);
-
-    try {
-      const baseCanvas = grabFocusedFrameCanvas(true);
-      if (!baseCanvas) return;
-
-      const now = Date.now();
-      const shouldTryAiNow =
-        aiEndpointAvailableRef.current &&
-        (
-          preferVisionAi ||
-          !silentMode ||
-          (scanPhaseRef.current === 'hunting_mhd' && localOcrMissCountRef.current >= 1 && now - lastAiMhdCallRef.current >= 2400)
-        );
-
-      // 1. Direkt-Schuss an Gemini Vision-KI
-      if (shouldTryAiNow) {
-        lastAiMhdCallRef.current = now;
-        const aiRes = await callVisionAiScanner(baseCanvas, 'mhd');
-        if (aiRes?.rawText) {
-          setLastOcrRawHint('🤖 ' + String(aiRes.rawText).slice(0, 38));
-        }
-        if (aiRes?.expiryDate) {
-          lockDetectedMhdDate(aiRes.expiryDate, 'KI-Vision', aiRes.rawText || aiRes.expiryDate);
-          return;
-        }
-      }
-
-      // 2. Verbessertes lokales Multi-Pass OCR
-      const worker = await getFastMhdOcrWorker();
-      const passes = silentMode ? ['contrast', 'invert'] : ['contrast', 'invert', 'raw'];
-      let combinedRawSnippet = '';
-
-      for (const passMode of passes) {
-        const variantCanvas = buildMhdCanvasVariant(baseCanvas, passMode);
-        const result = worker
-          ? await worker.recognize(variantCanvas)
-          : await window.Tesseract.recognize(variantCanvas, 'eng');
-
-        const detectedText = String(result?.data?.text || '').trim();
-        if (detectedText && !combinedRawSnippet) {
-          combinedRawSnippet = detectedText.replace(/\s+/g, ' ').slice(0, 38);
-        }
-
-        const parsedDate = extractExpiryDateFromText(detectedText);
-        if (parsedDate) {
-          lockDetectedMhdDate(parsedDate, passMode === 'invert' ? 'OCR-Invert' : 'OCR', combinedRawSnippet);
-          return;
-        }
-      }
-
-      localOcrMissCountRef.current += 1;
-      if (combinedRawSnippet) {
-        setLastOcrRawHint('👁️ ' + combinedRawSnippet);
-      }
-
-      if (!silentMode) {
-        triggerVibration(40);
-        showToast(
-          'Datum noch nicht klar erkannt',
-          aiEndpointAvailableRef.current
-            ? 'Kurz ruhig in den gelben Streifen halten & erneut tippen (oder 🔦 Licht / 🔍 2x).'
-            : 'Tipp: Mit GEMINI_API_KEY in Vercel liest KI auch Punktschrift sofort – sonst 🔍 2x / 🔦 Licht nutzen.',
-          '🔍'
-        );
-      }
-    } catch (err) {
-      if (!silentMode) showToast('MHD-Scan Hinweis', 'Bitte noch einmal antippen.', '⚠️');
-    } finally {
-      isReadingMhdRef.current = false;
-      setIsReadingMhd(false);
-    }
-  };
-
-  // MHD-Auto-Loop läuft AUSSCHLIESSLICH in Phase 2 ('hunting_mhd'), damit beide Scanner nie gegeneinander kämpfen
-  useEffect(() => {
-    if (!cameraActive || scannerMode !== 'barcode' || scanPhase !== 'hunting_mhd' || isMhdLockedByOcr) {
-      if (mhdAutoLoopRef.current) clearInterval(mhdAutoLoopRef.current);
-      return;
-    }
-
-    mhdAutoLoopRef.current = setInterval(() => {
-      if (!isReadingMhdRef.current && !isMhdLockedByOcr && !scanCheckoutOpenRef.current) {
-        captureMhdFromLiveCamera(true, false);
-      }
-    }, 1000);
-
-    return () => {
-      if (mhdAutoLoopRef.current) clearInterval(mhdAutoLoopRef.current);
-    };
-  }, [cameraActive, isMhdLockedByOcr, scanPhase, scannerMode, scanName, autoAddWhenBothScanned]);
-
-  //
-  //
-  // ============================================================================
-  // PART 07: SCAN-VERARBEITUNG, LIVE-BARCODE-LOOP (MIT SPERRE) & BON-OCR
-  // ============================================================================
-  //
-  //
-
-  const fetchProductFromAllOpenDatabases = async (candidateCode) => {
-    const fields =
-      '?fields=product_name,product_name_de,generic_name,generic_name_de,brands,quantity,categories_tags,allergens_tags,labels_tags,image_front_small_url,image_front_thumb_url,image_small_url,image_url';
-    const endpoints = [
-      'https://de.openfoodfacts.org/api/v2/product/' + encodeURIComponent(candidateCode) + '.json' + fields,
-      'https://world.openfoodfacts.org/api/v2/product/' + encodeURIComponent(candidateCode) + '.json' + fields,
-      'https://world.openpetfoodfacts.org/api/v2/product/' + encodeURIComponent(candidateCode) + '.json' + fields,
-      'https://world.openproductsfacts.org/api/v2/product/' + encodeURIComponent(candidateCode) + '.json' + fields
-    ];
-
-    for (const url of endpoints) {
-      try {
-        const res = await fetch(url);
-        if (!res.ok) continue;
-        const data = await res.json();
-        if (data && data.product && (data.product.product_name_de || data.product.product_name || data.product.generic_name_de || data.product.brands)) {
-          return data.product;
-        }
-      } catch (e) {}
-    }
-    return null;
-  };
-
-  // Haupt-Scan-Verarbeitung inkl. 2-Stunden-Ausbuchungs-Check, Supabase-Katalog & Phasen-Wechsel
-  const processMergedScanResult = async (mergedScan, skipCheckoutCheck = false) => {
-    if (!mergedScan || mergedScan.allPureMarketingUrls) return;
-    if (scanCheckoutOpenRef.current && !skipCheckoutCheck) return;
-
-    const primaryCodeKey = mergedScan.lookupCodes[0] || mergedScan.primaryRaw.slice(0, 28);
-
-    // 1. Prüfe direkt anhand des Barcodes oder gelernten Namens, ob das Produkt seit >= 2 Stunden im Bestand ist
-    if (!skipCheckoutCheck) {
-      const existingInStock = findExistingStockItemEligibleForCheckout(mergedScan);
-      if (existingInStock) {
-        const addedTs = getItemAddedTimestamp(existingInStock);
-        const ageMs = addedTs ? (Date.now() - addedTs) : (3 * 60 * 60 * 1000);
-        playMobileBeep('shopping');
-        triggerVibration([140, 60, 220]);
-        setScanCheckoutModal({
-          open: true,
-          step: 'confirm_remove',
-          stockItem: existingInStock,
-          ageLabel: formatAgeDuration(ageMs),
-          pendingMergedScan: mergedScan
-        });
-        return;
-      }
-    }
-
-    // Sofort synchron in Phase 2 wechseln, damit der Barcode-Loop ab dieser Millisekunde pausiert
-    const nextPhase = mergedScan.extractedExpiry ? 'mhd_locked' : 'hunting_mhd';
-    scanPhaseRef.current = nextPhase;
-    setScanPhase(nextPhase);
-
-    setScannedBarcode(primaryCodeKey);
-    setScanImageUrl(mergedScan.extractedImageUrl || '');
-    if (mergedScan.formats) setLastDetectedFormat(mergedScan.formats);
-    localOcrMissCountRef.current = 0;
-
-    playMobileBeep('scan');
-    triggerVibration([90, 45, 90]);
-
-    if (mergedScan.extractedWeightQty) {
-      setScanQty(mergedScan.extractedWeightQty);
-    }
-
-    if (mergedScan.extractedExpiry) {
-      setScanExpiry(mergedScan.extractedExpiry);
-      setDetectedMhdCandidate(mergedScan.extractedExpiry);
-      setMhdSourceBadge('Code');
-      setIsMhdLockedByOcr(true);
-      triggerVibration([180, 70, 260]);
-    } else {
-      setIsMhdLockedByOcr(false);
-      setDetectedMhdCandidate('');
-      setMhdSourceBadge('');
-      setLastOcrRawHint('');
-    }
-
-    if (mergedScan.extractedLocation) {
-      setScanLocation(mergedScan.extractedLocation);
-    }
-
-    // 2. Sofort-Treffer aus dem lokalen Barcode-Gedächtnis
-    const learnedHit = getLearnedProductFromMemory(primaryCodeKey) || getLearnedProductFromMemory(mergedScan.primaryRaw);
-    if (learnedHit?.name) {
-      const cat = detectSmartCategory(learnedHit.name, learnedHit.category);
-      const loc = mergedScan.extractedLocation || learnedHit.location || detectSmartLocation(learnedHit.name, cat);
-      setScanName(learnedHit.name);
-      scanNameRef.current = learnedHit.name;
-      if (!mergedScan.extractedWeightQty && learnedHit.quantity) setScanQty(learnedHit.quantity);
-      if (learnedHit.imageUrl) setScanImageUrl(learnedHit.imageUrl);
-      setScanCategory(cat);
-      setScanLocation(loc);
-      setScanGlutenFree(learnedHit.glutenFree || (isProductGlutenFree(learnedHit.name, cat) ? 'yes' : 'auto'));
-      showToast(
-        '✅ Barcode erkannt: ' + learnedHit.name,
-        mergedScan.extractedExpiry ? 'MHD aus Code übernommen!' : '👉 Barcode gesperrt – jetzt ruhig das MHD scannen!',
-        getFoodEmoji(learnedHit.name)
-      );
-      return;
-    }
-
-    if (mergedScan.extractedName && mergedScan.lookupCodes.length === 0) {
-      const cleanQrName = simplifyProductName(mergedScan.extractedName, mergedScan.extractedBrand || '');
-      const cat = detectSmartCategory(cleanQrName);
-      const loc = mergedScan.extractedLocation || detectSmartLocation(cleanQrName, cat);
-      setScanName(cleanQrName);
-      scanNameRef.current = cleanQrName;
-      setScanCategory(cat);
-      setScanLocation(loc);
-      setScanGlutenFree(isProductGlutenFree(cleanQrName, cat) ? 'yes' : 'auto');
-      showToast('QR-Produkt erkannt! 🎯', cleanQrName + ' – suche jetzt nach MHD...', getFoodEmoji(cleanQrName));
-      return;
-    }
-
-    // 3. Online-Abfrage: Erst zentrale Supabase-Produktdatenbank (/api/products), dann OpenFoodFacts
-    isLookingUpRef.current = true;
-    setIsLookingUpProduct(true);
-    try {
-      const candidatesToTry = mergedScan.lookupCodes.length > 0 ? mergedScan.lookupCodes : [mergedScan.primaryRaw];
-
-      // 3a. Zentrale Supabase-Produktdatenbank abfragen
-      for (const candidateCode of candidatesToTry.slice(0, 2)) {
-        try {
-          const catRes = await fetch('/api/products?barcode=' + encodeURIComponent(candidateCode), {
-            cache: 'no-store'
-          });
-          if (catRes.ok) {
-            const catJson = await catRes.json();
-            if (catJson?.found && catJson.product?.name) {
-              const dbProd = catJson.product;
-
-              if (!skipCheckoutCheck) {
-                const matchByDbName = findExistingStockItemEligibleForCheckout(mergedScan, dbProd.name);
-                if (matchByDbName) {
-                  const addedTs = getItemAddedTimestamp(matchByDbName);
-                  const ageMs = addedTs ? (Date.now() - addedTs) : (3 * 60 * 60 * 1000);
-                  scanPhaseRef.current = 'barcode';
-                  setScanPhase('barcode');
-                  triggerVibration([140, 60, 220]);
-                  setScanCheckoutModal({
-                    open: true,
-                    step: 'confirm_remove',
-                    stockItem: matchByDbName,
-                    ageLabel: formatAgeDuration(ageMs),
-                    pendingMergedScan: mergedScan
-                  });
-                  return;
-                }
-              }
-
-              const cat = detectSmartCategory(dbProd.name, dbProd.category);
-              const loc = mergedScan.extractedLocation || dbProd.location || detectSmartLocation(dbProd.name, cat);
-              setScanName(dbProd.name);
-              scanNameRef.current = dbProd.name;
-              if (!mergedScan.extractedWeightQty && dbProd.quantity) setScanQty(dbProd.quantity);
-              setScanImageUrl(dbProd.imageUrl || '');
-              setScanCategory(cat);
-              setScanLocation(loc);
-              setScanGlutenFree(dbProd.glutenFree || (isProductGlutenFree(dbProd.name, cat) ? 'yes' : 'auto'));
-
-              saveLearnedProductToMemory(candidateCode, dbProd, false);
-
-              setEstimatedMhdHint('⚡ Aus Cloud-Katalog geladen! Barcode pausiert – halte jetzt das MHD in den gelben Streifen.');
-              showToast(
-                '⚡ Cloud-Datenbank: ' + dbProd.name,
-                mergedScan.extractedExpiry ? 'MHD aus Code übernommen!' : '👉 Barcode gesperrt – jetzt ruhig das MHD scannen!',
-                getFoodEmoji(dbProd.name)
-              );
-              return;
-            }
-          }
-        } catch (e) {}
-      }
-
-      // 3b. OpenFoodFacts / PetFood / Products abfragen (inkl. Produktbild)
-      for (const candidateCode of candidatesToTry.slice(0, 3)) {
-        const p = await fetchProductFromAllOpenDatabases(candidateCode);
-        if (p) {
-          const rawProdName = p.product_name_de || p.product_name || p.generic_name_de || p.generic_name || '';
-          const rawBrand = p.brands ? p.brands.split(',')[0].trim() : (mergedScan.extractedBrand || '');
-          const offCats = Array.isArray(p.categories_tags) ? p.categories_tags : [];
-          const offAllergens = Array.isArray(p.allergens_tags) ? p.allergens_tags : [];
-          const offLabels = Array.isArray(p.labels_tags) ? p.labels_tags : [];
-
-          let nameWithTk = rawProdName;
-          if (offCats.some(t => /frozen/.test(t)) && !/\btk\b|tiefkühl|tiefgekühlt/i.test(nameWithTk)) {
-            nameWithTk = (nameWithTk + ' TK').trim();
-          }
-
-          const smartName = simplifyProductName(nameWithTk || rawBrand, rawBrand);
-          const qty = mergedScan.extractedWeightQty || (p.quantity ? String(p.quantity).trim() : '1x');
-          const img = extractOpenFoodFactsImage(p);
-
-          if (!skipCheckoutCheck && smartName) {
-            const matchByResolvedName = findExistingStockItemEligibleForCheckout(mergedScan, smartName);
-            if (matchByResolvedName) {
-              const addedTs = getItemAddedTimestamp(matchByResolvedName);
-              const ageMs = addedTs ? (Date.now() - addedTs) : (3 * 60 * 60 * 1000);
-              scanPhaseRef.current = 'barcode';
-              setScanPhase('barcode');
-              triggerVibration([140, 60, 220]);
-              setScanCheckoutModal({
-                open: true,
-                step: 'confirm_remove',
-                stockItem: matchByResolvedName,
-                ageLabel: formatAgeDuration(ageMs),
-                pendingMergedScan: mergedScan
-              });
-              return;
-            }
-          }
-
-          setScanImageUrl(img || '');
-          if (smartName) {
-            const detectedCat = detectSmartCategory(smartName, 'auto', offCats);
-            const detectedLoc = mergedScan.extractedLocation || detectSmartLocation(smartName, detectedCat, offCats);
-            const isGf = isProductGlutenFree(smartName, detectedCat, 'auto', offAllergens, offLabels);
-
-            setScanName(smartName);
-            scanNameRef.current = smartName;
-            setScanQty(qty);
-            setScanCategory(detectedCat);
-            setScanLocation(detectedLoc);
-            setScanGlutenFree(isGf ? 'yes' : 'auto');
-
-            saveLearnedProductToMemory(candidateCode, {
-              name: smartName,
-              quantity: qty,
-              location: detectedLoc,
-              category: detectedCat,
-              glutenFree: isGf ? 'yes' : 'auto',
-              imageUrl: img
-            }, true);
-
-            const freshMatch = estimateProduceByName(smartName);
-            if (detectedLoc === 'freezer' && !mergedScan.extractedExpiry) {
-              setEstimatedMhdHint('❄️ TK erkannt – Barcode pausiert, Kamera sucht jetzt nach dem MHD (oder tippe +6M).');
-            } else if (freshMatch && !mergedScan.extractedExpiry) {
-              setEstimatedMhdHint(freshMatch.emoji + ' Barcode pausiert – Kamera sucht jetzt das MHD (Empfehlung: +' + freshMatch.days + 'T).');
-            } else {
-              setEstimatedMhdHint('🎯 Produkt gesperrt! Halte jetzt das MHD in den gelben Streifen (oder tippe kurz aufs Bild).');
-            }
-
-            triggerVibration([100, 50, 100]);
-            showToast(
-              '✅ ' + smartName,
-              img ? 'Produktbild geladen! Jetzt ruhig das MHD scannen.' : 'Barcode pausiert – jetzt ruhig das MHD scannen!',
-              getFoodEmoji(smartName)
-            );
-            return;
-          }
-        }
-      }
-
-      if (mergedScan.extractedName) {
-        const cleanQrName = simplifyProductName(mergedScan.extractedName, mergedScan.extractedBrand || '');
-        const cat = detectSmartCategory(cleanQrName);
-        const loc = detectSmartLocation(cleanQrName, cat);
-        setScanName(cleanQrName);
-        scanNameRef.current = cleanQrName;
-        setScanCategory(cat);
-        setScanLocation(loc);
-        showToast('Aus QR-Code erkannt!', cleanQrName + ' – suche jetzt MHD...', getFoodEmoji(cleanQrName));
-        return;
-      }
-
-      // Etiketten-Fallback nur auslösen, wenn noch kein Produktname gesetzt ist
-      if (!scanNameRef.current.trim()) {
-        const labelSuccess = await captureProductLabelFromLiveCamera(true);
-        if (!labelSuccess) {
-          showToast(
-            (mergedScan.formats || 'Barcode') + ' gescannt!',
-            'Name bitte kurz eingeben – Kamera sucht jetzt das MHD-Datum.',
-            '🏷️'
-          );
-        }
-      }
-    } catch (e) {
-      if (!scanNameRef.current.trim()) {
-        await captureProductLabelFromLiveCamera(true);
-      }
-    } finally {
-      isLookingUpRef.current = false;
-      setIsLookingUpProduct(false);
-    }
-  };
-
-  const startLiveBarcodeCamera = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: 'environment',
-          width: { ideal: 1920 },
-          height: { ideal: 1080 }
-        }
-      });
-
-      const track = stream.getVideoTracks()[0];
-      if (track && track.applyConstraints) {
-        track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(() => {});
-      }
-
-      streamRef.current = stream;
-      hardwareZoomSupportedRef.current = false;
-      localOcrMissCountRef.current = 0;
-      pendingZxingCandidateRef.current = { code: '', hits: 0, ts: 0 };
-      setCameraActive(true);
-      const initialPhase = scanNameRef.current.trim() ? 'hunting_mhd' : 'barcode';
-      scanPhaseRef.current = initialPhase;
-      setScanPhase(initialPhase);
-      requestScreenWakeLock();
-      getFastMhdOcrWorker().catch(() => {});
-      getZXingMultiFormatReader().catch(() => {});
-
-      setTimeout(() => {
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.play().catch(() => {});
-        }
-      }, 150);
-
-      let nativeDetector = null;
-      if (typeof window !== 'undefined' && 'BarcodeDetector' in window) {
-        try {
-          let formatsToUse = ALL_DESIRED_BARCODE_FORMATS;
-          if (typeof window.BarcodeDetector.getSupportedFormats === 'function') {
-            const supported = await window.BarcodeDetector.getSupportedFormats();
-            if (Array.isArray(supported) && supported.length > 0) {
-              formatsToUse = supported;
-              setActiveFormatCount(supported.length);
-            }
-          }
-          nativeDetector = new window.BarcodeDetector({ formats: formatsToUse });
-        } catch (e) {
-          try { nativeDetector = new window.BarcodeDetector(); } catch (err2) {}
-        }
-      }
-
-      let frameTick = 0;
-      scanLoopRef.current = setInterval(async () => {
-        if (!videoRef.current || videoRef.current.readyState < 2) return;
-        if (scanCheckoutOpenRef.current) return;
-
-        // HARTE PHASEN-SPERRE: Im MHD-Modus, in Frische-KI oder während der Abfrage keine Barcodes scannen!
-        if (
-          scannerModeRef.current !== 'barcode' ||
-          scanPhaseRef.current !== 'barcode' ||
-          isLookingUpRef.current
-        ) {
-          return;
-        }
-
-        frameTick++;
-
-        if (nativeDetector) {
-          try {
-            const barcodes = await nativeDetector.detect(videoRef.current);
-            if (barcodes && barcodes.length > 0) {
-              const merged = mergeMultipleBarcodesFromFrame(barcodes);
-              if (merged && !merged.allPureMarketingUrls) {
-                const signature = merged.lookupCodes.join('_') || merged.primaryRaw;
-                const now = Date.now();
-                if (signature && (signature !== lastScannedCodeRef.current || now - lastScanTimeRef.current > 7000)) {
-                  lastScannedCodeRef.current = signature;
-                  lastScanTimeRef.current = now;
-                  pendingZxingCandidateRef.current = { code: '', hits: 0, ts: 0 };
-                  processMergedScanResult(merged, false);
-                  return;
-                }
-              }
-            }
-          } catch (err) {}
-        }
-
-        // ZXing-Fallback nur für echte Codes: erfordert gültigen Payload + 2 identische Treffer in Folge
-        if (frameTick % 2 === 0 && zxingReaderRef.current) {
-          try {
-            const vid = videoRef.current;
-            const canvas = document.createElement('canvas');
-            canvas.width = 640;
-            canvas.height = 360;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(vid, 0, 0, canvas.width, canvas.height);
-
-            const luminanceSource = new window.ZXing.HTMLCanvasElementLuminanceSource(canvas);
-            const binaryBitmap = new window.ZXing.BinaryBitmap(new window.ZXing.HybridBinarizer(luminanceSource));
-            const zxingResult = zxingReaderRef.current.decodeBitmap(binaryBitmap);
-            if (zxingResult && zxingResult.getText()) {
-              const rawVal = String(zxingResult.getText()).trim();
-              const merged = mergeMultipleBarcodesFromFrame([{ rawValue: rawVal, format: '2D/Multi' }]);
-              const now = Date.now();
-
-              if (merged && !merged.allPureMarketingUrls) {
-                const hasValidPayload =
-                  merged.lookupCodes.length > 0 ||
-                  Boolean(merged.extractedName) ||
-                  Boolean(merged.extractedExpiry);
-                if (!hasValidPayload) return;
-
-                const prev = pendingZxingCandidateRef.current;
-                const hits = (prev.code === rawVal && now - prev.ts < 1800) ? prev.hits + 1 : 1;
-                pendingZxingCandidateRef.current = { code: rawVal, hits, ts: now };
-                if (hits < 2) return;
-
-                if (rawVal !== lastScannedCodeRef.current || now - lastScanTimeRef.current > 7000) {
-                  lastScannedCodeRef.current = rawVal;
-                  lastScanTimeRef.current = now;
-                  pendingZxingCandidateRef.current = { code: '', hits: 0, ts: 0 };
-                  processMergedScanResult(merged, false);
-                }
-              }
-            }
-          } catch (zErr) {}
-        }
-      }, 360);
-    } catch (err) {
-      showToast('Kamera-Zugriff', 'Bitte erlaube den Kamera-Zugriff im Browser.', '⚠️');
-    }
-  };
-
-  const handleReceiptPhotoUpload = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setIsScanningReceipt(true);
-    showToast('Analysiere Kassenbon...', 'Texterkennung liest & optimiert deine Einkäufe...', '🧾');
-
-    try {
-      if (typeof window !== 'undefined' && !window.Tesseract) {
-        await new Promise((resolve, reject) => {
-          const s = document.createElement('script');
-          s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
-          s.onload = resolve;
-          s.onerror = reject;
-          document.head.appendChild(s);
-        });
-      }
-
-      const result = await window.Tesseract.recognize(file, 'deu');
-      const lines = String(result?.data?.text || '')
-        .split(/\r?\n/)
-        .map(l => l.replace(/[0-9]+[,.][0-9]{2}\s*[AB]?$/g, '').trim())
-        .filter(l =>
-          l.length >= 3 &&
-          !/summe|gesamt|kartenzahlung|steuer|mwst|datum|uhrzeit|vielen dank|filiale|bon|eur|bar|rückgeld/i.test(l)
-        );
-
-      const extracted = lines.slice(0, 15).map((txt, idx) => {
-        const cleanName = simplifyProductName(txt);
-        const freshEst = estimateProduceByName(cleanName);
-        const cat = freshEst ? freshEst.category : detectSmartCategory(cleanName);
-        const loc = freshEst ? freshEst.location : detectSmartLocation(cleanName, cat);
-        const estDays = loc === 'freezer' ? 180 : freshEst ? freshEst.days : 7;
-        return {
-          id: 'rec_' + Date.now() + '_' + idx,
-          name: cleanName,
-          quantity: '1x',
-          location: loc,
-          category: cat,
-          glutenFree: isProductGlutenFree(cleanName, cat) ? 'yes' : 'auto',
-          expiryDate: formatDateStr(addDays(new Date(), estDays)),
-          selected: true
-        };
-      });
-
-      setReceiptItems(extracted);
-      triggerVibration([100, 50, 140]);
-      showToast('Kassenbon gelesen!', extracted.length + ' Positionen erkannt & Namen vereinfacht.', '✅');
-    } catch (err) {
-      showToast('Kassenbon-Hinweis', 'Bitte Foto bei gutem Licht aufnehmen.', '⚠️');
-    } finally {
-      setIsScanningReceipt(false);
-    }
-  };
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
