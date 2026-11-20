@@ -133,7 +133,7 @@ export default function CookieBanner() {
         role="dialog"
         aria-modal={!isLegalPage}
         aria-label="Cookie- und Datenschutzeinstellungen"
-        className="pointer-events-auto w-full max-w-xl rounded-3xl border-2 border-slate-700/90 bg-[#181d24] text-slate-100 p-5 sm:p-6 shadow-2xl space-y-4 max-h-[90dvh] overflow-y-auto"
+        className="pointer-events-auto w-full max-w-xl rounded-3xl border-4 border-slate-700/90 bg-[#382014] text-slate-100 p-5 sm:p-6 shadow-2xl space-y-4 max-h-[90dvh] overflow-y-auto"
       >
         {/* KOPFZEILE */}
         <div className="flex items-start justify-between gap-3">
