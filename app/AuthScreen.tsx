@@ -4,6 +4,7 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
+import { openCookieSettingsModal } from './CookieBanner';
 import {
   Lock, KeyRound, UserPlus, ShieldCheck, Sparkles,
   Mail, RotateCcw, ArrowLeft, CheckCircle2, Smartphone
@@ -686,6 +687,14 @@ export default function AuthScreen({
           <Link href="/nutzungsbedingungen" className="hover:text-sky-300 hover:underline transition-colors">
             📄 Nutzungsbedingungen
           </Link>
+          <span className="opacity-30">•</span>
+          <button
+            type="button"
+            onClick={openCookieSettingsModal}
+            className="hover:text-sky-300 hover:underline transition-colors cursor-pointer"
+          >
+            🍪 Cookie-Einstellungen
+          </button>
         </div>
       </div>
     </div>
