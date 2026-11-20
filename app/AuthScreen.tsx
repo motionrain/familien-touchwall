@@ -9,6 +9,8 @@ import {
   Mail, RotateCcw, ArrowLeft, CheckCircle2, Smartphone
 } from 'lucide-react';
 
+const SHOW_OAUTH_UI = process.env.NEXT_PUBLIC_ENABLE_OAUTH === 'true';
+
 export const TOUCHWALL_GLOBAL_STYLES = [
   '@keyframes twShockwave {',
   '  0% { transform: translate(-50%, -50%) scale(0.15); opacity: 0.9; }',
@@ -154,7 +156,6 @@ export default function AuthScreen({
   returnTo = '/',
   isPocket = false
 }) {
-  // Eingebauter Passwort-Reset-Zustand (funktioniert identisch auf Touchwall & Pocket)
   const [showResetView, setShowResetView] = useState(false);
   const [resetIdentifier, setResetIdentifier] = useState('');
   const [resetCode, setResetCode] = useState('');
@@ -298,7 +299,9 @@ export default function AuthScreen({
             <p className="text-xs text-slate-400 font-semibold">
               {showResetView
                 ? 'Per E-Mail-Code oder persönlichem Notfall-Recovery-Code (TW-...)'
-                : 'Klassisch mit Benutzername oder mit 1 Klick über Google / Outlook.'}
+                : SHOW_OAUTH_UI
+                ? 'Klassisch mit Benutzername oder mit 1 Klick über Google / Outlook.'
+                : 'Melde dich mit deinem Familien-Benutzernamen an oder erstelle ein neues Konto.'}
             </p>
           </div>
         </div>
@@ -615,39 +618,41 @@ export default function AuthScreen({
               </form>
             )}
 
-            {/* GOOGLE & OUTLOOK OAUTH DIREKT-LOGIN */}
-            <div className="space-y-2.5 pt-1">
-              <div className="flex items-center gap-3">
-                <div className="h-px flex-1 bg-slate-700/80" />
-                <span className="text-[11px] font-extrabold uppercase text-slate-400">
-                  oder direkt weiter mit
-                </span>
-                <div className="h-px flex-1 bg-slate-700/80" />
-              </div>
+            {/* GOOGLE & OUTLOOK OAUTH DIREKT-LOGIN (ÜBER SHOW_OAUTH_UI STEUERBAR) */}
+            {SHOW_OAUTH_UI && (
+              <div className="space-y-2.5 pt-1">
+                <div className="flex items-center gap-3">
+                  <div className="h-px flex-1 bg-slate-700/80" />
+                  <span className="text-[11px] font-extrabold uppercase text-slate-400">
+                    oder direkt weiter mit
+                  </span>
+                  <div className="h-px flex-1 bg-slate-700/80" />
+                </div>
 
-              <div className="grid grid-cols-2 gap-2.5">
-                <button
-                  type="button"
-                  onClick={() => startOAuthLogin('google')}
-                  className="py-3 px-3.5 rounded-2xl bg-[#151920] hover:bg-[#1f2631] border border-slate-700 text-xs sm:text-sm font-extrabold text-white flex items-center justify-center gap-2 cursor-pointer transition-colors"
-                >
-                  <GoogleIcon />
-                  <span>Google</span>
-                </button>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => startOAuthLogin('google')}
+                    className="py-3 px-3.5 rounded-2xl bg-[#151920] hover:bg-[#1f2631] border border-slate-700 text-xs sm:text-sm font-extrabold text-white flex items-center justify-center gap-2 cursor-pointer transition-colors"
+                  >
+                    <GoogleIcon />
+                    <span>Google</span>
+                  </button>
 
-                <button
-                  type="button"
-                  onClick={() => startOAuthLogin('microsoft')}
-                  className="py-3 px-3.5 rounded-2xl bg-[#151920] hover:bg-[#1f2631] border border-slate-700 text-xs sm:text-sm font-extrabold text-white flex items-center justify-center gap-2 cursor-pointer transition-colors"
-                >
-                  <MicrosoftIcon />
-                  <span>Outlook / MS</span>
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => startOAuthLogin('microsoft')}
+                    className="py-3 px-3.5 rounded-2xl bg-[#151920] hover:bg-[#1f2631] border border-slate-700 text-xs sm:text-sm font-extrabold text-white flex items-center justify-center gap-2 cursor-pointer transition-colors"
+                  >
+                    <MicrosoftIcon />
+                    <span>Outlook / MS</span>
+                  </button>
+                </div>
+                <p className="text-[10px] text-center text-slate-400 font-semibold">
+                  Google & Outlook kannst du nach einer normalen Registrierung auch jederzeit unter „Konten“ nachträglich verknüpfen.
+                </p>
               </div>
-              <p className="text-[10px] text-center text-slate-400 font-semibold">
-                Google & Outlook kannst du nach einer normalen Registrierung auch jederzeit unter „Konten“ nachträglich verknüpfen.
-              </p>
-            </div>
+            )}
 
             {/* FUSSZEILE: PASSWORT-RESET & LOKALER MODUS */}
             <div className="pt-2 border-t border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
