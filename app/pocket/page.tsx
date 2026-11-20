@@ -42,6 +42,8 @@ import PocketTasks from './PocketTasks';
 import PocketScanner from './PocketScanner';
 import PocketShopping from './PocketShopping';
 
+const SHOW_OAUTH_UI = process.env.NEXT_PUBLIC_ENABLE_OAUTH === 'true';
+
 const {
   formatDateStr,
   addDays,
@@ -598,6 +600,7 @@ export default function TouchwallPocketApp() {
     projects: [],
     collaborators: []
   });
+  
 
   const [cartItems, setCartItems] = useState([]);
 
@@ -3101,7 +3104,7 @@ if (isCheckingAuth || !isAuthenticated) {
             </div>
 
             {/* GOOGLE & OUTLOOK OAUTH JEDERZEIT NACHTRÄGLICH VERKNÜPFEN */}
-            {accountId && accountId !== 'local' && (
+            {SHOW_OAUTH_UI && accountId && accountId !== 'local' && (
               <div className="space-y-2 pt-1 border-t border-white/10">
                 <span className="text-[11px] font-black uppercase text-emerald-400 block">
                   🔗 Google / Outlook OAuth verknüpfen ({selectedPerson && selectedPerson !== 'all' ? (activePersonObj?.name || selectedPerson) : 'Konto'}):
