@@ -14,6 +14,9 @@ export const metadata: Metadata = {
     shortcut: '/icon-512.png',
     apple: '/icon-512.png',
   },
+    verification: {
+    google: 'y2OaPBwehEoUY3u83wDCGA-Mjo2tCuWiNXnOxcmTdAM',
+  },
   openGraph: {
     title: 'HR Touchwall • Familien-Planer',
     description: 'Haus Richter Familien-Touchwall & Pocket-Scanner',
