@@ -592,8 +592,9 @@ export default function TouchwallApp() {
         {chIcon} {userBadges ? userBadges + ' • ' : ''}{ev.notifyTime}
       </span>
     );
+  };
 
-    //
+//
   //
   // ============================================================================
   // PART 05: UHRZEIT, BROWSER-PUSH & TERMIN-/AUFGABEN-ALARME
@@ -1516,7 +1517,7 @@ export default function TouchwallApp() {
     setIsAuthenticated(false);
   };
 
-    //
+//
   //
   // ============================================================================
   // PART 09: NOTIZEN, EINKAUFSLISTE & AUFGABEN-AKTIONEN
