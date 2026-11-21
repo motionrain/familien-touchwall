@@ -1467,12 +1467,25 @@ export default function TouchwallPocketApp() {
         } catch (e) {}
       }
 
-      const savedEv = localStorage.getItem('richter_touchwall_events_cache');
-      if (savedEv) {
-        try {
-          const parsedEv = JSON.parse(savedEv);
-          if (Array.isArray(parsedEv)) setEvents(parsedEv);
-        } catch (e) {}
+      const isCurrentlyOnline = typeof navigator === 'undefined' || navigator.onLine !== false;
+
+      if (isCurrentlyOnline) {
+        // Bei Online-Start: Alten Kalender-Cache & lokale Lösch-Sperren direkt verwerfen
+        localStorage.removeItem('richter_touchwall_events_cache');
+        pendingCalendarOpsRef.current = {};
+        if (syncMetaRef.current) {
+          syncMetaRef.current.deletedEventIds = {};
+          saveLocalSyncMeta(syncMetaRef.current);
+        }
+      } else {
+        // Nur im Offline-Modus auf den lokalen Cache zurückfallen
+        const savedEv = localStorage.getItem('richter_touchwall_events_cache');
+        if (savedEv) {
+          try {
+            const parsedEv = JSON.parse(savedEv);
+            if (Array.isArray(parsedEv)) setEvents(parsedEv);
+          } catch (e) {}
+        }
       }
 
       if (session.active && session.accountId) {
@@ -1480,7 +1493,7 @@ export default function TouchwallPocketApp() {
         setAuthKey(session.authKey);
         setIsAuthenticated(true);
         if (session.accountId !== 'local') {
-          setTimeout(() => syncAllNowRef.current?.(false, session.accountId, session.authKey), 300);
+          setTimeout(() => syncAllNowRef.current?.(false, session.accountId, session.authKey), 150);
         }
       }
     } catch (e) {}
@@ -1492,15 +1505,39 @@ export default function TouchwallPocketApp() {
     syncAllNowRef.current?.(false, undefined, undefined, true, scope || 'all');
   });
 
-  // Fallback-Intervall (30s) für externe Änderungen direkt in Google Kalender oder Todoist
+  // Fallback-Intervall (30s) + automatischer Cache-Reset beim Wieder-Öffnen der App
   useEffect(() => {
     if (!isAuthenticated || !accountId || accountId === 'local') return;
+
+    const onAppVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+      if (isNetworkSavingRef.current) return;
+
+      try {
+        localStorage.removeItem('richter_touchwall_events_cache');
+      } catch (e) {}
+      pendingCalendarOpsRef.current = {};
+      if (syncMetaRef.current) {
+        syncMetaRef.current.deletedEventIds = {};
+        saveLocalSyncMeta(syncMetaRef.current);
+      }
+      lastLocalEditRef.current = 0;
+      syncAllNowRef.current?.(false);
+    };
+
+    document.addEventListener('visibilitychange', onAppVisible);
+
     const interval = setInterval(() => {
       if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
         syncAllNowRef.current?.(false);
       }
     }, 30000);
-    return () => clearInterval(interval);
+
+    return () => {
+      document.removeEventListener('visibilitychange', onAppVisible);
+      clearInterval(interval);
+    };
   }, [isAuthenticated, accountId, authKey]);
 
   const handleSelectPersonFilter = (personId) => {
