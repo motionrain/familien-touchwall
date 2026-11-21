@@ -617,6 +617,15 @@ export default function TouchwallPocketApp() {
 
   const [quickCockpitOpen, setQuickCockpitOpen] = useState(false);
 
+  // Fliegendes Kategorie-Karussell, Live-Drag-Wischen & 2-Sek.-Blink-Anzeige
+  const [categoryTrayOpen, setCategoryTrayOpen] = useState(false);
+  const [swipeDragX, setSwipeDragX] = useState(0);
+  const [isSwipeDragging, setIsSwipeDragging] = useState(false);
+  const [slideAnimClass, setSlideAnimClass] = useState('');
+  const [categoryFlashInfo, setCategoryFlashInfo] = useState(null);
+  const categoryFlashTimerRef = useRef(null);
+  const slideAnimTimerRef = useRef(null);
+
   const [members, setMembers] = useState(DEFAULT_MEMBERS);
   const [events, setEvents] = useState([]);
   const [familyTasks, setFamilyTasks] = useState([]);
@@ -674,10 +683,17 @@ export default function TouchwallPocketApp() {
   const isNetworkSavingRef = useRef(false);
   const isSyncRunningRef = useRef(false);
   const lastLocalEditRef = useRef(0);
-  const swipeRef = useRef({ x: 0, y: 0, blocked: false });
+  const swipeRef = useRef({ x: 0, y: 0, blocked: false, axis: null });
 
   const [isSyncing, setIsSyncing] = useState(false);
   const [toast, setToast] = useState(null);
+
+  useEffect(() => {
+    return () => {
+      if (categoryFlashTimerRef.current) clearTimeout(categoryFlashTimerRef.current);
+      if (slideAnimTimerRef.current) clearTimeout(slideAnimTimerRef.current);
+    };
+  }, []);
 
   const showToast = (title, msg, icon = '📲') => {
     setToast({ title, msg, icon });
@@ -1064,6 +1080,24 @@ export default function TouchwallPocketApp() {
     '  color: #ffffff !important;',
     '  border: 1.5px solid var(--tw-btn-border) !important;',
     '  box-shadow: 0 6px 16px -3px var(--tw-btn-glow) !important;',
+    '}',
+    '.tw-no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }',
+    '.tw-no-scrollbar::-webkit-scrollbar { display: none; }',
+    '@keyframes twSlideFromRight { 0% { opacity: 0.35; transform: translate3d(42px, 0, 0); } 100% { opacity: 1; transform: translate3d(0, 0, 0); } }',
+    '@keyframes twSlideFromLeft { 0% { opacity: 0.35; transform: translate3d(-42px, 0, 0); } 100% { opacity: 1; transform: translate3d(0, 0, 0); } }',
+    '.tw-slide-in-right { animation: twSlideFromRight 280ms cubic-bezier(0.22, 1, 0.36, 1); }',
+    '.tw-slide-in-left { animation: twSlideFromLeft 280ms cubic-bezier(0.22, 1, 0.36, 1); }',
+    '@keyframes twTrayFloatUp { 0% { opacity: 0; transform: translate3d(0, 18px, 0) scale(0.95); } 100% { opacity: 1; transform: translate3d(0, 0, 0) scale(1); } }',
+    '.tw-tray-float { animation: twTrayFloatUp 220ms cubic-bezier(0.22, 1, 0.36, 1); }',
+    '@keyframes twCatBlink {',
+    '  0%, 100% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.15); border-color: rgba(56, 189, 248, 0.65); }',
+    '  25%, 70% { box-shadow: 0 0 22px 2px rgba(56, 189, 248, 0.75); border-color: #7dd3fc; }',
+    '  50% { box-shadow: 0 0 10px 0 rgba(245, 158, 11, 0.55); border-color: #fbbf24; }',
+    '}',
+    '.tw-cat-flash {',
+    '  background: linear-gradient(135deg, var(--tw-btn-from) 0%, var(--tw-btn-to) 100%) !important;',
+    '  color: #ffffff !important;',
+    '  animation: twCatBlink 1.0s ease-in-out 2;',
     '}'
   ].join('\n');
 
@@ -2470,13 +2504,13 @@ export default function TouchwallPocketApp() {
       '&returnTo=/pocket';
   };
 
-//
-//
-// ============================================================================
-// PART 09: AUTH-GUARD, FILTER-LISTEN & KATEGORIEN-WISCH-STEUERUNG
-// ============================================================================
-//
-//
+  //
+  //
+  // ============================================================================
+  // PART 09: AUTH-GUARD, FILTER-LISTEN & KATEGORIEN-WISCH-STEUERUNG
+  // ============================================================================
+  //
+  //
 
   if (isCheckingAuth || !isAuthenticated) {
     return (
@@ -2532,9 +2566,49 @@ export default function TouchwallPocketApp() {
     }
   ];
 
+  // Alle Kategorien für das schwebende Karussell (Scanner sitzt permanent im Dock rechts)
+  const FLOATING_CATEGORY_TABS = POCKET_TABS.filter(t => t.id !== 'scanner');
+
+  const switchCategorySmooth = (nextTabId, explicitDir = null, triggerBottomFlash = false) => {
+    if (!nextTabId || nextTabId === activeTab) {
+      setCategoryTrayOpen(false);
+      return;
+    }
+
+    const oldIdx = POCKET_TABS.findIndex(t => t.id === activeTab);
+    const newIdx = POCKET_TABS.findIndex(t => t.id === nextTabId);
+    const dir = explicitDir || (newIdx >= oldIdx ? 'next' : 'prev');
+
+    setActiveTab(nextTabId);
+    setCategoryTrayOpen(false);
+
+    // Weiche Slide-In-Animation in Wischrichtung
+    if (slideAnimTimerRef.current) clearTimeout(slideAnimTimerRef.current);
+    setSlideAnimClass('');
+    requestAnimationFrame(() => {
+      setSlideAnimClass(dir === 'next' ? 'tw-slide-in-right' : 'tw-slide-in-left');
+      slideAnimTimerRef.current = setTimeout(() => setSlideAnimClass(''), 300);
+    });
+
+    // 2-Sekunden-Aufleuchten + kurzzeitiger Kategoriename im unteren Kategorie-Button
+    if (triggerBottomFlash && nextTabId !== 'scanner') {
+      const targetObj = POCKET_TABS.find(t => t.id === nextTabId);
+      if (targetObj) {
+        if (categoryFlashTimerRef.current) clearTimeout(categoryFlashTimerRef.current);
+        setCategoryFlashInfo({ label: targetObj.label, icon: targetObj.icon });
+        categoryFlashTimerRef.current = setTimeout(() => {
+          setCategoryFlashInfo(null);
+        }, 2000);
+      }
+    } else if (nextTabId === 'scanner') {
+      if (categoryFlashTimerRef.current) clearTimeout(categoryFlashTimerRef.current);
+      setCategoryFlashInfo(null);
+    }
+  };
+
   const handleMainTouchStart = (e) => {
-    if (quickCockpitOpen || editStockModal.open || restockPromptItem || e.touches.length !== 1) {
-      swipeRef.current.blocked = true;
+    if (quickCockpitOpen || editStockModal.open || restockPromptItem || categoryTrayOpen || e.touches.length !== 1) {
+      swipeRef.current = { x: 0, y: 0, blocked: true, axis: null };
       return;
     }
     const target = e.target;
@@ -2544,29 +2618,58 @@ export default function TouchwallPocketApp() {
     swipeRef.current = {
       x: e.touches[0].clientX,
       y: e.touches[0].clientY,
-      blocked: isBlockedArea
+      blocked: isBlockedArea,
+      axis: null
     };
   };
 
-  const handleMainTouchEnd = (e) => {
-    if (swipeRef.current.blocked || !e.changedTouches?.[0]) return;
-    const dx = e.changedTouches[0].clientX - swipeRef.current.x;
-    const dy = e.changedTouches[0].clientY - swipeRef.current.y;
+  const handleMainTouchMove = (e) => {
+    if (swipeRef.current.blocked || !e.touches?.[0]) return;
+    const dx = e.touches[0].clientX - swipeRef.current.x;
+    const dy = e.touches[0].clientY - swipeRef.current.y;
 
-    // Nur bei eindeutiger horizontaler Wischbewegung wechseln (kein Versehen beim Scrollen)
-    if (Math.abs(dx) < 68 || Math.abs(dx) < Math.abs(dy) * 1.45) return;
+    // Achse einmalig sperren, damit vertikales Scrollen völlig sauber bleibt
+    if (!swipeRef.current.axis) {
+      if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+      if (Math.abs(dy) > Math.abs(dx) * 1.1) {
+        swipeRef.current.axis = 'y';
+        return;
+      }
+      swipeRef.current.axis = 'x';
+      setIsSwipeDragging(true);
+    }
+
+    if (swipeRef.current.axis !== 'x') return;
+
+    const currentIdx = POCKET_TABS.findIndex(t => t.id === activeTab);
+    const atEdge = (dx > 0 && currentIdx <= 0) || (dx < 0 && currentIdx >= POCKET_TABS.length - 1);
+    const damped = atEdge ? dx * 0.14 : dx * 0.42;
+    setSwipeDragX(Math.max(-92, Math.min(92, damped)));
+  };
+
+  const handleMainTouchEnd = (e) => {
+    const wasHorizontal = swipeRef.current.axis === 'x';
+    const endX = e.changedTouches?.[0]?.clientX ?? swipeRef.current.x;
+    const dx = endX - swipeRef.current.x;
+
+    swipeRef.current.axis = null;
+    setIsSwipeDragging(false);
+    setSwipeDragX(0);
+
+    if (swipeRef.current.blocked || !wasHorizontal) return;
+    if (Math.abs(dx) < 56) return;
 
     const currentIdx = POCKET_TABS.findIndex(t => t.id === activeTab);
     if (currentIdx === -1) return;
 
     if (dx < 0 && currentIdx < POCKET_TABS.length - 1) {
-      setActiveTab(POCKET_TABS[currentIdx + 1].id);
+      switchCategorySmooth(POCKET_TABS[currentIdx + 1].id, 'next', true);
     } else if (dx > 0 && currentIdx > 0) {
-      setActiveTab(POCKET_TABS[currentIdx - 1].id);
+      switchCategorySmooth(POCKET_TABS[currentIdx - 1].id, 'prev', true);
     }
   };
 
-  //
+//
   //
   // ============================================================================
   // PART 10: HAUPT-LAYOUT, KALENDER, AUFGABEN, SCANNER & EINKAUF
@@ -2584,664 +2687,677 @@ export default function TouchwallPocketApp() {
         '--tw-btn-rest-base': themeStyles.dark ? '#1e222d' : '#e2e8f0',
         '--tw-btn-rest-text': themeStyles.dark ? '#e2e8f0' : '#1e293b'
       }}
-      className={'h-[100dvh] w-screen overflow-hidden flex flex-col md:flex-row-reverse select-none ' + themeStyles.outer}
+      className={'h-[100dvh] w-screen overflow-hidden flex flex-col select-none relative ' + themeStyles.outer}
     >
       <style>{pocketStyles}</style>
 
       <main
         onTouchStart={handleMainTouchStart}
+        onTouchMove={handleMainTouchMove}
         onTouchEnd={handleMainTouchEnd}
         className={
           'flex-1 min-w-0 overflow-x-hidden ' +
           (activeTab === 'agenda'
-            ? 'overflow-hidden flex flex-col p-0 '
-            : 'overflow-y-auto px-2.5 sm:px-4 pt-2.5 sm:pt-4 pb-5 ') +
+            ? 'overflow-hidden flex flex-col p-0 pb-[72px] '
+            : 'overflow-y-auto px-2.5 sm:px-4 pt-2.5 sm:pt-4 pb-24 ') +
           themeStyles.viewport
         }
       >
-        {activeTab === 'agenda' ? (
-          <PocketAgenda
-            safeMembers={safeMembers}
-            filteredEvents={filteredEvents}
-            selectedPerson={selectedPerson}
-            onSelectPerson={handleSelectPersonFilter}
-            todayStr={todayStr}
-            themeStyles={themeStyles}
-            getMemberStyles={getMemberStyles}
-            renderAvatar={renderAvatar}
-            onCreateEvent={handleCreateMobileEvent}
-            onUpdateEvent={handleUpdateMobileEvent}
-            onDeleteEvent={handleDeleteMobileEvent}
-          />
-        ) : (
-          <div className="max-w-6xl w-full mx-auto space-y-3">
-            {activeTab === 'tasks' && (
-              <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
-                <button
-                  onClick={() => handleSelectPersonFilter('all')}
-                  className={'px-3.5 py-2 rounded-2xl text-xs font-black shrink-0 ' + (selectedPerson === 'all' ? 'tw-active-nav' : 'tw-nav-inactive')}
-                >
-                  👨‍👩‍👧‍👦 Alle
-                </button>
-                {safeMembers.filter(m => m.id !== 'all').map(m => {
-                  const isSel = selectedPerson === m.id;
-                  return (
-                    <button
-                      key={m.id}
-                      onClick={() => handleSelectPersonFilter(m.id)}
-                      className={'pr-3.5 pl-2 py-1.5 rounded-2xl flex items-center gap-1.5 text-xs font-black shrink-0 ' + (isSel ? 'tw-active-nav' : 'tw-nav-inactive')}
-                    >
-                      {renderAvatar(m, 'w-5 h-5', 'text-[10px]')}
-                      <span>{m.name.split(' ')[0]}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-
-            {activeTab === 'tasks' && (
-              <PocketTasks
-                safeMembers={safeMembers}
-                openTasks={openTasks}
-                doneTasks={doneTasks}
-                selectedPerson={selectedPerson}
-                todoistConfig={todoistConfig}
-                themeStyles={themeStyles}
-                onAddQuickTask={handleAddQuickTask}
-                onToggleTask={handleToggleMobileTask}
-                onDeleteTask={handleDeleteMobileTask}
-                onClearDoneTasks={handleClearDoneMobileTasks}
-                showToast={showToast}
-              />
-            )}
-
-            {activeTab === 'scanner' && (
-              <PocketScanner
-                cartItems={safeCart}
-                stockItems={safeStock}
-                accountId={accountId}
-                todayStr={todayStr}
-                isSyncing={isSyncing}
-                themeStyles={themeStyles}
-                onAddSingleToCart={handleAddSingleToCart}
-                onAddBatchToCart={handleAddBatchToCart}
-                onRemoveCartItem={handleRemoveCartItem}
-                onTransferSingleCartItemToStock={handleTransferSingleCartItemToStock}
-                onTransferAllCartToStock={handleTransferAllCartToStock}
-                onCheckoutStockItemByScan={handleCheckoutStockItemByScan}
-                onAddShopItem={handleAddQuickShopItem}
-                showToast={showToast}
-              />
-            )}
-
-            {activeTab === 'shopping' && (
-              <PocketShopping
-                openShop={openShop}
-                doneShop={doneShop}
-                cartItems={safeCart}
-                notifPermission={notifPermission}
-                themeStyles={themeStyles}
-                onRequestPushPermission={requestShoppingPushPermission}
-                onAddShopItem={handleAddQuickShopItem}
-                onToggleShopItem={handleToggleShopItem}
-                onRemoveCartItem={handleRemoveCartItem}
-                onTransferSingleCartItemToStock={handleTransferSingleCartItemToStock}
-                onTransferAllCartToStock={handleTransferAllCartToStock}
-                onMoveBoughtItemToPantry={handleMoveBoughtItemToPantry}
-                onMoveAllBoughtToPantry={handleMoveAllBoughtToPantry}
-                onClearDoneShopItems={handleClearDoneShopItems}
-              />
-            )}
-
-            {/*
-            //
-            // ============================================================================
-            // PART 11: VORRATS- & MÜLLEIMER-ANSICHT (HANDY & TABLET GRID)
-            // ============================================================================
-            //
-            */}
-            {activeTab === 'stock' && (
-              <div className="space-y-3">
-                <div className="grid grid-cols-2 gap-1.5 p-1 rounded-2xl bg-black/35 border border-white/10">
+        <div
+          style={{
+            transform: swipeDragX !== 0 ? `translate3d(${swipeDragX}px, 0, 0)` : undefined,
+            opacity: swipeDragX !== 0 ? Math.max(0.72, 1 - Math.abs(swipeDragX) / 260) : 1,
+            transition: isSwipeDragging ? 'none' : 'transform 240ms cubic-bezier(0.22, 1, 0.36, 1), opacity 200ms ease'
+          }}
+          className={
+            (activeTab === 'agenda' ? 'flex-1 flex flex-col min-h-0 ' : '') +
+            slideAnimClass
+          }
+        >
+          {activeTab === 'agenda' ? (
+            <PocketAgenda
+              safeMembers={safeMembers}
+              filteredEvents={filteredEvents}
+              selectedPerson={selectedPerson}
+              onSelectPerson={handleSelectPersonFilter}
+              todayStr={todayStr}
+              themeStyles={themeStyles}
+              getMemberStyles={getMemberStyles}
+              renderAvatar={renderAvatar}
+              onCreateEvent={handleCreateMobileEvent}
+              onUpdateEvent={handleUpdateMobileEvent}
+              onDeleteEvent={handleDeleteMobileEvent}
+            />
+          ) : (
+            <div className="max-w-6xl w-full mx-auto space-y-3">
+              {activeTab === 'tasks' && (
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
                   <button
-                    type="button"
-                    onClick={() => setStockSubView('stock')}
-                    className={'py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 ' +
-                      (stockSubView === 'stock' ? 'tw-active-nav' : 'tw-nav-inactive')}
+                    onClick={() => handleSelectPersonFilter('all')}
+                    className={'px-3.5 py-2 rounded-2xl text-xs font-black shrink-0 ' + (selectedPerson === 'all' ? 'tw-active-nav' : 'tw-nav-inactive')}
                   >
-                    <Package className="w-4 h-4" />
-                    <span>🥫 Vorrat ({safeStock.length})</span>
+                    👨‍👩‍👧‍👦 Alle
                   </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setStockSubView('trash')}
-                    className={'py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 ' +
-                      (stockSubView === 'trash' ? 'tw-active-nav' : 'tw-nav-inactive')}
-                  >
-                    <Trash2 className="w-4 h-4" />
-                    <span>🗑️ Mülleimer ({safeTrash.length})</span>
-                  </button>
+                  {safeMembers.filter(m => m.id !== 'all').map(m => {
+                    const isSel = selectedPerson === m.id;
+                    return (
+                      <button
+                        key={m.id}
+                        onClick={() => handleSelectPersonFilter(m.id)}
+                        className={'pr-3.5 pl-2 py-1.5 rounded-2xl flex items-center gap-1.5 text-xs font-black shrink-0 ' + (isSel ? 'tw-active-nav' : 'tw-nav-inactive')}
+                      >
+                        {renderAvatar(m, 'w-5 h-5', 'text-[10px]')}
+                        <span>{m.name.split(' ')[0]}</span>
+                      </button>
+                    );
+                  })}
                 </div>
+              )}
 
-                {stockSubView === 'stock' ? (
-                  <>
-                    {(mhdAlertGroups.finalToday.length > 0 || mhdAlertGroups.warnTwoDays.length > 0) && (
-                      <div className="p-3.5 rounded-3xl border-2 border-rose-500/80 bg-rose-950/35 space-y-2.5 shadow-lg">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-xs font-black uppercase text-rose-300 flex items-center gap-1.5">
-                            <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
-                            <span>🔔 MHD-Ablauf-Warnung</span>
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => triggerMhdExpiryPushWarnings(true)}
-                            className="px-2.5 py-1.5 rounded-xl bg-rose-500/30 border border-rose-400/50 text-rose-100 text-xs font-black flex items-center gap-1"
-                          >
-                            <BellRing className="w-3.5 h-3.5" />
-                            <span>Push senden</span>
-                          </button>
-                        </div>
+              {activeTab === 'tasks' && (
+                <PocketTasks
+                  safeMembers={safeMembers}
+                  openTasks={openTasks}
+                  doneTasks={doneTasks}
+                  selectedPerson={selectedPerson}
+                  todoistConfig={todoistConfig}
+                  themeStyles={themeStyles}
+                  onAddQuickTask={handleAddQuickTask}
+                  onToggleTask={handleToggleMobileTask}
+                  onDeleteTask={handleDeleteMobileTask}
+                  onClearDoneTasks={handleClearDoneMobileTasks}
+                  showToast={showToast}
+                />
+              )}
 
-                        {mhdAlertGroups.finalToday.length > 0 && (
-                          <div className="p-3 rounded-2xl bg-rose-500/25 border border-rose-400/60 space-y-1.5">
-                            <div className="text-xs font-black text-rose-200">
-                              🚨 LETZTE WARNUNG – Läuft HEUTE ab (morgen im Mülleimer):
-                            </div>
-                            <div className="flex flex-wrap gap-2">
-                              {mhdAlertGroups.finalToday.map(it => (
-                                <button
-                                  key={it.id}
-                                  type="button"
-                                  onClick={() => openEditStockItemModal(it)}
-                                  className="px-2.5 py-1.5 rounded-xl bg-black/50 border border-rose-300/40 text-sm font-black text-white flex items-center gap-2"
-                                >
-                                  <ProductThumb
-                                    item={it}
-                                    sizeClass="w-7 h-7"
-                                    emojiClass="text-base"
-                                    roundedClass="rounded-lg"
-                                  />
-                                  <span>{it.name}</span>
-                                  <span className="text-rose-300 font-black">({it.quantity})</span>
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        )}
+              {activeTab === 'scanner' && (
+                <PocketScanner
+                  cartItems={safeCart}
+                  stockItems={safeStock}
+                  accountId={accountId}
+                  todayStr={todayStr}
+                  isSyncing={isSyncing}
+                  themeStyles={themeStyles}
+                  onAddSingleToCart={handleAddSingleToCart}
+                  onAddBatchToCart={handleAddBatchToCart}
+                  onRemoveCartItem={handleRemoveCartItem}
+                  onTransferSingleCartItemToStock={handleTransferSingleCartItemToStock}
+                  onTransferAllCartToStock={handleTransferAllCartToStock}
+                  onCheckoutStockItemByScan={handleCheckoutStockItemByScan}
+                  onAddShopItem={handleAddQuickShopItem}
+                  showToast={showToast}
+                />
+              )}
 
-                        {mhdAlertGroups.warnTwoDays.length > 0 && (
-                          <div className="p-3 rounded-2xl bg-amber-500/20 border border-amber-400/50 space-y-1.5">
-                            <div className="text-xs font-black text-amber-200">
-                              ⚠️ Vorwarnung – Läuft in 1–2 Tagen ab:
-                            </div>
-                            <div className="flex flex-wrap gap-2">
-                              {mhdAlertGroups.warnTwoDays.map(it => (
-                                <button
-                                  key={it.id}
-                                  type="button"
-                                  onClick={() => openEditStockItemModal(it)}
-                                  className="px-2.5 py-1.5 rounded-xl bg-black/45 border border-amber-300/40 text-sm font-black text-white flex items-center gap-2"
-                                >
-                                  <ProductThumb
-                                    item={it}
-                                    sizeClass="w-7 h-7"
-                                    emojiClass="text-base"
-                                    roundedClass="rounded-lg"
-                                  />
-                                  <span>{it.name}</span>
-                                  <span className="text-amber-300 font-black">
-                                    ({it.daysLeft === 1 ? 'morgen' : 'in 2 T.'})
-                                  </span>
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
+              {activeTab === 'shopping' && (
+                <PocketShopping
+                  openShop={openShop}
+                  doneShop={doneShop}
+                  cartItems={safeCart}
+                  notifPermission={notifPermission}
+                  themeStyles={themeStyles}
+                  onRequestPushPermission={requestShoppingPushPermission}
+                  onAddShopItem={handleAddQuickShopItem}
+                  onToggleShopItem={handleToggleShopItem}
+                  onRemoveCartItem={handleRemoveCartItem}
+                  onTransferSingleCartItemToStock={handleTransferSingleCartItemToStock}
+                  onTransferAllCartToStock={handleTransferAllCartToStock}
+                  onMoveBoughtItemToPantry={handleMoveBoughtItemToPantry}
+                  onMoveAllBoughtToPantry={handleMoveAllBoughtToPantry}
+                  onClearDoneShopItems={handleClearDoneShopItems}
+                />
+              )} 
+            
+              {/*
+              //
+              // ============================================================================
+              // PART 11: VORRATS- & MÜLLEIMER-ANSICHT (HANDY & TABLET GRID)
+              // ============================================================================
+              //
+              */}
+              {activeTab === 'stock' && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-1.5 p-1 rounded-2xl bg-black/35 border border-white/10">
+                    <button
+                      type="button"
+                      onClick={() => setStockSubView('stock')}
+                      className={'py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 ' +
+                        (stockSubView === 'stock' ? 'tw-active-nav' : 'tw-nav-inactive')}
+                    >
+                      <Package className="w-4 h-4" />
+                      <span>🥫 Vorrat ({safeStock.length})</span>
+                    </button>
 
-                    <div className={'p-3.5 rounded-3xl border space-y-2.5 shadow-md ' + themeStyles.card}>
-                      <div className="flex items-center justify-between gap-2">
-                        <div>
-                          <h2 className="font-black text-lg flex items-center gap-1.5">
-                            <span>🥫 Vorrat ({sortedStockForTab.length})</span>
-                          </h2>
-                          <p className="text-xs opacity-75 font-bold">
-                            {stockSortMode === 'newest'
-                              ? '🕒 Zuletzt gescannt oben'
-                              : stockSortMode === 'expiry'
-                              ? '📅 Nach Ablaufdatum (MHD)'
-                              : stockSortMode === 'glutenfree'
-                              ? '🌾✓ Glutenfrei zuerst'
-                              : '🔤 Alphabetisch (A–Z)'}
-                          </p>
-                        </div>
+                    <button
+                      type="button"
+                      onClick={() => setStockSubView('trash')}
+                      className={'py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 ' +
+                        (stockSubView === 'trash' ? 'tw-active-nav' : 'tw-nav-inactive')}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      <span>🗑️ Mülleimer ({safeTrash.length})</span>
+                    </button>
+                  </div>
 
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => setStockOnlyGlutenFree(prev => !prev)}
-                            className={'px-3 py-2 rounded-xl text-xs font-black flex items-center gap-1 border ' +
-                              (stockOnlyGlutenFree
-                                ? 'bg-emerald-500 text-slate-950 border-emerald-300 shadow-md'
-                                : 'bg-emerald-500/15 text-emerald-300 border-emerald-400/40')}
-                          >
-                            <span>🌾✓ GF ({totalGlutenFreeInStock})</span>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => setShowStockMenu(prev => !prev)}
-                            className={'px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 ' +
-                              (showStockMenu ? 'tw-active-nav' : 'tw-glow-btn')}
-                          >
-                            {showStockMenu ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
-                            <span>Filter</span>
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="relative">
-                        <Search className="w-4 h-4 text-sky-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                        <input
-                          type="text"
-                          value={stockSearchQuery}
-                          onChange={(e) => setStockSearchQuery(e.target.value)}
-                          placeholder="Produkt, Marke oder Kategorie suchen..."
-                          className={'w-full h-12 pl-10 pr-9 rounded-2xl border text-sm font-extrabold ' + themeStyles.input}
-                        />
-                        {stockSearchQuery && (
-                          <button
-                            type="button"
-                            onClick={() => setStockSearchQuery('')}
-                            className="absolute right-2.5 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-white/10 flex items-center justify-center text-xs font-black"
-                          >
-                            ✕
-                          </button>
-                        )}
-                      </div>
-
-                      {showStockMenu && (
-                        <div className={'p-3 rounded-2xl border space-y-3 ' + themeStyles.subtle}>
-                          <div className="space-y-1.5">
-                            <span className="text-[11px] font-black uppercase text-sky-400 block">
-                              ↕️ Sortierung wählen:
+                  {stockSubView === 'stock' ? (
+                    <>
+                      {(mhdAlertGroups.finalToday.length > 0 || mhdAlertGroups.warnTwoDays.length > 0) && (
+                        <div className="p-3.5 rounded-3xl border-2 border-rose-500/80 bg-rose-950/35 space-y-2.5 shadow-lg">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-xs font-black uppercase text-rose-300 flex items-center gap-1.5">
+                              <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                              <span>🔔 MHD-Ablauf-Warnung</span>
                             </span>
-                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-                              {[
-                                { id: 'newest',     label: '🕒 Neueste oben' },
-                                { id: 'expiry',     label: '📅 Nach MHD' },
-                                { id: 'glutenfree', label: '🌾✓ Glutenfrei oben' },
-                                { id: 'az',         label: '🔤 Name (A–Z)' }
-                              ].map(sOpt => (
-                                <button
-                                  key={sOpt.id}
-                                  type="button"
-                                  onClick={() => setStockSortMode(sOpt.id)}
-                                  className={'py-2.5 px-3 rounded-xl text-xs font-extrabold text-left ' +
-                                    (stockSortMode === sOpt.id ? 'tw-active-nav' : 'tw-nav-inactive')}
-                                >
-                                  {sOpt.label}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-2">
-                            <div>
-                              <label className="text-[11px] font-black uppercase text-emerald-400 block mb-1">
-                                🏠 Lagerort:
-                              </label>
-                              <select
-                                value={stockLocationFilter}
-                                onChange={(e) => setStockLocationFilter(e.target.value)}
-                                className={'w-full h-11 px-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
-                              >
-                                <option value="all" className="bg-slate-800 text-white">🏠 Alle Orte ({safeStock.length})</option>
-                                {STORAGE_PILLS.map(loc => (
-                                  <option key={loc.id} value={loc.id} className="bg-slate-800 text-white">
-                                    {loc.label} ({safeStock.filter(x => x.location === loc.id).length})
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-
-                            <div>
-                              <label className="text-[11px] font-black uppercase text-purple-300 block mb-1">
-                                🍱 Kategorie:
-                              </label>
-                              <select
-                                value={stockCategoryFilter}
-                                onChange={(e) => setStockCategoryFilter(e.target.value)}
-                                className={'w-full h-11 px-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
-                              >
-                                <option value="all" className="bg-slate-800 text-white">🍱 Alle Kategorien</option>
-                                {FOOD_CATEGORIES.map(cat => (
-                                  <option key={cat.id} value={cat.id} className="bg-slate-800 text-white">
-                                    {cat.icon} {cat.title.split(',')[0]}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            <button
-                              type="button"
-                              onClick={handleSimplifyAllStockNames}
-                              className="tw-glow-btn w-full py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5"
-                            >
-                              <Wand2 className="w-4 h-4 text-sky-300" />
-                              <span>✨ Alle Namen kürzen</span>
-                            </button>
-
                             <button
                               type="button"
                               onClick={() => triggerMhdExpiryPushWarnings(true)}
-                              className="tw-glow-btn w-full py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5"
+                              className="px-2.5 py-1.5 rounded-xl bg-rose-500/30 border border-rose-400/50 text-rose-100 text-xs font-black flex items-center gap-1"
                             >
-                              <BellRing className="w-4 h-4 text-amber-300" />
-                              <span>🔔 MHD-Push jetzt prüfen</span>
+                              <BellRing className="w-3.5 h-3.5" />
+                              <span>Push senden</span>
                             </button>
                           </div>
+
+                          {mhdAlertGroups.finalToday.length > 0 && (
+                            <div className="p-3 rounded-2xl bg-rose-500/25 border border-rose-400/60 space-y-1.5">
+                              <div className="text-xs font-black text-rose-200">
+                                🚨 LETZTE WARNUNG – Läuft HEUTE ab (morgen im Mülleimer):
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                {mhdAlertGroups.finalToday.map(it => (
+                                  <button
+                                    key={it.id}
+                                    type="button"
+                                    onClick={() => openEditStockItemModal(it)}
+                                    className="px-2.5 py-1.5 rounded-xl bg-black/50 border border-rose-300/40 text-sm font-black text-white flex items-center gap-2"
+                                  >
+                                    <ProductThumb
+                                      item={it}
+                                      sizeClass="w-7 h-7"
+                                      emojiClass="text-base"
+                                      roundedClass="rounded-lg"
+                                    />
+                                    <span>{it.name}</span>
+                                    <span className="text-rose-300 font-black">({it.quantity})</span>
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {mhdAlertGroups.warnTwoDays.length > 0 && (
+                            <div className="p-3 rounded-2xl bg-amber-500/20 border border-amber-400/50 space-y-1.5">
+                              <div className="text-xs font-black text-amber-200">
+                                ⚠️ Vorwarnung – Läuft in 1–2 Tagen ab:
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                {mhdAlertGroups.warnTwoDays.map(it => (
+                                  <button
+                                    key={it.id}
+                                    type="button"
+                                    onClick={() => openEditStockItemModal(it)}
+                                    className="px-2.5 py-1.5 rounded-xl bg-black/45 border border-amber-300/40 text-sm font-black text-white flex items-center gap-2"
+                                  >
+                                    <ProductThumb
+                                      item={it}
+                                      sizeClass="w-7 h-7"
+                                      emojiClass="text-base"
+                                      roundedClass="rounded-lg"
+                                    />
+                                    <span>{it.name}</span>
+                                    <span className="text-amber-300 font-black">
+                                      ({it.daysLeft === 1 ? 'morgen' : 'in 2 T.'})
+                                    </span>
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )}
 
-                      <div className="flex items-center gap-1.5 overflow-x-auto pt-0.5">
-                        <button
-                          type="button"
-                          onClick={() => setStockLocationFilter('all')}
-                          className={'px-3.5 py-2 rounded-xl text-xs font-extrabold shrink-0 ' +
-                            (stockLocationFilter === 'all' ? 'tw-active-nav' : 'tw-nav-inactive')}
-                        >
-                          🏠 Alle ({safeStock.length})
-                        </button>
-                        {STORAGE_PILLS.map(loc => {
-                          const count = safeStock.filter(x => x.location === loc.id).length;
-                          return (
+                      <div className={'p-3.5 rounded-3xl border space-y-2.5 shadow-md ' + themeStyles.card}>
+                        <div className="flex items-center justify-between gap-2">
+                          <div>
+                            <h2 className="font-black text-lg flex items-center gap-1.5">
+                              <span>🥫 Vorrat ({sortedStockForTab.length})</span>
+                            </h2>
+                            <p className="text-xs opacity-75 font-bold">
+                              {stockSortMode === 'newest'
+                                ? '🕒 Zuletzt gescannt oben'
+                                : stockSortMode === 'expiry'
+                                ? '📅 Nach Ablaufdatum (MHD)'
+                                : stockSortMode === 'glutenfree'
+                                ? '🌾✓ Glutenfrei zuerst'
+                                : '🔤 Alphabetisch (A–Z)'}
+                            </p>
+                          </div>
+
+                          <div className="flex items-center gap-1.5">
                             <button
-                              key={loc.id}
                               type="button"
-                              onClick={() => setStockLocationFilter(loc.id)}
-                              className={'px-3.5 py-2 rounded-xl text-xs font-extrabold shrink-0 ' +
-                                (stockLocationFilter === loc.id ? 'tw-active-nav' : 'tw-nav-inactive')}
+                              onClick={() => setStockOnlyGlutenFree(prev => !prev)}
+                              className={'px-3 py-2 rounded-xl text-xs font-black flex items-center gap-1 border ' +
+                                (stockOnlyGlutenFree
+                                  ? 'bg-emerald-500 text-slate-950 border-emerald-300 shadow-md'
+                                  : 'bg-emerald-500/15 text-emerald-300 border-emerald-400/40')}
                             >
-                              {loc.label} ({count})
+                              <span>🌾✓ GF ({totalGlutenFreeInStock})</span>
                             </button>
-                          );
-                        })}
-                      </div>
-                    </div>
 
-                    {sortedStockForTab.length === 0 ? (
-                      <div className={'p-8 rounded-3xl border text-center space-y-2 ' + themeStyles.card}>
-                        <div className="text-3xl">🥫</div>
-                        <div className="text-sm font-extrabold opacity-70">
-                          Keine Produkte für diese Suche oder Filterung gefunden.
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                        {sortedStockForTab.map((item, idx) => {
-                          const catObj = FOOD_CATEGORIES.find(c => c.id === item.resolvedCategory) || FOOD_CATEGORIES[1];
-                          const locObj = STORAGE_PILLS.find(l => l.id === item.location) || STORAGE_PILLS[0];
-                          const decPreview = decrementItemPieceCount(item.quantity);
-                          const daysLeft = getDaysUntilMhd(item.expiryDate, todayStr);
-                          const isFinalDayZero = daysLeft <= 0;
-                          const isWarnTwoDays = daysLeft === 1 || daysLeft === 2;
-                          const isWarnWeek = daysLeft > 2 && daysLeft <= 7;
-                          const isNewestTop = stockSortMode === 'newest' && idx === 0 && !stockSearchQuery;
-                          const isGf = Boolean(item.resolvedGlutenFree);
-
-                          const daysLabel = daysLeft <= 0
-                            ? '🚨 HEUTE!'
-                            : daysLeft === 1
-                            ? '⚠️ Morgen'
-                            : daysLeft === 2
-                            ? '⚠️ 2 Tage'
-                            : (daysLeft + ' Tage');
-
-                          return (
-                            <div
-                              key={item.id}
-                              onClick={() => openEditStockItemModal(item)}
-                              className={'p-4 rounded-3xl border flex flex-col justify-between gap-3.5 cursor-pointer shadow-md transition-all ' +
-                                themeStyles.card + ' ' +
-                                (isFinalDayZero
-                                  ? 'border-rose-500 border-2 bg-rose-950/35'
-                                  : isWarnTwoDays
-                                  ? 'border-rose-400/80 bg-rose-950/20'
-                                  : isWarnWeek
-                                  ? 'border-amber-400/80 bg-amber-950/20'
-                                  : isNewestTop
-                                  ? 'border-sky-400/80 bg-sky-500/10'
-                                  : '')}
+                            <button
+                              type="button"
+                              onClick={() => setShowStockMenu(prev => !prev)}
+                              className={'px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 ' +
+                                (showStockMenu ? 'tw-active-nav' : 'tw-glow-btn')}
                             >
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="flex items-start gap-3.5 min-w-0 flex-1">
-                                  <ProductThumb
-                                    item={item}
-                                    sizeClass="w-14 h-14"
-                                    emojiClass="text-3xl"
-                                    roundedClass="rounded-2xl"
-                                  />
+                              {showStockMenu ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
+                              <span>Filter</span>
+                            </button>
+                          </div>
+                        </div>
 
-                                  <div className="min-w-0 flex-1">
-                                    <div className="flex items-center gap-1.5 flex-wrap mb-1">
-                                      {isNewestTop && (
-                                        <span className="px-2 py-0.5 rounded-md bg-sky-500 text-white text-[10px] font-black shrink-0">
-                                          NEU
-                                        </span>
-                                      )}
-                                      <button
-                                        type="button"
-                                        onClick={(e) => toggleStockItemGlutenFreeDirectly(e, item)}
-                                        className={'px-2 py-0.5 rounded-md text-[10px] font-black shrink-0 ' +
-                                          (isGf
-                                            ? 'bg-emerald-500/25 border border-emerald-400/50 text-emerald-300'
-                                            : 'bg-white/5 border border-white/10 text-slate-400')}
-                                      >
-                                        {isGf ? '🌾✓ GF' : '🌾?'}
-                                      </button>
-                                      <span className="text-xs font-extrabold opacity-80 truncate">
-                                        {catObj.icon} {catObj.title.split(',')[0]}
-                                      </span>
-                                    </div>
+                        <div className="relative">
+                          <Search className="w-4 h-4 text-sky-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                          <input
+                            type="text"
+                            value={stockSearchQuery}
+                            onChange={(e) => setStockSearchQuery(e.target.value)}
+                            placeholder="Produkt, Marke oder Kategorie suchen..."
+                            className={'w-full h-12 pl-10 pr-9 rounded-2xl border text-sm font-extrabold ' + themeStyles.input}
+                          />
+                          {stockSearchQuery && (
+                            <button
+                              type="button"
+                              onClick={() => setStockSearchQuery('')}
+                              className="absolute right-2.5 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-white/10 flex items-center justify-center text-xs font-black"
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
 
-                                    <h3 className="font-black text-base sm:text-lg leading-snug break-words">
-                                      {item.name}
-                                    </h3>
-                                  </div>
-                                </div>
-
-                                <div
-                                  className={'px-3 py-2 rounded-2xl border text-right shrink-0 ' +
-                                    (isFinalDayZero
-                                      ? 'bg-rose-500/35 border-rose-300 text-rose-100'
-                                      : isWarnTwoDays
-                                      ? 'bg-rose-500/25 border-rose-400 text-rose-100'
-                                      : isWarnWeek
-                                      ? 'bg-amber-500/30 border-amber-400 text-amber-100'
-                                      : 'bg-black/35 border-white/15')}
-                                >
-                                  <div className="text-sm font-black">
-                                    {item.expiryDate.slice(8, 10)}.{item.expiryDate.slice(5, 7)}.{item.expiryDate.slice(2, 4)}
-                                  </div>
-                                  <div className={'text-xs font-black mt-0.5 ' + (isFinalDayZero || isWarnTwoDays ? 'text-rose-300' : isWarnWeek ? 'text-amber-300' : 'text-emerald-400')}>
-                                    {daysLabel}
-                                  </div>
-                                </div>
-                              </div>
-
-                              <div className="flex items-center justify-between gap-2 pt-2.5 border-t border-white/10">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <span className="px-3 py-1.5 rounded-xl bg-black/45 border border-amber-400/40 text-sm font-black text-amber-300">
-                                    📦 {item.quantity}
-                                  </span>
-                                  <span className="px-3 py-1.5 rounded-xl bg-black/35 border border-white/10 text-xs sm:text-sm font-extrabold">
-                                    {locObj.label}
-                                  </span>
-                                </div>
-
-                                <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                        {showStockMenu && (
+                          <div className={'p-3 rounded-2xl border space-y-3 ' + themeStyles.subtle}>
+                            <div className="space-y-1.5">
+                              <span className="text-[11px] font-black uppercase text-sky-400 block">
+                                ↕️ Sortierung wählen:
+                              </span>
+                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                                {[
+                                  { id: 'newest',     label: '🕒 Neueste oben' },
+                                  { id: 'expiry',     label: '📅 Nach MHD' },
+                                  { id: 'glutenfree', label: '🌾✓ Glutenfrei oben' },
+                                  { id: 'az',         label: '🔤 Name (A–Z)' }
+                                ].map(sOpt => (
                                   <button
+                                    key={sOpt.id}
                                     type="button"
-                                    onClick={() => openEditStockItemModal(item)}
-                                    title="Bearbeiten"
-                                    className="tw-nav-inactive p-2.5 rounded-xl text-sky-300"
+                                    onClick={() => setStockSortMode(sOpt.id)}
+                                    className={'py-2.5 px-3 rounded-xl text-xs font-extrabold text-left ' +
+                                      (stockSortMode === sOpt.id ? 'tw-active-nav' : 'tw-nav-inactive')}
                                   >
-                                    <Pencil className="w-4 h-4" />
+                                    {sOpt.label}
                                   </button>
-
-                                  <button
-                                    type="button"
-                                    onClick={() => handleAddQuickShopItem(item.name)}
-                                    title="Auf die Einkaufsliste setzen"
-                                    className="p-2.5 rounded-xl bg-amber-500/20 border border-amber-400/40 text-amber-300"
-                                  >
-                                    <ShoppingCart className="w-4 h-4" />
-                                  </button>
-
-                                  <button
-                                    type="button"
-                                    onClick={() => handleMoveStockItemToTrashFromPocket(item, 'wasted', true)}
-                                    title="Direkt in den Mülleimer verschieben"
-                                    className="tw-nav-inactive p-2.5 rounded-xl text-rose-400"
-                                  >
-                                    <Trash2 className="w-4 h-4" />
-                                  </button>
-
-                                  <button
-                                    type="button"
-                                    onClick={() => handleConsumeFromPocket(item)}
-                                    className="tw-glow-btn px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-black flex items-center gap-1"
-                                  >
-                                    <CheckCircle2 className="w-4 h-4 text-emerald-300" />
-                                    <span>{decPreview.remaining > 0 ? '-1' : 'Weg'}</span>
-                                  </button>
-                                </div>
+                                ))}
                               </div>
                             </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <div className="space-y-3">
-                    <div className={'p-4 rounded-3xl border space-y-2.5 shadow-md ' + themeStyles.card}>
-                      <div className="flex items-center justify-between gap-2">
-                        <div>
-                          <h2 className="font-black text-lg flex items-center gap-1.5">
-                            <span>🗑️ Mülleimer ({safeTrash.length})</span>
-                          </h2>
-                          <p className="text-xs font-bold text-emerald-300">
-                            🌱 Quote: {trashStats.score}% ({trashStats.consumed} verzehrt / {trashStats.wasted} weggeworfen)
-                          </p>
-                        </div>
 
-                        {safeTrash.length > 0 && (
+                            <div className="grid grid-cols-2 gap-2">
+                              <div>
+                                <label className="text-[11px] font-black uppercase text-emerald-400 block mb-1">
+                                  🏠 Lagerort:
+                                </label>
+                                <select
+                                  value={stockLocationFilter}
+                                  onChange={(e) => setStockLocationFilter(e.target.value)}
+                                  className={'w-full h-11 px-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+                                >
+                                  <option value="all" className="bg-slate-800 text-white">🏠 Alle Orte ({safeStock.length})</option>
+                                  {STORAGE_PILLS.map(loc => (
+                                    <option key={loc.id} value={loc.id} className="bg-slate-800 text-white">
+                                      {loc.label} ({safeStock.filter(x => x.location === loc.id).length})
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              <div>
+                                <label className="text-[11px] font-black uppercase text-purple-300 block mb-1">
+                                  🍱 Kategorie:
+                                </label>
+                                <select
+                                  value={stockCategoryFilter}
+                                  onChange={(e) => setStockCategoryFilter(e.target.value)}
+                                  className={'w-full h-11 px-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+                                >
+                                  <option value="all" className="bg-slate-800 text-white">🍱 Alle Kategorien</option>
+                                  {FOOD_CATEGORIES.map(cat => (
+                                    <option key={cat.id} value={cat.id} className="bg-slate-800 text-white">
+                                      {cat.icon} {cat.title.split(',')[0]}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              <button
+                                type="button"
+                                onClick={handleSimplifyAllStockNames}
+                                className="tw-glow-btn w-full py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5"
+                              >
+                                <Wand2 className="w-4 h-4 text-sky-300" />
+                                <span>✨ Alle Namen kürzen</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => triggerMhdExpiryPushWarnings(true)}
+                                className="tw-glow-btn w-full py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5"
+                              >
+                                <BellRing className="w-4 h-4 text-amber-300" />
+                                <span>🔔 MHD-Push jetzt prüfen</span>
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="flex items-center gap-1.5 overflow-x-auto pt-0.5">
                           <button
                             type="button"
-                            onClick={handleClearAllPocketTrash}
-                            className="px-3.5 py-2.5 rounded-2xl bg-rose-600 text-white text-xs font-black flex items-center gap-1.5 shadow-md"
+                            onClick={() => setStockLocationFilter('all')}
+                            className={'px-3.5 py-2 rounded-xl text-xs font-extrabold shrink-0 ' +
+                              (stockLocationFilter === 'all' ? 'tw-active-nav' : 'tw-nav-inactive')}
                           >
-                            <Trash2 className="w-4 h-4" />
-                            <span>Alle leeren</span>
+                            🏠 Alle ({safeStock.length})
                           </button>
-                        )}
-                      </div>
-                    </div>
-
-                    {safeTrash.length === 0 ? (
-                      <div className={'p-8 rounded-3xl border text-center space-y-2 ' + themeStyles.card}>
-                        <div className="text-3xl">🌱</div>
-                        <div className="text-sm font-extrabold opacity-75">
-                          Der Mülleimer ist leer!
+                          {STORAGE_PILLS.map(loc => {
+                            const count = safeStock.filter(x => x.location === loc.id).length;
+                            return (
+                              <button
+                                key={loc.id}
+                                type="button"
+                                onClick={() => setStockLocationFilter(loc.id)}
+                                className={'px-3.5 py-2 rounded-xl text-xs font-extrabold shrink-0 ' +
+                                  (stockLocationFilter === loc.id ? 'tw-active-nav' : 'tw-nav-inactive')}
+                              >
+                                {loc.label} ({count})
+                              </button>
+                            );
+                          })}
                         </div>
                       </div>
-                    ) : (
-                      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2.5">
-                        {safeTrash.map(tItem => {
-                          const isWasted = tItem.reason === 'expired' || tItem.reason === 'wasted';
-                          return (
-                            <div
-                              key={tItem.id}
-                              className={'p-4 rounded-3xl border flex flex-col justify-between gap-3 shadow-sm ' +
-                                themeStyles.card + ' ' +
-                                (isWasted ? 'border-rose-500/60' : 'border-emerald-500/40')}
-                            >
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="flex items-start gap-3 min-w-0 flex-1">
-                                  <ProductThumb
-                                    item={tItem}
-                                    sizeClass="w-13 h-13"
-                                    emojiClass="text-3xl"
-                                    roundedClass="rounded-2xl"
-                                  />
-                                  <div className="min-w-0 flex-1">
-                                    <span
-                                      className={'inline-block px-2 py-0.5 rounded-md text-[10px] font-black mb-1 ' +
-                                        (isWasted ? 'bg-rose-500/25 text-rose-300' : 'bg-emerald-500/25 text-emerald-300')}
-                                    >
-                                      {tItem.reasonLabel || '🍽️ Verbraucht'}
-                                    </span>
-                                    <h3 className="font-black text-base sm:text-lg leading-snug break-words">
-                                      {tItem.name}
-                                    </h3>
-                                    <div className="text-xs opacity-75 font-bold mt-0.5">
-                                      {tItem.quantity} • MHD war: {tItem.expiryDate}
+
+                      {sortedStockForTab.length === 0 ? (
+                        <div className={'p-8 rounded-3xl border text-center space-y-2 ' + themeStyles.card}>
+                          <div className="text-3xl">🥫</div>
+                          <div className="text-sm font-extrabold opacity-70">
+                            Keine Produkte für diese Suche oder Filterung gefunden.
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                          {sortedStockForTab.map((item, idx) => {
+                            const catObj = FOOD_CATEGORIES.find(c => c.id === item.resolvedCategory) || FOOD_CATEGORIES[1];
+                            const locObj = STORAGE_PILLS.find(l => l.id === item.location) || STORAGE_PILLS[0];
+                            const decPreview = decrementItemPieceCount(item.quantity);
+                            const daysLeft = getDaysUntilMhd(item.expiryDate, todayStr);
+                            const isFinalDayZero = daysLeft <= 0;
+                            const isWarnTwoDays = daysLeft === 1 || daysLeft === 2;
+                            const isWarnWeek = daysLeft > 2 && daysLeft <= 7;
+                            const isNewestTop = stockSortMode === 'newest' && idx === 0 && !stockSearchQuery;
+                            const isGf = Boolean(item.resolvedGlutenFree);
+
+                            const daysLabel = daysLeft <= 0
+                              ? '🚨 HEUTE!'
+                              : daysLeft === 1
+                              ? '⚠️ Morgen'
+                              : daysLeft === 2
+                              ? '⚠️ 2 Tage'
+                              : (daysLeft + ' Tage');
+
+                            return (
+                              <div
+                                key={item.id}
+                                onClick={() => openEditStockItemModal(item)}
+                                className={'p-4 rounded-3xl border flex flex-col justify-between gap-3.5 cursor-pointer shadow-md transition-all ' +
+                                  themeStyles.card + ' ' +
+                                  (isFinalDayZero
+                                    ? 'border-rose-500 border-2 bg-rose-950/35'
+                                    : isWarnTwoDays
+                                    ? 'border-rose-400/80 bg-rose-950/20'
+                                    : isWarnWeek
+                                    ? 'border-amber-400/80 bg-amber-950/20'
+                                    : isNewestTop
+                                    ? 'border-sky-400/80 bg-sky-500/10'
+                                    : '')}
+                              >
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="flex items-start gap-3.5 min-w-0 flex-1">
+                                    <ProductThumb
+                                      item={item}
+                                      sizeClass="w-14 h-14"
+                                      emojiClass="text-3xl"
+                                      roundedClass="rounded-2xl"
+                                    />
+
+                                    <div className="min-w-0 flex-1">
+                                      <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                                        {isNewestTop && (
+                                          <span className="px-2 py-0.5 rounded-md bg-sky-500 text-white text-[10px] font-black shrink-0">
+                                            NEU
+                                          </span>
+                                        )}
+                                        <button
+                                          type="button"
+                                          onClick={(e) => toggleStockItemGlutenFreeDirectly(e, item)}
+                                          className={'px-2 py-0.5 rounded-md text-[10px] font-black shrink-0 ' +
+                                            (isGf
+                                              ? 'bg-emerald-500/25 border border-emerald-400/50 text-emerald-300'
+                                              : 'bg-white/5 border border-white/10 text-slate-400')}
+                                        >
+                                          {isGf ? '🌾✓ GF' : '🌾?'}
+                                        </button>
+                                        <span className="text-xs font-extrabold opacity-80 truncate">
+                                          {catObj.icon} {catObj.title.split(',')[0]}
+                                        </span>
+                                      </div>
+
+                                      <h3 className="font-black text-base sm:text-lg leading-snug break-words">
+                                        {item.name}
+                                      </h3>
+                                    </div>
+                                  </div>
+
+                                  <div
+                                    className={'px-3 py-2 rounded-2xl border text-right shrink-0 ' +
+                                      (isFinalDayZero
+                                        ? 'bg-rose-500/35 border-rose-300 text-rose-100'
+                                        : isWarnTwoDays
+                                        ? 'bg-rose-500/25 border-rose-400 text-rose-100'
+                                        : isWarnWeek
+                                        ? 'bg-amber-500/30 border-amber-400 text-amber-100'
+                                        : 'bg-black/35 border-white/15')}
+                                  >
+                                    <div className="text-sm font-black">
+                                      {item.expiryDate.slice(8, 10)}.{item.expiryDate.slice(5, 7)}.{item.expiryDate.slice(2, 4)}
+                                    </div>
+                                    <div className={'text-xs font-black mt-0.5 ' + (isFinalDayZero || isWarnTwoDays ? 'text-rose-300' : isWarnWeek ? 'text-amber-300' : 'text-emerald-400')}>
+                                      {daysLabel}
                                     </div>
                                   </div>
                                 </div>
 
-                                <button
-                                  type="button"
-                                  onClick={() => handleDeleteSinglePocketTrash(tItem)}
-                                  className="tw-nav-inactive w-8 h-8 rounded-xl text-rose-400 font-black flex items-center justify-center shrink-0"
-                                >
-                                  ✕
-                                </button>
-                              </div>
+                                <div className="flex items-center justify-between gap-2 pt-2.5 border-t border-white/10">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="px-3 py-1.5 rounded-xl bg-black/45 border border-amber-400/40 text-sm font-black text-amber-300">
+                                      📦 {item.quantity}
+                                    </span>
+                                    <span className="px-3 py-1.5 rounded-xl bg-black/35 border border-white/10 text-xs sm:text-sm font-extrabold">
+                                      {locObj.label}
+                                    </span>
+                                  </div>
 
-                              <div className="flex items-center gap-2 pt-2 border-t border-white/10">
-                                <button
-                                  type="button"
-                                  onClick={() => handleAddQuickShopItem(tItem.name)}
-                                  className="flex-1 py-2.5 px-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs sm:text-sm font-black flex items-center justify-center gap-1.5 shadow-md"
-                                >
-                                  <ShoppingCart className="w-4 h-4 stroke-[2.5]" />
-                                  <span>Zur Einkaufsliste</span>
-                                </button>
+                                  <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                                    <button
+                                      type="button"
+                                      onClick={() => openEditStockItemModal(item)}
+                                      title="Bearbeiten"
+                                      className="tw-nav-inactive p-2.5 rounded-xl text-sky-300"
+                                    >
+                                      <Pencil className="w-4 h-4" />
+                                    </button>
 
-                                <button
-                                  type="button"
-                                  onClick={() => handleRestoreFromPocketTrash(tItem)}
-                                  title="Zurück in den Vorrats-Bestand legen"
-                                  className="tw-nav-inactive px-3.5 py-2.5 rounded-xl text-xs font-black flex items-center gap-1.5"
-                                >
-                                  <RotateCcw className="w-4 h-4 text-sky-300" />
-                                  <span>Zurück</span>
-                                </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleAddQuickShopItem(item.name)}
+                                      title="Auf die Einkaufsliste setzen"
+                                      className="p-2.5 rounded-xl bg-amber-500/20 border border-amber-400/40 text-amber-300"
+                                    >
+                                      <ShoppingCart className="w-4 h-4" />
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      onClick={() => handleMoveStockItemToTrashFromPocket(item, 'wasted', true)}
+                                      title="Direkt in den Mülleimer verschieben"
+                                      className="tw-nav-inactive p-2.5 rounded-xl text-rose-400"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      onClick={() => handleConsumeFromPocket(item)}
+                                      className="tw-glow-btn px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-black flex items-center gap-1"
+                                    >
+                                      <CheckCircle2 className="w-4 h-4 text-emerald-300" />
+                                      <span>{decPreview.remaining > 0 ? '-1' : 'Weg'}</span>
+                                    </button>
+                                  </div>
+                                </div>
                               </div>
-                            </div>
-                          );
-                        })}
+                            );
+                          })}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="space-y-3">
+                      <div className={'p-4 rounded-3xl border space-y-2.5 shadow-md ' + themeStyles.card}>
+                        <div className="flex items-center justify-between gap-2">
+                          <div>
+                            <h2 className="font-black text-lg flex items-center gap-1.5">
+                              <span>🗑️ Mülleimer ({safeTrash.length})</span>
+                            </h2>
+                            <p className="text-xs font-bold text-emerald-300">
+                              🌱 Quote: {trashStats.score}% ({trashStats.consumed} verzehrt / {trashStats.wasted} weggeworfen)
+                            </p>
+                          </div>
+
+                          {safeTrash.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={handleClearAllPocketTrash}
+                              className="px-3.5 py-2.5 rounded-2xl bg-rose-600 text-white text-xs font-black flex items-center gap-1.5 shadow-md"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                              <span>Alle leeren</span>
+                            </button>
+                          )}
+                        </div>
                       </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
+
+                      {safeTrash.length === 0 ? (
+                        <div className={'p-8 rounded-3xl border text-center space-y-2 ' + themeStyles.card}>
+                          <div className="text-3xl">🌱</div>
+                          <div className="text-sm font-extrabold opacity-75">
+                            Der Mülleimer ist leer!
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2.5">
+                          {safeTrash.map(tItem => {
+                            const isWasted = tItem.reason === 'expired' || tItem.reason === 'wasted';
+                            return (
+                              <div
+                                key={tItem.id}
+                                className={'p-4 rounded-3xl border flex flex-col justify-between gap-3 shadow-sm ' +
+                                  themeStyles.card + ' ' +
+                                  (isWasted ? 'border-rose-500/60' : 'border-emerald-500/40')}
+                              >
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="flex items-start gap-3 min-w-0 flex-1">
+                                    <ProductThumb
+                                      item={tItem}
+                                      sizeClass="w-13 h-13"
+                                      emojiClass="text-3xl"
+                                      roundedClass="rounded-2xl"
+                                    />
+                                    <div className="min-w-0 flex-1">
+                                      <span
+                                        className={'inline-block px-2 py-0.5 rounded-md text-[10px] font-black mb-1 ' +
+                                          (isWasted ? 'bg-rose-500/25 text-rose-300' : 'bg-emerald-500/25 text-emerald-300')}
+                                      >
+                                        {tItem.reasonLabel || '🍽️ Verbraucht'}
+                                      </span>
+                                      <h3 className="font-black text-base sm:text-lg leading-snug break-words">
+                                        {tItem.name}
+                                      </h3>
+                                      <div className="text-xs opacity-75 font-bold mt-0.5">
+                                        {tItem.quantity} • MHD war: {tItem.expiryDate}
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteSinglePocketTrash(tItem)}
+                                    className="tw-nav-inactive w-8 h-8 rounded-xl text-rose-400 font-black flex items-center justify-center shrink-0"
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+
+                                <div className="flex items-center gap-2 pt-2 border-t border-white/10">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleAddQuickShopItem(tItem.name)}
+                                    className="flex-1 py-2.5 px-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs sm:text-sm font-black flex items-center justify-center gap-1.5 shadow-md"
+                                  >
+                                    <ShoppingCart className="w-4 h-4 stroke-[2.5]" />
+                                    <span>Zur Einkaufsliste</span>
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRestoreFromPocketTrash(tItem)}
+                                    title="Zurück in den Vorrats-Bestand legen"
+                                    className="tw-nav-inactive px-3.5 py-2.5 rounded-xl text-xs font-black flex items-center gap-1.5"
+                                  >
+                                    <RotateCcw className="w-4 h-4 text-sky-300" />
+                                    <span>Zurück</span>
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </main>
 
-      {/*
+{/*
       //
       // ============================================================================
-      // PART 12: MODALS (RESTOCK, QUICK-COCKPIT, EDIT), ADAPTIVE NAVIGATION & TOAST
+      // PART 12: MODALS (RESTOCK, QUICK-COCKPIT, EDIT), FLIEGENDES DOCK & TOAST
       // ============================================================================
       //
       */}
@@ -3315,7 +3431,7 @@ export default function TouchwallPocketApp() {
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className={'w-full max-w-md rounded-3xl border-2 p-4 shadow-2xl space-y-4 mb-14 md:mb-0 max-h-[82dvh] overflow-y-auto ' + themeStyles.modal}
+            className={'w-full max-w-md rounded-3xl border-2 p-4 shadow-2xl space-y-4 mb-20 md:mb-0 max-h-[82dvh] overflow-y-auto ' + themeStyles.modal}
           >
             <div className="flex items-center justify-between gap-2 border-b border-white/10 pb-3">
               <div className="flex items-center gap-2.5 min-w-0">
@@ -3762,64 +3878,149 @@ export default function TouchwallPocketApp() {
         </div>
       )}
 
-      {/* ADAPTIVE NAVIGATION: Handy = schlanke Bottom-Bar | Tablet (md+) = schmale Seitenleiste links */}
-      <nav
-        className={
-          'shrink-0 z-40 border-t md:border-t-0 md:border-r px-1.5 py-1.5 md:w-[76px] ' +
-          'flex md:flex-col items-center justify-around md:justify-start gap-1 md:gap-2 shadow-2xl ' +
-          themeStyles.header
-        }
-      >
-        {POCKET_TABS.map(tab => {
-          const Icon = tab.icon;
-          const active = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={
-                'relative flex-1 md:flex-none md:w-full py-1.5 md:py-2.5 rounded-2xl flex flex-col items-center gap-0.5 text-[10px] font-extrabold ' +
-                (active ? 'tw-active-nav' : 'tw-nav-inactive opacity-85')
-              }
-            >
-              <Icon className="w-4 h-4 sm:w-5 sm:h-5" />
-              <span className="truncate max-w-full px-0.5">{tab.label}</span>
-              {tab.badge > 0 && (
-                <span
-                  className={
-                    'absolute top-1 right-1 px-1.5 rounded-full text-[9px] font-black ' +
-                    (tab.urgent ? 'bg-rose-500 text-white animate-pulse' : 'bg-amber-500 text-slate-950')
-                  }
-                >
-                  {tab.badge}
-                </span>
-              )}
-            </button>
-          );
-        })}
+      {/* KLICK-HINTERGRUND ZUM SCHLIESSEN DER FLIEGENDEN KATEGORIEN */}
+      {categoryTrayOpen && (
+        <div
+          data-no-swipe="true"
+          onClick={() => setCategoryTrayOpen(false)}
+          className="fixed inset-0 z-30 bg-black/45 backdrop-blur-[2px]"
+        />
+      )}
 
-        <button
-          type="button"
-          onClick={() => setQuickCockpitOpen(prev => !prev)}
+      {/* SCHWEBENDE, HORIZONTAL VERSCHIEBBARE KATEGORIE-BUTTONS */}
+      {categoryTrayOpen && (
+        <div
+          data-no-swipe="true"
+          className="fixed bottom-[78px] inset-x-0 z-40 px-3 flex justify-center pointer-events-none"
+        >
+          <div className="tw-tray-float pointer-events-auto max-w-full overflow-x-auto tw-no-scrollbar py-1.5 px-1">
+            <div className="flex items-center gap-2.5 w-max mx-auto px-1">
+              {FLOATING_CATEGORY_TABS.map(tab => {
+                const Icon = tab.icon;
+                const active = activeTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => switchCategorySmooth(tab.id, null, false)}
+                    className={
+                      'relative w-[84px] py-3 px-2 rounded-2xl flex flex-col items-center justify-center gap-1.5 ' +
+                      'text-[11px] font-black shadow-2xl backdrop-blur-md active:scale-95 transition-transform shrink-0 ' +
+                      (active
+                        ? 'tw-active-nav'
+                        : 'bg-[#1b202b]/95 text-slate-100 border border-white/15 hover:border-sky-400/60')
+                    }
+                  >
+                    <Icon className="w-5 h-5" />
+                    <span className="truncate max-w-full">{tab.label}</span>
+                    {tab.badge > 0 && (
+                      <span
+                        className={
+                          'absolute -top-1.5 -right-1.5 min-w-[20px] h-5 px-1.5 rounded-full text-[10px] font-black ' +
+                          'flex items-center justify-center shadow-md ' +
+                          (tab.urgent ? 'bg-rose-500 text-white animate-pulse' : 'bg-amber-500 text-slate-950')
+                        }
+                      >
+                        {tab.badge}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+
+              {/* MENÜ / COCKPIT ALS LETZTER FLIEGENDER BUTTON (HÄLT DAS 2ER-DOCK UNTEN CLEAN) */}
+              <button
+                type="button"
+                onClick={() => {
+                  setCategoryTrayOpen(false);
+                  setQuickCockpitOpen(true);
+                }}
+                className="relative w-[84px] py-3 px-2 rounded-2xl flex flex-col items-center justify-center gap-1.5 text-[11px] font-black shadow-2xl backdrop-blur-md bg-[#1b202b]/95 text-slate-100 border border-white/15 hover:border-sky-400/60 active:scale-95 transition-transform shrink-0"
+              >
+                {activePersonObj && selectedPerson !== 'all' ? (
+                  renderAvatar(activePersonObj, 'w-5 h-5', 'text-[9px]')
+                ) : (
+                  <SlidersHorizontal className={'w-5 h-5 text-sky-300 ' + (isSyncing ? 'animate-spin' : '')} />
+                )}
+                <span className="truncate max-w-full">
+                  {activePersonObj && selectedPerson !== 'all' ? activePersonObj.name.split(' ')[0] : 'Menü'}
+                </span>
+                {!isOnline && (
+                  <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-amber-400 border-2 border-slate-900" />
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* KOMPAKTES ZENTRIERTES 2ER-DOCK UNTEN (KATEGORIE + SCANNER) */}
+      <nav
+        data-no-swipe="true"
+        className="fixed bottom-0 inset-x-0 z-40 pointer-events-none flex justify-center px-3"
+      >
+        <div
           className={
-            'relative px-2.5 md:px-1 py-1.5 md:py-2.5 md:w-full md:mt-auto rounded-2xl flex flex-col items-center justify-center gap-0.5 text-[10px] font-extrabold shrink-0 ' +
-            (quickCockpitOpen ? 'tw-active-nav' : 'tw-glow-btn')
+            'pointer-events-auto flex items-center gap-2 px-3 pt-2 pb-2.5 ' +
+            'rounded-t-[28px] border-t border-x border-white/15 shadow-[0_-10px_30px_rgba(0,0,0,0.55)] ' +
+            'backdrop-blur-md ' + themeStyles.header
           }
         >
-          {activePersonObj && selectedPerson !== 'all' ? (
-            renderAvatar(activePersonObj, 'w-5 h-5', 'text-[9px]')
-          ) : (
-            <SlidersHorizontal className={'w-4 h-4 ' + (isSyncing ? 'animate-spin text-sky-300' : '')} />
-          )}
-          <span>{activePersonObj && selectedPerson !== 'all' ? activePersonObj.name.split(' ')[0].slice(0, 5) : 'Menü'}</span>
-          {!isOnline && (
-            <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-amber-400" />
-          )}
-        </button>
+          {/* LINKER BUTTON: KATEGORIE (BLINKT 2 SEK. MIT AKTUELLEM NAMEN BEIM WISCHEN) */}
+          {(() => {
+            const FlashIcon = categoryFlashInfo?.icon || (categoryTrayOpen ? X : Menu);
+            const hasUrgentBehind =
+              mhdAlertGroups.finalToday.length > 0 || !isOnline;
+            return (
+              <button
+                type="button"
+                onClick={() => setCategoryTrayOpen(prev => !prev)}
+                className={
+                  'relative min-w-[116px] sm:min-w-[132px] py-2 px-3 rounded-2xl flex flex-col items-center justify-center gap-0.5 ' +
+                  'text-[11px] font-black transition-all active:scale-95 ' +
+                  (categoryFlashInfo
+                    ? 'tw-cat-flash'
+                    : categoryTrayOpen
+                    ? 'tw-active-nav'
+                    : activeTab !== 'scanner'
+                    ? 'tw-glow-btn ring-1 ring-sky-400/50'
+                    : 'tw-nav-inactive opacity-90')
+                }
+              >
+                <FlashIcon className="w-5 h-5" />
+                <span className="truncate max-w-[104px]">
+                  {categoryFlashInfo ? categoryFlashInfo.label : 'Kategorie'}
+                </span>
+                {hasUrgentBehind && !categoryTrayOpen && !categoryFlashInfo && (
+                  <span className="absolute top-1.5 right-2 w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse" />
+                )}
+              </button>
+            );
+          })()}
+
+          {/* RECHTER BUTTON: SCANNER (IMMER DIREKT ERREICHBAR) */}
+          <button
+            type="button"
+            onClick={() => switchCategorySmooth('scanner', null, false)}
+            className={
+              'relative min-w-[116px] sm:min-w-[132px] py-2 px-3 rounded-2xl flex flex-col items-center justify-center gap-0.5 ' +
+              'text-[11px] font-black transition-all active:scale-95 ' +
+              (activeTab === 'scanner' ? 'tw-active-nav' : 'tw-nav-inactive opacity-90')
+            }
+          >
+            <Camera className="w-5 h-5" />
+            <span>Scanner</span>
+            {safeCart.length > 0 && (
+              <span className="absolute top-1 right-2 px-1.5 rounded-full text-[9px] font-black bg-amber-500 text-slate-950">
+                {safeCart.length}
+              </span>
+            )}
+          </button>
+        </div>
       </nav>
 
       {toast && (
-        <div className="fixed bottom-20 md:bottom-5 left-4 md:left-24 right-4 md:max-w-md z-50 px-4 py-3 rounded-2xl bg-slate-900/95 border border-sky-400 text-white shadow-2xl flex items-center gap-3">
+        <div className="fixed bottom-24 left-4 right-4 max-w-md mx-auto z-50 px-4 py-3 rounded-2xl bg-slate-900/95 border border-sky-400 text-white shadow-2xl flex items-center gap-3">
           <span className="text-2xl">{toast.icon}</span>
           <div>
             <div className="text-[10px] font-black uppercase text-amber-400">{toast.title}</div>
