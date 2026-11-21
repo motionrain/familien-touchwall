@@ -678,6 +678,7 @@ export default function TouchwallPocketApp() {
   const [isUploadingEditPhoto, setIsUploadingEditPhoto] = useState(false);
 
   const [notifPermission, setNotifPermission] = useState('default');
+  const [showPermissionOnboarding, setShowPermissionOnboarding] = useState(false);
   const [installPromptEvent, setInstallPromptEvent] = useState(null);
   const [isOnline, setIsOnline] = useState(true);
   const knownShoppingTextsRef = useRef(null);
@@ -824,6 +825,12 @@ export default function TouchwallPocketApp() {
 
     if ('Notification' in window) {
       setNotifPermission(Notification.permission);
+      try {
+        const onboardingDone = localStorage.getItem('richter_tw_pocket_perms_done') === '1';
+        if (!onboardingDone && Notification.permission === 'default') {
+          setShowPermissionOnboarding(true);
+        }
+      } catch (e) {}
     }
 
     const dayWatcher = setInterval(() => {
@@ -869,24 +876,58 @@ export default function TouchwallPocketApp() {
     try { navigator.vibrate?.(vibrationPattern); } catch (e) {}
 
     if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+      const appIconUrl = window.location.origin + '/icon-512.png';
+      const notifOptions = {
+        body: bodyText,
+        icon: appIconUrl,
+        badge: appIconUrl,
+        vibrate: vibrationPattern,
+        renotify: true,
+        tag: tagId || ('tw-push-' + Date.now()),
+        data: { url: '/pocket' }
+      };
+
       try {
         if ('serviceWorker' in navigator) {
           const reg = await navigator.serviceWorker.ready;
-          await reg.showNotification(title, {
-            body: bodyText,
-            icon: '/icon-512.png',
-            badge: '/icon-512.png',
-            vibrate: vibrationPattern,
-            tag: tagId || ('tw-push-' + Date.now())
-          });
+          await reg.showNotification(title, notifOptions);
         } else {
-          new Notification(title, {
-            body: bodyText,
-            icon: '/icon-512.png'
-          });
+          new Notification(title, notifOptions);
         }
       } catch (e) {}
     }
+  };
+
+  const handleGrantAllPermissions = async () => {
+    // 1. Audio & Vibration durch Nutzer-Klick freischalten
+    playMobileBeep('shopping');
+    try { navigator.vibrate?.([150, 80, 150]); } catch (e) {}
+
+    // 2. Service Worker sicherstellen
+    if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+      try { await navigator.serviceWorker.register('/sw.js'); } catch (e) {}
+    }
+
+    // 3. Benachrichtigungs-Berechtigung anfordern
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      try {
+        const perm = await Notification.requestPermission();
+        setNotifPermission(perm);
+        if (perm === 'granted') {
+          await sendPhonePushNotification(
+            '✅ ' + familyName + ' ist bereit!',
+            'Benachrichtigungen für Einkäufe, Termine und MHD-Warnungen sind aktiv.',
+            'tw-onboarding-ok'
+          );
+          showToast('Alle Zugriffe aktiv!', 'Benachrichtigungen mit App-Logo sind eingeschaltet.', '🔔');
+        } else {
+          showToast('Hinweis', 'Bitte Benachrichtigungen in den Handy-Einstellungen zulassen.', '⚠️');
+        }
+      } catch (e) {}
+    }
+
+    try { localStorage.setItem('richter_tw_pocket_perms_done', '1'); } catch (e) {}
+    setShowPermissionOnboarding(false);
   };
 
   const requestShoppingPushPermission = async () => {
@@ -3657,9 +3698,10 @@ export default function TouchwallPocketApp() {
       </main>
 
 {/*
+      {/*
       //
       // ============================================================================
-      // PART 12: MODALS (RESTOCK, QUICK-COCKPIT, EDIT), FLIEGENDES DOCK & TOAST
+      // PART 12: MODALS (RESTOCK, QUICK-COCKPIT, EDIT, ONBOARDING), DOCK & TOAST
       // ============================================================================
       //
       */}
@@ -3872,6 +3914,30 @@ export default function TouchwallPocketApp() {
               >
                 <LogOut className="w-4 h-4" />
                 <span>Abmelden</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    localStorage.removeItem('richter_touchwall_events_cache');
+                    localStorage.setItem('richter_tw_pocket_person', 'all');
+                  } catch (e) {}
+                  pendingCalendarOpsRef.current = {};
+                  if (syncMetaRef.current) {
+                    syncMetaRef.current.deletedEventIds = {};
+                    saveLocalSyncMeta(syncMetaRef.current);
+                  }
+                  lastLocalEditRef.current = 0;
+                  setSelectedPerson('all');
+                  setQuickCockpitOpen(false);
+                  showToast('Kalender-Cache geleert', 'Lade alle Termine frisch aus der Cloud...', '🔄');
+                  await syncAllNow(true);
+                }}
+                className="col-span-2 tw-nav-inactive py-2.5 px-3 rounded-2xl text-xs font-black text-amber-300 border border-amber-400/35 flex items-center justify-center gap-2"
+              >
+                <RotateCcw className="w-4 h-4" />
+                <span>Kalender-Cache leeren &amp; frisch laden</span>
               </button>
             </div>
 
@@ -4320,6 +4386,55 @@ export default function TouchwallPocketApp() {
           </button>
         </div>
       </nav>
+
+      {/* ERSTSTART-ABFRAGE FÜR ALLE BENACHRICHTIGUNGEN & ZUGRIFFE */}
+      {showPermissionOnboarding && (
+        <div
+          data-no-swipe="true"
+          className="fixed inset-0 z-[70] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4"
+        >
+          <div
+            className={'w-full max-w-md rounded-3xl border-2 border-sky-400/70 p-5 shadow-2xl space-y-4 text-center ' + themeStyles.modal}
+          >
+            <div className="flex justify-center">
+              <img
+                src="/icon-512.png"
+                alt="App Logo"
+                className="w-16 h-16 rounded-2xl shadow-lg border border-white/15"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <h3 className="text-lg font-black">🔔 Benachrichtigungen &amp; Zugriffe</h3>
+              <p className="text-xs sm:text-sm font-bold opacity-85 leading-relaxed">
+                Damit alle Erinnerungen für <strong>Termine, Einkaufsliste &amp; ablaufendes MHD</strong> zuverlässig mit App-Logo ankommen, benötigen wir deine Zustimmung für Benachrichtigungen, Ton &amp; Vibration.
+              </p>
+            </div>
+
+            <div className="space-y-2 pt-1">
+              <button
+                type="button"
+                onClick={handleGrantAllPermissions}
+                className="tw-active-nav w-full py-3.5 px-4 rounded-2xl text-sm font-black flex items-center justify-center gap-2 shadow-lg"
+              >
+                <BellRing className="w-5 h-5" />
+                <span>Jetzt alle Berechtigungen erlauben</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  try { localStorage.setItem('richter_tw_pocket_perms_done', '1'); } catch (e) {}
+                  setShowPermissionOnboarding(false);
+                }}
+                className="tw-nav-inactive w-full py-2.5 px-4 rounded-2xl text-xs font-bold opacity-80"
+              >
+                Später im Menü aktivieren
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {toast && (
         <div className="fixed bottom-24 left-4 right-4 max-w-md mx-auto z-50 px-4 py-3 rounded-2xl bg-slate-900/95 border border-sky-400 text-white shadow-2xl flex items-center gap-3">
