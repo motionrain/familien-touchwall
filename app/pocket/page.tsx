@@ -6,7 +6,7 @@
 //
 //
 // ============================================================================
-// PART 01: IMPORTS & KONFIGURATION
+// PART 01: IMPORTS, KONSTANTEN & KOMPONENTEN-EINBINDUNG
 // ============================================================================
 //
 //
@@ -14,40 +14,60 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  Calendar, CheckSquare, ShoppingCart, Camera, Package,
-  RefreshCw, Smartphone, LogOut, Cloud, BellRing, Download,
-  WifiOff, Pencil, Check, Search, Menu, X,
-  Trash2, Wand2, CheckCircle2, AlertTriangle, SlidersHorizontal, RotateCcw
+  Calendar, CheckSquare, ShoppingCart, Package, Camera,
+  RefreshCw, LogOut, Cloud, Trash2, Check, X,
+  BellRing, Download, WifiOff, Menu, SlidersHorizontal,
+  Search, RotateCcw, Wand2,
+  Utensils, ChefHat, Tag, FileText, GraduationCap, Swords, Palette
 } from 'lucide-react';
-
 import * as Cfg from '../touchwallConfig';
 import AuthScreen from '../AuthScreen';
-import OtherSections from '../OtherSections';
-import ProductThumb from '../ProductThumb';
-import { uploadProductPhotoToSupabase } from '../productImageUtils';
-import { openCookieSettingsModal } from '../CookieBanner';
 import {
-  PUBLIC_CLOUD_BACKEND_URL,
-  hasJsonChanged,
-  loadLocalSyncMeta,
-  saveLocalSyncMeta,
-  mergeSyncMetaMaps,
-  mergePantryChannelSafe,
-  registerPendingCalendarOp,
-  mergeCalendarEventsSafe,
-  mergeSkillBoardSafe,
-  callCloudApi,
-  useTouchwallRealtime
-} from '../sync';
-import {
-  FOOD_CATEGORIES,
-  STORAGE_PILLS,
-  detectFoodCategory,
   getFoodEmoji,
-  decrementItemPieceCount,
-  stepMobileQty,
-  playMobileBeep
-} from '../foodUtils';
+  FOOD_EMOJI_PICKER,
+  FOOD_CATEGORIES,
+  detectSmartCategory,
+  detectSmartLocation,
+  isProductGlutenFree,
+  simplifyProductName
+} from '../PantrySection';
+import { useTouchwallRealtime } from '../useTouchwallRealtime';
+import { openCookieSettingsModal } from '../CookieConsent';
+import OtherSections from '../OtherSections';
+import MealPlanSection from '../MealPlanSection';
+import NotesSection from '../NotesSection';
+import PantryRecipes from '../PantryRecipes';
+import PantryOffers from '../PantryOffers';
+import SchoolSection from '../SchoolSection';
+import QuestSection from '../quest';
+import SettingsSection from '../SettingsSection';
+import PocketAgenda from './PocketAgenda';
+import PocketTasks from './PocketTasks';
+import PocketScanner from './PocketScanner';
+import PocketShopping from './PocketShopping';
+
+const SHOW_OAUTH_UI = process.env.NEXT_PUBLIC_ENABLE_OAUTH === 'true';
+
+const {
+  PUBLIC_CLOUD_BACKEND_URL,
+  DEFAULT_MEMBERS,
+  DEFAULT_MEALS,
+  DEFAULT_NOTES,
+  DEFAULT_SCHOOL,
+  COLOR_PALETTES,
+  formatDateStr,
+  addDays,
+  buildThemeStyles,
+  buildMemberStyles,
+  callCloudApi,
+  discoverTodoistWorkspace,
+  pullFromTodoistTwoWay,
+  createTodoistTaskItem,
+  closeOrReopenTodoistTask,
+  deleteTodoistTask,
+  readAuthSession,
+  writeAuthSession
+} = Cfg;
 
 import PocketAgenda from './PocketAgenda';
 import PocketTasks from './PocketTasks';
@@ -615,6 +635,7 @@ export default function TouchwallPocketApp() {
   const [activeTab, setActiveTab] = useState('scanner');
   const [selectedPerson, setSelectedPerson] = useState('all');
   const [currentTheme, setCurrentTheme] = useState('metal');
+  const [customLogoUrl, setCustomLogoUrl] = useState('');
   const [todayStr, setTodayStr] = useState(() => formatDateStr(new Date()));
 
   const [quickCockpitOpen, setQuickCockpitOpen] = useState(false);
@@ -636,12 +657,24 @@ export default function TouchwallPocketApp() {
   const [schoolData, setSchoolData] = useState(DEFAULT_SCHOOL);
   const [pantryItems, setPantryItems] = useState([]);
   const [pantryTrash, setPantryTrash] = useState([]);
+  const [skillBoardData, setSkillBoardData] = useState(null);
   const [todoistConfig, setTodoistConfig] = useState({
     apiToken: '',
     shoppingProjectId: '',
     tasksProjectId: '',
     projects: [],
     collaborators: []
+  });
+
+  // Schule: Aktiver Stundenplan & Fach-Editor-Modal
+  const [activeSchoolChild, setActiveSchoolChild] = useState('dean');
+  const [schoolModal, setSchoolModal] = useState({
+    open: false,
+    dayIdx: 0,
+    periodIdx: 0,
+    subject: '',
+    room: '',
+    status: 'normal'
   });
 
   // Konten- & Diagnose-States (wie Touchwall)
@@ -2847,6 +2880,185 @@ export default function TouchwallPocketApp() {
       '&intent=link&accountId=' + encodeURIComponent(accountId) +
       '&memberId=' + encodeURIComponent(targetMember) +
       '&returnTo=/pocket';
+  };
+
+  // ============================================================================
+  // HANDLER FÜR ESSENSPLAN, NOTIZEN, SCHULE, SKILL BOARD & DESIGN (POCKET)
+  // ============================================================================
+
+  const updateMealPlanAndSync = (updater) => {
+    setMealPlan(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      saveStateToCloud({ mealPlan: next });
+      return next;
+    });
+  };
+
+  const updateNotesAndSync = (updater) => {
+    setFamilyNotes(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      saveStateToCloud({ familyNotes: next });
+      return next;
+    });
+  };
+
+  const updateSchoolDataAndSync = (updater) => {
+    setSchoolData(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      // schoolData wird im nächsten Render-Zyklus mitgesichert
+      setTimeout(() => saveStateToCloud({}), 80);
+      return next;
+    });
+  };
+
+  const handleSkillBoardUpdate = (nextBundle) => {
+    setSkillBoardData(nextBundle);
+    preservedWallStateRef.current = {
+      ...preservedWallStateRef.current,
+      skillBoardData: nextBundle
+    };
+    saveStateToCloud({});
+  };
+
+  const handleAddShoppingItemsBatch = (itemsArray) => {
+    if (!Array.isArray(itemsArray) || itemsArray.length === 0) return;
+    itemsArray.forEach(txt => {
+      if (String(txt || '').trim()) handleAddQuickShopItem(String(txt).trim());
+    });
+    showToast('Einkaufsliste ergänzt 🛒', itemsArray.length + ' Zutat(en) übertragen.', '🛒');
+  };
+
+  const handleAddItemToNoteTile = (noteId, text) => {
+    const clean = String(text || '').trim();
+    if (!clean) return;
+    updateNotesAndSync(prev =>
+      (Array.isArray(prev) ? prev : []).map(n =>
+        n.id === noteId
+          ? { ...n, items: [...(Array.isArray(n.items) ? n.items : []), { text: clean, done: false, updatedAt: Date.now(), fromMobile: true }] }
+          : n
+      )
+    );
+  };
+
+  const handleToggleItemInNoteTile = (noteId, itemIdx) => {
+    updateNotesAndSync(prev =>
+      (Array.isArray(prev) ? prev : []).map(n =>
+        n.id === noteId
+          ? {
+              ...n,
+              items: (Array.isArray(n.items) ? n.items : []).map((it, idx) =>
+                idx === itemIdx ? { ...it, done: !it.done, updatedAt: Date.now(), fromMobile: true } : it
+              )
+            }
+          : n
+      )
+    );
+  };
+
+  const handleDeleteItemInNoteTile = (noteId, itemIdx) => {
+    updateNotesAndSync(prev =>
+      (Array.isArray(prev) ? prev : []).map(n =>
+        n.id === noteId
+          ? { ...n, items: (Array.isArray(n.items) ? n.items : []).filter((_, idx) => idx !== itemIdx) }
+          : n
+      )
+    );
+  };
+
+  const handleAddNewTaskFromSchool = async (
+    title,
+    memberId,
+    dueDate = todayStr,
+    dueTime = '17:00',
+    notifyTime = '15m',
+    _alsoCalendar = false,
+    priority = 3,
+    description = ''
+  ) => {
+    const cleanTitle = String(title || '').trim();
+    if (!cleanTitle) return;
+    const newTask = {
+      id: 'task_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+      title: cleanTitle,
+      description: description || '',
+      member: memberId || 'hans',
+      dueDate: dueDate || todayStr,
+      dueTime: dueTime || '17:00',
+      notifyTime: notifyTime || '15m',
+      priority: Number(priority) || 3,
+      done: false,
+      updatedAt: Date.now(),
+      fromMobile: true
+    };
+    const nextTasks = [newTask, ...safeTasks];
+    setFamilyTasks(nextTasks);
+    await saveStateToCloud({ familyTasks: nextTasks });
+  };
+
+  const handleSaveSchoolSlotModal = (e) => {
+    e.preventDefault();
+    const key = schoolModal.dayIdx + '-' + schoolModal.periodIdx;
+    updateSchoolDataAndSync(prev => {
+      const cur = prev?.[activeSchoolChild] || {};
+      const nextSlots = { ...(cur.slots || {}) };
+      if (!schoolModal.subject.trim()) {
+        delete nextSlots[key];
+      } else {
+        nextSlots[key] = {
+          subject: schoolModal.subject.trim(),
+          room: schoolModal.room.trim(),
+          status: schoolModal.status || 'normal'
+        };
+      }
+      return {
+        ...(prev || {}),
+        [activeSchoolChild]: {
+          ...cur,
+          slots: nextSlots
+        }
+      };
+    });
+    setSchoolModal(prev => ({ ...prev, open: false }));
+    showToast('Stundenplan gespeichert', 'Änderung wurde übernommen.', '🎓');
+  };
+
+  const handleLogoUploadPocket = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result || '');
+      setCustomLogoUrl(dataUrl);
+      preservedWallStateRef.current = { ...preservedWallStateRef.current, customLogoUrl: dataUrl };
+      saveStateToCloud({});
+      showToast('Logo aktualisiert', 'Neues Logo in der Cloud gespeichert.', '🎨');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleMemberPhotoUploadPocket = (memberId, e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result || '');
+      setMembers(prev => {
+        const next = (Array.isArray(prev) ? prev : []).map(m =>
+          m.id === memberId ? { ...m, photoUrl: dataUrl, avatarType: 'photo' } : m
+        );
+        setTimeout(() => saveStateToCloud({}), 80);
+        return next;
+      });
+      showToast('Profilfoto gespeichert', 'Avatar wurde aktualisiert.', '📸');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRestoreDesignDefaultsPocket = () => {
+    setCurrentTheme('metal');
+    setMembers(DEFAULT_MEMBERS);
+    setTimeout(() => saveStateToCloud({}), 80);
+    showToast('Standard-Design aktiv', 'Farben & Theme zurückgesetzt.', '🔄');
   };
   
   //
