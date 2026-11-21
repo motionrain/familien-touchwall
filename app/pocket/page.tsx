@@ -27,8 +27,8 @@ import {
   FOOD_CATEGORIES,
   detectFoodCategory
 } from '../PantrySection';
-import { useTouchwallRealtime } from '../useTouchwallRealtime';
-import { openCookieSettingsModal } from '../CookieConsent';
+// import { useTouchwallRealtime } from '../useTouchwallRealtime';
+// import { openCookieSettingsModal } from '../CookieConsent';
 import OtherSections from '../OtherSections';
 import MealPlanSection from '../MealPlanSection';
 import NotesSection from '../NotesSection';
