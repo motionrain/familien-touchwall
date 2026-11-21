@@ -862,8 +862,13 @@ export default function TouchwallPocketApp() {
   useEffect(() => {
     if (!isAuthenticated || typeof window === 'undefined' || !('Notification' in window)) return;
     try {
+      const isStandalonePwa =
+        window.matchMedia?.('(display-mode: standalone)')?.matches ||
+        window.navigator?.standalone === true;
       const onboardingDone = localStorage.getItem('richter_tw_pocket_perms_done') === '1';
-      if (!onboardingDone && Notification.permission === 'default') {
+
+      // In der installierten App immer fragen, solange Benachrichtigungen noch nicht erlaubt sind
+      if (Notification.permission === 'default' && (!onboardingDone || isStandalonePwa)) {
         setShowPermissionOnboarding(true);
       }
     } catch (e) {}
