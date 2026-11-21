@@ -3108,10 +3108,10 @@ export default function TouchwallPocketApp() {
   const activePersonObj = safeMembers.find(m => m.id === selectedPerson);
 
   const POCKET_TABS = [
-    { id: 'agenda',   label: 'Kalender', icon: Calendar,     badge: filteredEvents.filter(e => e.date === todayStr).length },
-    { id: 'tasks',    label: 'Aufgaben', icon: CheckSquare,  badge: openTasks.length },
-    { id: 'scanner',  label: 'Scanner',  icon: Camera,       badge: safeCart.length },
-    { id: 'shopping', label: 'Einkauf',  icon: ShoppingCart, badge: openShop.length + safeCart.length },
+    { id: 'agenda',     label: 'Kalender',    icon: Calendar,      badge: filteredEvents.filter(e => e.date === todayStr).length },
+    { id: 'tasks',      label: 'Aufgaben',    icon: CheckSquare,   badge: openTasks.length },
+    { id: 'scanner',    label: 'Scanner',     icon: Camera,        badge: safeCart.length },
+    { id: 'shopping',   label: 'Einkauf',     icon: ShoppingCart,  badge: openShop.length + safeCart.length },
     {
       id: 'stock',
       label: 'Bestand',
@@ -3121,7 +3121,14 @@ export default function TouchwallPocketApp() {
         : safeStock.length,
       urgent: mhdAlertGroups.finalToday.length > 0
     },
-    { id: 'accounts', label: 'Konten',   icon: Cloud,        badge: 0 }
+    { id: 'essen',      label: 'Essensplan',  icon: Utensils,      badge: 0 },
+    { id: 'rezepte',    label: 'Rezepte',     icon: ChefHat,       badge: 0 },
+    { id: 'angebote',   label: 'Angebote',    icon: Tag,           badge: 0 },
+    { id: 'listen',     label: 'Notizen',     icon: FileText,      badge: 0 },
+    { id: 'schule',     label: 'Schule',      icon: GraduationCap, badge: 0 },
+    { id: 'skillboard', label: 'Skill Board', icon: Swords,        badge: 0 },
+    { id: 'design',     label: 'Design',      icon: Palette,       badge: 0 },
+    { id: 'accounts',   label: 'Konten',      icon: Cloud,         badge: 0 }
   ];
 
   // Alle Kategorien für das schwebende Karussell (Scanner sitzt permanent im Dock rechts)
@@ -3165,7 +3172,14 @@ export default function TouchwallPocketApp() {
   };
 
   const handleMainTouchStart = (e) => {
-    if (quickCockpitOpen || editStockModal.open || restockPromptItem || categoryTrayOpen || e.touches.length !== 1) {
+    if (
+      quickCockpitOpen ||
+      editStockModal.open ||
+      schoolModal.open ||
+      restockPromptItem ||
+      categoryTrayOpen ||
+      e.touches.length !== 1
+    ) {
       swipeRef.current = { x: 0, y: 0, blocked: true, axis: null };
       return;
     }
@@ -3230,7 +3244,7 @@ export default function TouchwallPocketApp() {
   //
   //
   // ============================================================================
-  // PART 10: HAUPT-LAYOUT, KALENDER, AUFGABEN, SCANNER, EINKAUF & KONTEN
+  // PART 10: HAUPT-LAYOUT & ALLE KATEGORIEN (OHNE VORRAT -> PART 11)
   // ============================================================================
   //
   //
@@ -3367,6 +3381,149 @@ export default function TouchwallPocketApp() {
                 />
               )}
 
+              {activeTab === 'essen' && (
+                <MealPlanSection
+                  mealPlan={safeMeals}
+                  setMealPlan={updateMealPlanAndSync}
+                  pantryItems={safeStock}
+                  setPantryItems={(updater) => {
+                    setPantryItems(prev => {
+                      const next = typeof updater === 'function' ? updater(prev) : updater;
+                      saveStateToCloud({ pantryItems: next });
+                      return next;
+                    });
+                  }}
+                  setPantryTrash={(updater) => {
+                    setPantryTrash(prev => {
+                      const next = typeof updater === 'function' ? updater(prev) : updater;
+                      saveStateToCloud({ pantryTrash: next });
+                      return next;
+                    });
+                  }}
+                  todayStr={todayStr}
+                  addShoppingItemsBatch={handleAddShoppingItemsBatch}
+                  themeStyles={themeStyles}
+                  showToast={showToast}
+                />
+              )}
+
+              {activeTab === 'rezepte' && (
+                <PantryRecipes
+                  safeStock={safeStock}
+                  safeMeals={safeMeals}
+                  setMealPlan={updateMealPlanAndSync}
+                  addShoppingItem={handleAddQuickShopItem}
+                  todayStr={todayStr}
+                  themeStyles={themeStyles}
+                  showToast={showToast}
+                />
+              )}
+
+              {activeTab === 'angebote' && (
+                <PantryOffers
+                  safeStock={safeStock}
+                  safeTrash={safeTrash}
+                  addShoppingItem={handleAddQuickShopItem}
+                  initialSearchQuery=""
+                  themeStyles={themeStyles}
+                  showToast={showToast}
+                />
+              )}
+
+              {activeTab === 'listen' && (
+                <NotesSection
+                  members={safeMembers}
+                  familyNotes={safeNotes}
+                  setFamilyNotes={updateNotesAndSync}
+                  addItemToNoteTile={handleAddItemToNoteTile}
+                  toggleItemInNoteTile={handleToggleItemInNoteTile}
+                  deleteItemInNoteTile={handleDeleteItemInNoteTile}
+                  todoistConfig={todoistConfig}
+                  createAndSelectTodoistProject={createAndSelectTodoistProject}
+                  setQrModalOpen={() => setQuickCockpitOpen(true)}
+                  themeStyles={themeStyles}
+                />
+              )}
+
+              {activeTab === 'schule' && (
+                <div data-no-swipe="true">
+                  <SchoolSection
+                    members={safeMembers}
+                    schoolData={schoolData}
+                    setSchoolData={updateSchoolDataAndSync}
+                    activeSchoolChild={activeSchoolChild}
+                    setActiveSchoolChild={setActiveSchoolChild}
+                    setSchoolModal={setSchoolModal}
+                    addNewTaskWithSettings={handleAddNewTaskFromSchool}
+                    todayStr={todayStr}
+                    themeStyles={themeStyles}
+                    getMemberStyles={getMemberStyles}
+                    renderAvatar={renderAvatar}
+                    showToast={showToast}
+                  />
+                </div>
+              )}
+
+              {activeTab === 'skillboard' && (
+                <QuestSection
+                  isActive={true}
+                  setActiveSection={(sec) => switchCategorySmooth(sec, null, false)}
+                  skillBoardData={skillBoardData || preservedWallStateRef.current.skillBoardData}
+                  setSkillBoardData={handleSkillBoardUpdate}
+                  members={safeMembers}
+                  events={safeEvents}
+                  familyTasks={safeTasks}
+                  toggleTaskDone={(taskId, isDone) => {
+                    const next = safeTasks.map(t =>
+                      t.id === taskId ? { ...t, done: isDone, updatedAt: Date.now(), fromMobile: true } : t
+                    );
+                    setFamilyTasks(next);
+                    saveStateToCloud({ familyTasks: next });
+                  }}
+                  pantryItems={safeStock}
+                  pantryTrash={safeTrash}
+                  familyNotes={safeNotes}
+                  themeStyles={themeStyles}
+                  getMemberStyles={getMemberStyles}
+                  renderAvatar={renderAvatar}
+                  showToast={showToast}
+                />
+              )}
+
+              {activeTab === 'design' && (
+                <SettingsSection
+                  activeSection="design"
+                  accountId={accountId}
+                  authKey={authKey}
+                  members={safeMembers}
+                  setMembers={(updater) => {
+                    setMembers(prev => {
+                      const next = typeof updater === 'function' ? updater(prev) : updater;
+                      setTimeout(() => saveStateToCloud({}), 80);
+                      return next;
+                    });
+                  }}
+                  currentTheme={currentTheme}
+                  setCurrentTheme={(t) => {
+                    setCurrentTheme(t);
+                    setTimeout(() => saveStateToCloud({}), 80);
+                  }}
+                  customLogoUrl={customLogoUrl || preservedWallStateRef.current.customLogoUrl || ''}
+                  setCustomLogoUrl={(url) => {
+                    setCustomLogoUrl(url);
+                    preservedWallStateRef.current = { ...preservedWallStateRef.current, customLogoUrl: url };
+                    setTimeout(() => saveStateToCloud({}), 80);
+                  }}
+                  handleLogoUpload={handleLogoUploadPocket}
+                  handleMemberPhotoUpload={handleMemberPhotoUploadPocket}
+                  restoreScreenshotDefaults={handleRestoreDesignDefaultsPocket}
+                  themeStyles={themeStyles}
+                  getMemberStyles={getMemberStyles}
+                  renderAvatar={renderAvatar}
+                  showToast={showToast}
+                />
+              )}
+
               {activeTab === 'accounts' && (
                 <OtherSections
                   activeSection="google"
@@ -3410,6 +3567,86 @@ export default function TouchwallPocketApp() {
                   renderAvatar={renderAvatar}
                   showToast={showToast}
                 />
+              )}
+
+              {schoolModal.open && (
+                <div
+                  data-no-swipe="true"
+                  onClick={() => setSchoolModal(prev => ({ ...prev, open: false }))}
+                  className="fixed inset-0 z-[65] bg-black/80 backdrop-blur-xs flex items-center justify-center p-4"
+                >
+                  <form
+                    onSubmit={handleSaveSchoolSlotModal}
+                    onClick={(e) => e.stopPropagation()}
+                    className={'w-full max-w-md rounded-3xl border-2 p-5 shadow-2xl space-y-4 ' + themeStyles.modal}
+                  >
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-base font-black">🎓 Unterrichtsfach bearbeiten</h3>
+                      <button
+                        type="button"
+                        onClick={() => setSchoolModal(prev => ({ ...prev, open: false }))}
+                        className="tw-nav-inactive w-8 h-8 rounded-full flex items-center justify-center"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-[10px] font-black uppercase text-sky-400 mb-1">Fach (leer = löschen)</label>
+                        <input
+                          type="text"
+                          value={schoolModal.subject}
+                          onChange={(e) => setSchoolModal(prev => ({ ...prev, subject: e.target.value }))}
+                          placeholder="z.B. Mathe, Deutsch, Sport..."
+                          className={'w-full px-3.5 py-2.5 rounded-xl border text-sm font-extrabold ' + themeStyles.input}
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-black uppercase text-amber-400 mb-1">Raum / Hinweis</label>
+                        <input
+                          type="text"
+                          value={schoolModal.room}
+                          onChange={(e) => setSchoolModal(prev => ({ ...prev, room: e.target.value }))}
+                          placeholder="z.B. R204, Sporthalle..."
+                          className={'w-full px-3.5 py-2.5 rounded-xl border text-sm font-bold ' + themeStyles.input}
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-black uppercase text-purple-300 mb-1">Status</label>
+                        <select
+                          value={schoolModal.status}
+                          onChange={(e) => setSchoolModal(prev => ({ ...prev, status: e.target.value }))}
+                          className={'w-full px-3.5 py-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+                        >
+                          <option value="normal" className="bg-slate-800 text-white">Normaler Unterricht</option>
+                          <option value="exam" className="bg-slate-800 text-purple-300">📝 Klassenarbeit / Test</option>
+                          <option value="change" className="bg-slate-800 text-amber-300">⚠️ Vertretung / Änderung</option>
+                          <option value="cancel" className="bg-slate-800 text-rose-300">❌ Entfall</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end gap-2 pt-2 border-t border-white/10">
+                      <button
+                        type="button"
+                        onClick={() => setSchoolModal(prev => ({ ...prev, open: false }))}
+                        className="tw-nav-inactive px-4 py-2.5 rounded-xl text-xs font-bold"
+                      >
+                        Abbrechen
+                      </button>
+                      <button
+                        type="submit"
+                        className="tw-active-nav px-5 py-2.5 rounded-xl text-xs font-black flex items-center gap-1.5"
+                      >
+                        <Check className="w-4 h-4" />
+                        <span>Speichern</span>
+                      </button>
+                    </div>
+                  </form>
+                </div>
               )}
             
               {/*
