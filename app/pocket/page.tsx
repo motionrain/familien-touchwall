@@ -27,8 +27,6 @@ import {
   FOOD_CATEGORIES,
   detectFoodCategory
 } from '../PantrySection';
-// import { useTouchwallRealtime } from '../useTouchwallRealtime';
-// import { openCookieSettingsModal } from '../CookieConsent';
 import OtherSections from '../OtherSections';
 import MealPlanSection from '../MealPlanSection';
 import NotesSection from '../NotesSection';
@@ -42,11 +40,21 @@ import PocketTasks from './PocketTasks';
 import PocketScanner from './PocketScanner';
 import PocketShopping from './PocketShopping';
 
-// >>> HINWEIS: Falls deine Datei vorher Imports für STORAGE_PILLS, ProductThumb,
-// playMobileBeep, loadLocalSyncMeta, saveLocalSyncMeta, mergePantryChannelSafe etc.
-// aus einer lokalen Helper-Datei hatte, diese 1-2 Import-Zeilen hier wieder einfügen! <<<
+// Falls useTouchwallRealtime / CookieConsent bei dir unter app/components/ liegen,
+// kannst du diese beiden Zeilen dort einbinden; aktuell sicher als No-Op abgesichert:
+const useTouchwallRealtime = () => {};
+const openCookieSettingsModal = () => {};
 
 const SHOW_OAUTH_UI = process.env.NEXT_PUBLIC_ENABLE_OAUTH === 'true';
+
+const STORAGE_PILLS = [
+  { id: 'fridge',   label: '🧊 Kühlschrank' },
+  { id: 'freezer',  label: '❄️ Tiefkühler' },
+  { id: 'cupboard', label: '🗄️ Vorratsschrank' },
+  { id: 'pantry',   label: '🥫 Speisekammer' },
+  { id: 'kitchen',  label: '🍳 Küche' },
+  { id: 'petfood',  label: '🐾 Tierfutter' }
+];
 
 const {
   PUBLIC_CLOUD_BACKEND_URL,
@@ -70,7 +78,7 @@ const {
 //
 //
 // ============================================================================
-// PART 02: PRODUKT-, MARKEN- & GLUTENFREI-HELFER
+// PART 02: PRODUKT-, MARKEN-, BILD- & GLUTENFREI-HELFER
 // ============================================================================
 //
 //
@@ -93,6 +101,111 @@ const KNOWN_BRAND_PREFIXES = [
   'miree', 'Rama', 'Lätta', 'Bonduelle', 'Kühne', 'Knorr', 'Maggi', 'Löwensenf', 'Ernte Krone',
   'mysmile', 'Die süße Susi', 'Rinti', 'Wolfsblut', 'Josera', 'Belcando', 'Animonda', 'Pedigree'
 ];
+
+function ProductThumb({ item, sizeClass = 'w-12 h-12', emojiClass = 'text-2xl', roundedClass = 'rounded-2xl' }) {
+  const [imgErr, setImgErr] = useState(false);
+  const emoji = getFoodEmoji(item?.name || '', item?.customEmoji || '');
+  const hasPhoto = Boolean(item?.imageUrl) && !imgErr;
+
+  return (
+    <div
+      className={
+        sizeClass + ' ' + roundedClass +
+        ' bg-black/35 border border-white/15 flex items-center justify-center overflow-hidden shrink-0 select-none'
+      }
+    >
+      {hasPhoto ? (
+        <img
+          src={item.imageUrl}
+          alt={item?.name || 'Produkt'}
+          onError={() => setImgErr(true)}
+          className="w-full h-full object-cover"
+        />
+      ) : (
+        <span className={emojiClass}>{emoji}</span>
+      )}
+    </div>
+  );
+}
+
+function playMobileBeep(kind = 'scan') {
+  try {
+    if (typeof window === 'undefined') return;
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = kind === 'shopping' ? 'triangle' : 'sine';
+    osc.frequency.setValueAtTime(kind === 'shopping' ? 740 : 880, ctx.currentTime);
+    gain.gain.setValueAtTime(0.08, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.14);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.15);
+  } catch (e) {}
+}
+
+function stepMobileQty(qtyStr, delta) {
+  const raw = String(qtyStr || '1x').trim();
+  const match = raw.match(/^(\d+)(.*)$/);
+  if (!match) return raw;
+  const nextNum = Math.max(1, Number(match[1]) + delta);
+  return nextNum + (match[2] || 'x');
+}
+
+function decrementItemPieceCount(qtyStr) {
+  const raw = String(qtyStr || '1x').trim();
+  const match = raw.match(/^(\d+)(.*)$/);
+  if (!match) return { remaining: 0, nextQtyStr: '0' };
+  const currentNum = Number(match[1]) || 1;
+  const remaining = Math.max(0, currentNum - 1);
+  return {
+    remaining,
+    nextQtyStr: remaining + (match[2] || 'x')
+  };
+}
+
+async function uploadProductPhotoToSupabase({ source, accountId = 'local', barcode = '' }) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const maxSide = 640;
+        let { width, height } = img;
+        if (width > maxSide || height > maxSide) {
+          if (width > height) {
+            height = Math.round((height * maxSide) / width);
+            width = maxSide;
+          } else {
+            width = Math.round((width * maxSide) / height);
+            height = maxSide;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.78);
+        if (barcode) {
+          fetch('/api/products', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ barcode, accountId, imageUrl: dataUrl })
+          }).catch(() => {});
+        }
+        resolve(dataUrl);
+      };
+      img.onerror = () => reject(new Error('Bild konnte nicht gelesen werden'));
+      img.src = String(reader.result || '');
+    };
+    reader.onerror = () => reject(new Error('Datei konnte nicht geladen werden'));
+    reader.readAsDataURL(source);
+  });
+}
 
 function shortenBrandString(rawBrand) {
   if (!rawBrand) return '';
@@ -220,7 +333,7 @@ function detectSmartCategory(nameStr, customCategory = '', offTags = []) {
   if (/fats|oils|sauces|condiments|vinegars|mustards/.test(tags)) return 'oils_fats';
   if (/beverages|waters|juices|coffees|teas/.test(tags)) return 'drinks';
 
-  return detectFoodCategory(nameStr);
+  return typeof detectFoodCategory === 'function' ? detectFoodCategory(nameStr) : 'produce';
 }
 
 function detectSmartLocation(nameStr, categoryId = '', offTags = []) {
@@ -291,6 +404,132 @@ function isProductGlutenFree(itemOrName, customCategory = '', manualFlag = undef
 // ============================================================================
 //
 //
+
+function loadLocalSyncMeta() {
+  try {
+    if (typeof localStorage === 'undefined') {
+      return { deletedPantryIds: {}, deletedTrashIds: {}, deletedTaskIds: {}, deletedEventIds: {} };
+    }
+    const raw = localStorage.getItem('richter_tw_sync_meta_v1');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return {
+        deletedPantryIds: parsed.deletedPantryIds || {},
+        deletedTrashIds: parsed.deletedTrashIds || {},
+        deletedTaskIds: parsed.deletedTaskIds || {},
+        deletedEventIds: parsed.deletedEventIds || {}
+      };
+    }
+  } catch (e) {}
+  return { deletedPantryIds: {}, deletedTrashIds: {}, deletedTaskIds: {}, deletedEventIds: {} };
+}
+
+function saveLocalSyncMeta(meta) {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('richter_tw_sync_meta_v1', JSON.stringify(meta || {}));
+    }
+  } catch (e) {}
+}
+
+function mergeSyncMetaMaps(localMeta, remoteMeta) {
+  const out = {
+    deletedPantryIds: { ...(localMeta?.deletedPantryIds || {}) },
+    deletedTrashIds: { ...(localMeta?.deletedTrashIds || {}) },
+    deletedTaskIds: { ...(localMeta?.deletedTaskIds || {}) },
+    deletedEventIds: { ...(localMeta?.deletedEventIds || {}) }
+  };
+  if (!remoteMeta || typeof remoteMeta !== 'object') return out;
+  ['deletedPantryIds', 'deletedTrashIds', 'deletedTaskIds', 'deletedEventIds'].forEach(k => {
+    if (remoteMeta[k] && typeof remoteMeta[k] === 'object') {
+      Object.entries(remoteMeta[k]).forEach(([id, ts]) => {
+        out[k][id] = Math.max(Number(out[k][id]) || 0, Number(ts) || 0);
+      });
+    }
+  });
+  return out;
+}
+
+function mergeSkillBoardSafe(localSb, remoteSb) {
+  if (!remoteSb) return localSb || null;
+  if (!localSb) return remoteSb;
+  return Number(remoteSb.updatedAt || 0) >= Number(localSb.updatedAt || 0) ? remoteSb : localSb;
+}
+
+function mergePantryChannelSafe(localStock, remoteStock, localTrash, remoteTrash, syncMeta) {
+  const delStock = syncMeta?.deletedPantryIds || {};
+  const delTrash = syncMeta?.deletedTrashIds || {};
+  const mapFrom = (arr, delMap) => {
+    const m = new Map();
+    (Array.isArray(arr) ? arr : []).forEach(it => {
+      if (it && it.id && !delMap[String(it.id)]) m.set(String(it.id), it);
+    });
+    return m;
+  };
+  const stockMap = mapFrom(remoteStock, delStock);
+  (Array.isArray(localStock) ? localStock : []).forEach(it => {
+    if (!it?.id || delStock[String(it.id)]) return;
+    const prev = stockMap.get(String(it.id));
+    if (!prev || Number(it.updatedAt || 0) >= Number(prev.updatedAt || 0)) {
+      stockMap.set(String(it.id), it);
+    }
+  });
+
+  const trashMap = mapFrom(remoteTrash, delTrash);
+  (Array.isArray(localTrash) ? localTrash : []).forEach(it => {
+    if (!it?.id || delTrash[String(it.id)]) return;
+    const prev = trashMap.get(String(it.id));
+    if (!prev || Number(it.trashedTimestamp || it.updatedAt || 0) >= Number(prev.trashedTimestamp || prev.updatedAt || 0)) {
+      trashMap.set(String(it.id), it);
+    }
+  });
+
+  return {
+    mergedStock: Array.from(stockMap.values()),
+    mergedTrash: Array.from(trashMap.values())
+  };
+}
+
+function registerPendingCalendarOp(pendingRef, opType, ev) {
+  if (!pendingRef?.current || !ev?.id) return;
+  pendingRef.current[String(ev.id)] = { op: opType, ev, ts: Date.now() };
+}
+
+function mergeCalendarEventsSafe(remoteEvents, pendingRef, syncMeta) {
+  const list = Array.isArray(remoteEvents) ? [...remoteEvents] : [];
+  const delMap = syncMeta?.deletedEventIds || {};
+  const pending = pendingRef?.current || {};
+  const now = Date.now();
+
+  const map = new Map();
+  list.forEach(ev => {
+    if (!ev?.id) return;
+    if (delMap[String(ev.id)]) return;
+    map.set(String(ev.id), ev);
+  });
+
+  Object.entries(pending).forEach(([id, entry]) => {
+    if (!entry || now - entry.ts > 30000) {
+      delete pending[id];
+      return;
+    }
+    if (entry.op === 'delete') {
+      map.delete(id);
+    } else if (entry.op === 'create' || entry.op === 'update') {
+      map.set(id, entry.ev);
+    }
+  });
+
+  return Array.from(map.values());
+}
+
+function hasJsonChanged(a, b) {
+  try {
+    return JSON.stringify(a) !== JSON.stringify(b);
+  } catch (e) {
+    return true;
+  }
+}
 
 function writeAuthSession(accountId, authKey, familyName) {
   try {
@@ -803,7 +1042,7 @@ export default function TouchwallPocketApp() {
     } catch (e) {}
   };
 
-  //
+//
   //
   // ============================================================================
   // PART 05: PWA, PUSH-BENACHRICHTIGUNGEN, MHD-WÄCHTER & UI-HELFER
@@ -1214,6 +1453,12 @@ export default function TouchwallPocketApp() {
         customLogoUrl: s.customLogoUrl || preservedWallStateRef.current.customLogoUrl || '',
         calendars: s.calendars || preservedWallStateRef.current.calendars || {}
       };
+      if (s.skillBoardData) {
+        setSkillBoardData(mergeSkillBoardSafe(skillBoardData, s.skillBoardData));
+      }
+      if (s.customLogoUrl) {
+        setCustomLogoUrl(s.customLogoUrl);
+      }
 
       if (s.familyName) setFamilyName(s.familyName);
       if (Array.isArray(s.members) && s.members.length >= 2 && hasJsonChanged(safeMembers, s.members)) setMembers(s.members);
@@ -1282,9 +1527,9 @@ export default function TouchwallPocketApp() {
       familyTasks: localTasksToSave,
       pantryItems: localStockToSave,
       pantryTrash: localTrashToSave,
-      skillBoardData: preservedWallStateRef.current.skillBoardData || null,
+      skillBoardData: skillBoardData || preservedWallStateRef.current.skillBoardData || null,
       syncMeta: syncMetaRef.current,
-      customLogoUrl: preservedWallStateRef.current.customLogoUrl || '',
+      customLogoUrl: customLogoUrl || preservedWallStateRef.current.customLogoUrl || '',
       currentTheme,
       todoistConfig
     };
@@ -1308,8 +1553,8 @@ export default function TouchwallPocketApp() {
       let mergedTrash = localTrashToSave;
       let mergedNotes = localNotesToSave;
       let mergedTasks = localTasksToSave;
-      let latestSkillBoard = preservedWallStateRef.current.skillBoardData || null;
-      let latestLogo = preservedWallStateRef.current.customLogoUrl || '';
+      let latestSkillBoard = basePayload.skillBoardData;
+      let latestLogo = basePayload.customLogoUrl;
 
       try {
         const freshBundle = await callCloudBackend({ action: 'loadBundle', skipCalendars: true });
@@ -1540,8 +1785,14 @@ export default function TouchwallPocketApp() {
           if (Array.isArray(parsed.familyTasks)) setFamilyTasks(parsed.familyTasks);
           if (Array.isArray(parsed.pantryItems)) setPantryItems(parsed.pantryItems);
           if (Array.isArray(parsed.pantryTrash)) setPantryTrash(parsed.pantryTrash);
-          if (parsed.skillBoardData) preservedWallStateRef.current.skillBoardData = parsed.skillBoardData;
-          if (parsed.customLogoUrl) preservedWallStateRef.current.customLogoUrl = parsed.customLogoUrl;
+          if (parsed.skillBoardData) {
+            preservedWallStateRef.current.skillBoardData = parsed.skillBoardData;
+            setSkillBoardData(parsed.skillBoardData);
+          }
+          if (parsed.customLogoUrl) {
+            preservedWallStateRef.current.customLogoUrl = parsed.customLogoUrl;
+            setCustomLogoUrl(parsed.customLogoUrl);
+          }
           if (parsed.currentTheme) setCurrentTheme(parsed.currentTheme);
           if (parsed.todoistConfig) setTodoistConfig(prev => ({ ...prev, ...parsed.todoistConfig }));
         } catch (e) {}
@@ -1629,7 +1880,7 @@ export default function TouchwallPocketApp() {
     try { localStorage.setItem('richter_tw_pocket_person', personId); } catch (e) {}
   };
 
-//
+  //
   //
   // ============================================================================
   // PART 07: EINKAUFSWAGEN-, VORRATS- & MÜLLEIMER-HANDLER
@@ -2549,6 +2800,7 @@ export default function TouchwallPocketApp() {
 
   const handleClearDoneShopItems = async (doneList) => {
     if (!Array.isArray(doneList) || doneList.length === 0) return;
+    const now = Date.now();
     lastLocalEditRef.current = now;
     await markShopItemsPermanentlyRemoved(doneList);
 
@@ -2631,10 +2883,10 @@ export default function TouchwallPocketApp() {
       familyTasks: safeTasks,
       pantryItems: safeStock,
       pantryTrash: safeTrash,
-      skillBoardData: preservedWallStateRef.current.skillBoardData || null,
+      skillBoardData: skillBoardData || preservedWallStateRef.current.skillBoardData || null,
       syncMeta: syncMetaRef.current,
       currentTheme,
-      customLogoUrl: preservedWallStateRef.current.customLogoUrl || '',
+      customLogoUrl: customLogoUrl || preservedWallStateRef.current.customLogoUrl || '',
       todoistConfig
     };
     setIsSyncing(true);
@@ -3019,7 +3271,7 @@ export default function TouchwallPocketApp() {
     showToast('Standard-Design aktiv', 'Farben & Theme zurückgesetzt.', '🔄');
   };
 
-  //
+//
   //
   // ============================================================================
   // PART 09: AUTH-GUARD, FILTER-LISTEN & KATEGORIEN-WISCH-STEUERUNG
@@ -3089,6 +3341,7 @@ export default function TouchwallPocketApp() {
     { id: 'accounts',   label: 'Konten',      icon: Cloud,         badge: 0 }
   ];
 
+  // Alle Kategorien für das schwebende Karussell (Scanner sitzt permanent im Dock rechts)
   const FLOATING_CATEGORY_TABS = POCKET_TABS.filter(t => t.id !== 'scanner');
 
   const switchCategorySmooth = (nextTabId, explicitDir = null, triggerBottomFlash = false) => {
@@ -3104,6 +3357,7 @@ export default function TouchwallPocketApp() {
     setActiveTab(nextTabId);
     setCategoryTrayOpen(false);
 
+    // Weiche Slide-In-Animation in Wischrichtung
     if (slideAnimTimerRef.current) clearTimeout(slideAnimTimerRef.current);
     setSlideAnimClass('');
     requestAnimationFrame(() => {
@@ -3111,6 +3365,7 @@ export default function TouchwallPocketApp() {
       slideAnimTimerRef.current = setTimeout(() => setSlideAnimClass(''), 300);
     });
 
+    // 2-Sekunden-Aufleuchten + kurzzeitiger Kategoriename im unteren Kategorie-Button
     if (triggerBottomFlash && nextTabId !== 'scanner') {
       const targetObj = POCKET_TABS.find(t => t.id === nextTabId);
       if (targetObj) {
@@ -3155,6 +3410,7 @@ export default function TouchwallPocketApp() {
     const dx = e.touches[0].clientX - swipeRef.current.x;
     const dy = e.touches[0].clientY - swipeRef.current.y;
 
+    // Achse einmalig sperren, damit vertikales Scrollen völlig sauber bleibt
     if (!swipeRef.current.axis) {
       if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
       if (Math.abs(dy) > Math.abs(dx) * 1.1) {
@@ -4282,6 +4538,7 @@ export default function TouchwallPocketApp() {
               </div>
             </div>
 
+            {/* GOOGLE & OUTLOOK OAUTH JEDERZEIT NACHTRÄGLICH VERKNÜPFEN */}
             {SHOW_OAUTH_UI && accountId && accountId !== 'local' && (
               <div className="space-y-2 pt-1 border-t border-white/10">
                 <span className="text-[11px] font-black uppercase text-emerald-400 block">
@@ -4695,6 +4952,7 @@ export default function TouchwallPocketApp() {
         </div>
       )}
 
+      {/* KLICK-HINTERGRUND ZUM SCHLIESSEN DER FLIEGENDEN KATEGORIEN */}
       {categoryTrayOpen && (
         <div
           data-no-swipe="true"
@@ -4703,6 +4961,7 @@ export default function TouchwallPocketApp() {
         />
       )}
 
+      {/* SCHWEBENDE, HORIZONTAL VERSCHIEBBARE KATEGORIE-BUTTONS */}
       {categoryTrayOpen && (
         <div
           data-no-swipe="true"
@@ -4743,6 +5002,7 @@ export default function TouchwallPocketApp() {
                 );
               })}
 
+              {/* MENÜ / COCKPIT ALS LETZTER FLIEGENDER BUTTON (HÄLT DAS 2ER-DOCK UNTEN CLEAN) */}
               <button
                 type="button"
                 onClick={() => {
@@ -4768,6 +5028,7 @@ export default function TouchwallPocketApp() {
         </div>
       )}
 
+      {/* KOMPAKTES ZENTRIERTES 2ER-DOCK UNTEN (KATEGORIE + SCANNER) */}
       <nav
         data-no-swipe="true"
         className="fixed bottom-0 inset-x-0 z-40 pointer-events-none flex justify-center px-3"
@@ -4779,6 +5040,7 @@ export default function TouchwallPocketApp() {
             'backdrop-blur-md ' + themeStyles.header
           }
         >
+          {/* LINKER BUTTON: KATEGORIE (BLINKT 2 SEK. MIT AKTUELLEM NAMEN BEIM WISCHEN) */}
           {(() => {
             const FlashIcon = categoryFlashInfo?.icon || (categoryTrayOpen ? X : Menu);
             const hasUrgentBehind =
@@ -4810,6 +5072,7 @@ export default function TouchwallPocketApp() {
             );
           })()}
 
+          {/* RECHTER BUTTON: SCANNER (IMMER DIREKT ERREICHBAR) */}
           <button
             type="button"
             onClick={() => switchCategorySmooth('scanner', null, false)}
@@ -4830,6 +5093,7 @@ export default function TouchwallPocketApp() {
         </div>
       </nav>
 
+      {/* ERSTSTART-ABFRAGE FÜR ALLE BENACHRICHTIGUNGEN & ZUGRIFFE */}
       {showPermissionOnboarding && (
         <div
           data-no-swipe="true"
