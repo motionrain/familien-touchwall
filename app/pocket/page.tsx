@@ -825,12 +825,6 @@ export default function TouchwallPocketApp() {
 
     if ('Notification' in window) {
       setNotifPermission(Notification.permission);
-      try {
-        const onboardingDone = localStorage.getItem('richter_tw_pocket_perms_done') === '1';
-        if (!onboardingDone && Notification.permission === 'default') {
-          setShowPermissionOnboarding(true);
-        }
-      } catch (e) {}
     }
 
     const dayWatcher = setInterval(() => {
@@ -863,6 +857,17 @@ export default function TouchwallPocketApp() {
       window.removeEventListener('offline', onNetOffline);
     };
   }, []);
+
+  // Berechtigungs-Abfrage erst NACH erfolgreichem Login anzeigen
+  useEffect(() => {
+    if (!isAuthenticated || typeof window === 'undefined' || !('Notification' in window)) return;
+    try {
+      const onboardingDone = localStorage.getItem('richter_tw_pocket_perms_done') === '1';
+      if (!onboardingDone && Notification.permission === 'default') {
+        setShowPermissionOnboarding(true);
+      }
+    } catch (e) {}
+  }, [isAuthenticated]);
 
   const handleInstallAndroidApp = async () => {
     if (!installPromptEvent) return;
@@ -1157,6 +1162,22 @@ export default function TouchwallPocketApp() {
   //
   //
 
+  const clearInvalidSessionAndLock = (reasonMsg = '') => {
+    try {
+      localStorage.removeItem('richter_tw_auth_active');
+      localStorage.removeItem('richter_tw_account_id');
+      localStorage.removeItem('richter_tw_auth_key');
+      localStorage.removeItem('richter_touchwall_events_cache');
+      document.cookie = 'tw_auth_session=; path=/; max-age=0; SameSite=Lax';
+      document.cookie = 'tw_account_id=; path=/; max-age=0; SameSite=Lax';
+    } catch (e) {}
+    setAccountId('');
+    setAuthKey('');
+    setIsAuthenticated(false);
+    setShowPermissionOnboarding(false);
+    if (reasonMsg) setLoginError(reasonMsg);
+  };
+
   const callCloudBackend = async (postBody) => {
     return callCloudApi(
       PUBLIC_CLOUD_BACKEND_URL,
@@ -1370,6 +1391,19 @@ export default function TouchwallPocketApp() {
           authKey: activeKey,
           skipCalendars: isStateOnlyRealtime
         });
+
+        // SCHUTZ: Bei ungültiger Cloud-Session automatisch abmelden & Login zeigen
+        if (bundle?.ok === false) {
+          const errMsg = String(bundle?.error || '');
+          const isAuthFail =
+            !activeKey ||
+            /auth|passwort|pin|key|konto|ungültig|nicht gefunden|abgelaufen|unauthorized|forbidden/i.test(errMsg);
+          if (isAuthFail) {
+            clearInvalidSessionAndLock(errMsg || 'Sitzung abgelaufen. Bitte erneut anmelden.');
+            return;
+          }
+        }
+
         if (!showFeedback && !isRealtimeTrigger && (isNetworkSavingRef.current || Date.now() - lastLocalEditRef.current < 6000)) {
           return;
         }
@@ -1529,13 +1563,23 @@ export default function TouchwallPocketApp() {
         }
       }
 
-      if (session.active && session.accountId) {
+      // SCHUTZ: Nur einloggen, wenn accountId UND (bei Cloud-Konto) auch authKey vorhanden sind
+      const hasValidSession = Boolean(
+        session.active &&
+        session.accountId &&
+        (session.accountId === 'local' || session.authKey)
+      );
+
+      if (hasValidSession) {
         setAccountId(session.accountId);
         setAuthKey(session.authKey);
         setIsAuthenticated(true);
         if (session.accountId !== 'local') {
           setTimeout(() => syncAllNowRef.current?.(false, session.accountId, session.authKey), 150);
         }
+      } else if (session.active) {
+        // Verwaistes Cookie nach Cache-Reset sauber entfernen -> Login anzeigen
+        clearInvalidSessionAndLock('');
       }
     } catch (e) {}
     setIsCheckingAuth(false);
