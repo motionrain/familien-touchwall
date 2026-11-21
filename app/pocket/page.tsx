@@ -17,19 +17,15 @@ import {
   Calendar, CheckSquare, ShoppingCart, Package, Camera,
   RefreshCw, LogOut, Cloud, Trash2, Check, X,
   BellRing, Download, WifiOff, Menu, SlidersHorizontal,
-  Search, RotateCcw, Wand2,
+  Search, RotateCcw, Wand2, AlertTriangle, Pencil, CheckCircle2,
   Utensils, ChefHat, Tag, FileText, GraduationCap, Swords, Palette
 } from 'lucide-react';
 import * as Cfg from '../touchwallConfig';
 import AuthScreen from '../AuthScreen';
 import {
   getFoodEmoji,
-  FOOD_EMOJI_PICKER,
   FOOD_CATEGORIES,
-  detectSmartCategory,
-  detectSmartLocation,
-  isProductGlutenFree,
-  simplifyProductName
+  detectFoodCategory
 } from '../PantrySection';
 import { useTouchwallRealtime } from '../useTouchwallRealtime';
 import { openCookieSettingsModal } from '../CookieConsent';
@@ -46,6 +42,10 @@ import PocketTasks from './PocketTasks';
 import PocketScanner from './PocketScanner';
 import PocketShopping from './PocketShopping';
 
+// >>> HINWEIS: Falls deine Datei vorher Imports für STORAGE_PILLS, ProductThumb,
+// playMobileBeep, loadLocalSyncMeta, saveLocalSyncMeta, mergePantryChannelSafe etc.
+// aus einer lokalen Helper-Datei hatte, diese 1-2 Import-Zeilen hier wieder einfügen! <<<
+
 const SHOW_OAUTH_UI = process.env.NEXT_PUBLIC_ENABLE_OAUTH === 'true';
 
 const {
@@ -60,32 +60,6 @@ const {
   buildThemeStyles,
   buildMemberStyles,
   callCloudApi,
-  discoverTodoistWorkspace,
-  pullFromTodoistTwoWay,
-  createTodoistTaskItem,
-  closeOrReopenTodoistTask,
-  deleteTodoistTask,
-  readAuthSession,
-  writeAuthSession
-} = Cfg;
-
-import PocketAgenda from './PocketAgenda';
-import PocketTasks from './PocketTasks';
-import PocketScanner from './PocketScanner';
-import PocketShopping from './PocketShopping';
-
-const SHOW_OAUTH_UI = process.env.NEXT_PUBLIC_ENABLE_OAUTH === 'true';
-
-const {
-  formatDateStr,
-  addDays,
-  COLOR_PALETTES,
-  DEFAULT_MEMBERS,
-  DEFAULT_MEALS,
-  DEFAULT_NOTES,
-  DEFAULT_SCHOOL,
-  buildThemeStyles,
-  buildMemberStyles,
   discoverTodoistWorkspace,
   pullFromTodoistTwoWay,
   createTodoistTaskItem,
@@ -828,7 +802,7 @@ export default function TouchwallPocketApp() {
       localStorage.setItem('richter_tw_pocket_cart_v1', JSON.stringify(clean));
     } catch (e) {}
   };
-  
+
   //
   //
   // ============================================================================
@@ -891,7 +865,6 @@ export default function TouchwallPocketApp() {
     };
   }, []);
 
-  // Berechtigungs-Abfrage erst NACH erfolgreichem Login anzeigen
   useEffect(() => {
     if (!isAuthenticated || typeof window === 'undefined' || !('Notification' in window)) return;
     try {
@@ -900,7 +873,6 @@ export default function TouchwallPocketApp() {
         window.navigator?.standalone === true;
       const onboardingDone = localStorage.getItem('richter_tw_pocket_perms_done') === '1';
 
-      // In der installierten App immer fragen, solange Benachrichtigungen noch nicht erlaubt sind
       if (Notification.permission === 'default' && (!onboardingDone || isStandalonePwa)) {
         setShowPermissionOnboarding(true);
       }
@@ -942,16 +914,13 @@ export default function TouchwallPocketApp() {
   };
 
   const handleGrantAllPermissions = async () => {
-    // 1. Audio & Vibration durch Nutzer-Klick freischalten
     playMobileBeep('shopping');
     try { navigator.vibrate?.([150, 80, 150]); } catch (e) {}
 
-    // 2. Service Worker sicherstellen
     if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
       try { await navigator.serviceWorker.register('/sw.js'); } catch (e) {}
     }
 
-    // 3. Benachrichtigungs-Berechtigung anfordern
     if (typeof window !== 'undefined' && 'Notification' in window) {
       try {
         const perm = await Notification.requestPermission();
@@ -1343,7 +1312,6 @@ export default function TouchwallPocketApp() {
       let latestLogo = preservedWallStateRef.current.customLogoUrl || '';
 
       try {
-        // TURBO: Vor-Merge ohne Google-Kalender-Wartezeit (~60ms statt 2-3s)
         const freshBundle = await callCloudBackend({ action: 'loadBundle', skipCalendars: true });
         if (freshBundle?.ok && freshBundle.state) {
           const rs = freshBundle.state;
@@ -1430,7 +1398,6 @@ export default function TouchwallPocketApp() {
           skipCalendars: isStateOnlyRealtime
         });
 
-        // SCHUTZ: Bei ungültiger Cloud-Session automatisch abmelden & Login zeigen
         if (bundle?.ok === false) {
           const errMsg = String(bundle?.error || '');
           const isAuthFail =
@@ -1583,7 +1550,6 @@ export default function TouchwallPocketApp() {
       const isCurrentlyOnline = typeof navigator === 'undefined' || navigator.onLine !== false;
 
       if (isCurrentlyOnline) {
-        // Bei Online-Start: Alten Kalender-Cache & lokale Lösch-Sperren direkt verwerfen
         localStorage.removeItem('richter_touchwall_events_cache');
         pendingCalendarOpsRef.current = {};
         if (syncMetaRef.current) {
@@ -1591,7 +1557,6 @@ export default function TouchwallPocketApp() {
           saveLocalSyncMeta(syncMetaRef.current);
         }
       } else {
-        // Nur im Offline-Modus auf den lokalen Cache zurückfallen
         const savedEv = localStorage.getItem('richter_touchwall_events_cache');
         if (savedEv) {
           try {
@@ -1601,7 +1566,6 @@ export default function TouchwallPocketApp() {
         }
       }
 
-      // SCHUTZ: Nur einloggen, wenn accountId UND (bei Cloud-Konto) auch authKey vorhanden sind
       const hasValidSession = Boolean(
         session.active &&
         session.accountId &&
@@ -1616,19 +1580,16 @@ export default function TouchwallPocketApp() {
           setTimeout(() => syncAllNowRef.current?.(false, session.accountId, session.authKey), 150);
         }
       } else if (session.active) {
-        // Verwaistes Cookie nach Cache-Reset sauber entfernen -> Login anzeigen
         clearInvalidSessionAndLock('');
       }
     } catch (e) {}
     setIsCheckingAuth(false);
   }, []);
 
-  // SUPABASE REALTIME TURBO LIVE-SYNC
   useTouchwallRealtime(isAuthenticated && accountId && accountId !== 'local' ? accountId : '', (scope) => {
     syncAllNowRef.current?.(false, undefined, undefined, true, scope || 'all');
   });
 
-  // Fallback-Intervall (30s) + automatischer Cache-Reset beim Wieder-Öffnen der App
   useEffect(() => {
     if (!isAuthenticated || !accountId || accountId === 'local') return;
 
@@ -1668,7 +1629,7 @@ export default function TouchwallPocketApp() {
     try { localStorage.setItem('richter_tw_pocket_person', personId); } catch (e) {}
   };
 
-  //
+//
   //
   // ============================================================================
   // PART 07: EINKAUFSWAGEN-, VORRATS- & MÜLLEIMER-HANDLER
@@ -2170,7 +2131,6 @@ export default function TouchwallPocketApp() {
           setEvents(mergeCalendarEventsSafe(res.result.events, pendingCalendarOpsRef, syncMetaRef.current));
           return;
         }
-        // Fallback, falls ein Kalender-Wechsel separat gelöscht & neu angelegt werden muss
         await callCloudBackend({
           action: 'deleteEvent',
           eventId: String(originalEv.id),
@@ -2589,7 +2549,7 @@ export default function TouchwallPocketApp() {
 
   const handleClearDoneShopItems = async (doneList) => {
     if (!Array.isArray(doneList) || doneList.length === 0) return;
-    lastLocalEditRef.current = Date.now();
+    lastLocalEditRef.current = now;
     await markShopItemsPermanentlyRemoved(doneList);
 
     const nextNotes = safeNotes.map((n, idx) => idx === 0 ? {
@@ -2601,7 +2561,6 @@ export default function TouchwallPocketApp() {
     showToast('Erledigte geleert!', doneList.length + ' erledigte Einkäufe entfernt.', '🗑️');
   };
 
-  // KONTEN-HANDLER (IDENTISCH ZUR TOUCHWALL)
   const createAndSelectTodoistProject = async (projectName) => {
     const token = (todoistConfig?.apiToken || '').trim();
     if (!token || !projectName?.trim()) return null;
@@ -2905,7 +2864,6 @@ export default function TouchwallPocketApp() {
   const updateSchoolDataAndSync = (updater) => {
     setSchoolData(prev => {
       const next = typeof updater === 'function' ? updater(prev) : updater;
-      // schoolData wird im nächsten Render-Zyklus mitgesichert
       setTimeout(() => saveStateToCloud({}), 80);
       return next;
     });
@@ -3060,7 +3018,7 @@ export default function TouchwallPocketApp() {
     setTimeout(() => saveStateToCloud({}), 80);
     showToast('Standard-Design aktiv', 'Farben & Theme zurückgesetzt.', '🔄');
   };
-  
+
   //
   //
   // ============================================================================
@@ -3131,7 +3089,6 @@ export default function TouchwallPocketApp() {
     { id: 'accounts',   label: 'Konten',      icon: Cloud,         badge: 0 }
   ];
 
-  // Alle Kategorien für das schwebende Karussell (Scanner sitzt permanent im Dock rechts)
   const FLOATING_CATEGORY_TABS = POCKET_TABS.filter(t => t.id !== 'scanner');
 
   const switchCategorySmooth = (nextTabId, explicitDir = null, triggerBottomFlash = false) => {
@@ -3147,7 +3104,6 @@ export default function TouchwallPocketApp() {
     setActiveTab(nextTabId);
     setCategoryTrayOpen(false);
 
-    // Weiche Slide-In-Animation in Wischrichtung
     if (slideAnimTimerRef.current) clearTimeout(slideAnimTimerRef.current);
     setSlideAnimClass('');
     requestAnimationFrame(() => {
@@ -3155,7 +3111,6 @@ export default function TouchwallPocketApp() {
       slideAnimTimerRef.current = setTimeout(() => setSlideAnimClass(''), 300);
     });
 
-    // 2-Sekunden-Aufleuchten + kurzzeitiger Kategoriename im unteren Kategorie-Button
     if (triggerBottomFlash && nextTabId !== 'scanner') {
       const targetObj = POCKET_TABS.find(t => t.id === nextTabId);
       if (targetObj) {
@@ -3200,7 +3155,6 @@ export default function TouchwallPocketApp() {
     const dx = e.touches[0].clientX - swipeRef.current.x;
     const dy = e.touches[0].clientY - swipeRef.current.y;
 
-    // Achse einmalig sperren, damit vertikales Scrollen völlig sauber bleibt
     if (!swipeRef.current.axis) {
       if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
       if (Math.abs(dy) > Math.abs(dx) * 1.1) {
@@ -3240,7 +3194,7 @@ export default function TouchwallPocketApp() {
       switchCategorySmooth(POCKET_TABS[currentIdx - 1].id, 'prev', true);
     }
   };
-  
+
   //
   //
   // ============================================================================
@@ -3619,7 +3573,7 @@ export default function TouchwallPocketApp() {
                         <select
                           value={schoolModal.status}
                           onChange={(e) => setSchoolModal(prev => ({ ...prev, status: e.target.value }))}
-                          className={'w-full px-3.5 py-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
+                          className={'w-full px-3 py-2.5 rounded-xl border text-xs font-extrabold ' + themeStyles.input}
                         >
                           <option value="normal" className="bg-slate-800 text-white">Normaler Unterricht</option>
                           <option value="exam" className="bg-slate-800 text-purple-300">📝 Klassenarbeit / Test</option>
@@ -3648,7 +3602,7 @@ export default function TouchwallPocketApp() {
                   </form>
                 </div>
               )}
-            
+
               {/*
               //
               // ============================================================================
@@ -4328,7 +4282,6 @@ export default function TouchwallPocketApp() {
               </div>
             </div>
 
-            {/* GOOGLE & OUTLOOK OAUTH JEDERZEIT NACHTRÄGLICH VERKNÜPFEN */}
             {SHOW_OAUTH_UI && accountId && accountId !== 'local' && (
               <div className="space-y-2 pt-1 border-t border-white/10">
                 <span className="text-[11px] font-black uppercase text-emerald-400 block">
@@ -4499,7 +4452,6 @@ export default function TouchwallPocketApp() {
               </button>
             </div>
 
-            {/* PRODUKTBILD BEARBEITEN / HOCHLADEN (SUPABASE STORAGE) */}
             <div className={'p-2.5 rounded-2xl border flex flex-wrap items-center justify-between gap-2 ' + themeStyles.subtle}>
               <div className="text-[11px] font-extrabold text-slate-300 flex items-center gap-1.5 min-w-0">
                 <span>🖼️</span>
@@ -4743,7 +4695,6 @@ export default function TouchwallPocketApp() {
         </div>
       )}
 
-      {/* KLICK-HINTERGRUND ZUM SCHLIESSEN DER FLIEGENDEN KATEGORIEN */}
       {categoryTrayOpen && (
         <div
           data-no-swipe="true"
@@ -4752,7 +4703,6 @@ export default function TouchwallPocketApp() {
         />
       )}
 
-      {/* SCHWEBENDE, HORIZONTAL VERSCHIEBBARE KATEGORIE-BUTTONS */}
       {categoryTrayOpen && (
         <div
           data-no-swipe="true"
@@ -4793,7 +4743,6 @@ export default function TouchwallPocketApp() {
                 );
               })}
 
-              {/* MENÜ / COCKPIT ALS LETZTER FLIEGENDER BUTTON (HÄLT DAS 2ER-DOCK UNTEN CLEAN) */}
               <button
                 type="button"
                 onClick={() => {
@@ -4819,7 +4768,6 @@ export default function TouchwallPocketApp() {
         </div>
       )}
 
-      {/* KOMPAKTES ZENTRIERTES 2ER-DOCK UNTEN (KATEGORIE + SCANNER) */}
       <nav
         data-no-swipe="true"
         className="fixed bottom-0 inset-x-0 z-40 pointer-events-none flex justify-center px-3"
@@ -4831,7 +4779,6 @@ export default function TouchwallPocketApp() {
             'backdrop-blur-md ' + themeStyles.header
           }
         >
-          {/* LINKER BUTTON: KATEGORIE (BLINKT 2 SEK. MIT AKTUELLEM NAMEN BEIM WISCHEN) */}
           {(() => {
             const FlashIcon = categoryFlashInfo?.icon || (categoryTrayOpen ? X : Menu);
             const hasUrgentBehind =
@@ -4863,7 +4810,6 @@ export default function TouchwallPocketApp() {
             );
           })()}
 
-          {/* RECHTER BUTTON: SCANNER (IMMER DIREKT ERREICHBAR) */}
           <button
             type="button"
             onClick={() => switchCategorySmooth('scanner', null, false)}
@@ -4884,7 +4830,6 @@ export default function TouchwallPocketApp() {
         </div>
       </nav>
 
-      {/* ERSTSTART-ABFRAGE FÜR ALLE BENACHRICHTIGUNGEN & ZUGRIFFE */}
       {showPermissionOnboarding && (
         <div
           data-no-swipe="true"
