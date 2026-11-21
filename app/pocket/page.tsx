@@ -22,6 +22,7 @@ import {
 
 import * as Cfg from '../touchwallConfig';
 import AuthScreen from '../AuthScreen';
+import OtherSections from '../OtherSections';
 import ProductThumb from '../ProductThumb';
 import { uploadProductPhotoToSupabase } from '../productImageUtils';
 import { openCookieSettingsModal } from '../CookieBanner';
@@ -65,6 +66,7 @@ const {
   DEFAULT_SCHOOL,
   buildThemeStyles,
   buildMemberStyles,
+  discoverTodoistWorkspace,
   pullFromTodoistTwoWay,
   createTodoistTaskItem,
   closeOrReopenTodoistTask,
@@ -642,6 +644,11 @@ export default function TouchwallPocketApp() {
     collaborators: []
   });
 
+  // Konten- & Diagnose-States (wie Touchwall)
+  const [appsScriptUrl, setAppsScriptUrl] = useState(PUBLIC_CLOUD_BACKEND_URL);
+  const [diagResult, setDiagResult] = useState(null);
+  const [isTestingDiag, setIsTestingDiag] = useState(false);
+
   const [cartItems, setCartItems] = useState([]);
 
   // Bestands-Unteransicht: 'stock' (Vorrat) | 'trash' (Mülleimer)
@@ -787,7 +794,7 @@ export default function TouchwallPocketApp() {
       localStorage.setItem('richter_tw_pocket_cart_v1', JSON.stringify(clean));
     } catch (e) {}
   };
-
+  
   //
   //
   // ============================================================================
@@ -1930,7 +1937,7 @@ export default function TouchwallPocketApp() {
   //
   //
   // ============================================================================
-  // PART 08: KALENDER-, AUFGABEN-, EINKAUFS- & AUTH-HANDLER
+  // PART 08: KALENDER-, AUFGABEN-, EINKAUFS-, KONTEN- & AUTH-HANDLER
   // ============================================================================
   //
   //
@@ -1977,10 +1984,12 @@ export default function TouchwallPocketApp() {
     const updatedEv = {
       ...originalEv,
       ...updatedFields,
+      title: String(updatedFields?.title || originalEv.title || '').trim(),
+      fromGoogle: true,
       fromMobile: true
     };
 
-    registerPendingCalendarOp(pendingCalendarOpsRef, 'create', updatedEv);
+    registerPendingCalendarOp(pendingCalendarOpsRef, 'update', updatedEv);
     setEvents(prev =>
       (Array.isArray(prev) ? prev : []).map(item =>
         String(item.id) === String(originalEv.id) ? updatedEv : item
@@ -1990,12 +1999,18 @@ export default function TouchwallPocketApp() {
 
     if (accountId && accountId !== 'local') {
       try {
-        const res = await callCloudBackend({ action: 'updateEvent', event: updatedEv });
+        const res = await callCloudBackend({
+          action: 'updateEvent',
+          event: updatedEv,
+          oldMember: originalEv.member || updatedEv.member,
+          oldTitle: originalEv.title || updatedEv.title,
+          oldDate: originalEv.date || updatedEv.date
+        });
         if (res?.ok && res?.result?.events) {
           setEvents(mergeCalendarEventsSafe(res.result.events, pendingCalendarOpsRef, syncMetaRef.current));
           return;
         }
-        // Fallback, falls /api/cloud kein eigenes updateEvent ausführt
+        // Fallback, falls ein Kalender-Wechsel separat gelöscht & neu angelegt werden muss
         await callCloudBackend({
           action: 'deleteEvent',
           eventId: String(originalEv.id),
@@ -2006,6 +2021,46 @@ export default function TouchwallPocketApp() {
         const createRes = await callCloudBackend({ action: 'createEvent', event: updatedEv });
         if (createRes?.result?.events) {
           setEvents(mergeCalendarEventsSafe(createRes.result.events, pendingCalendarOpsRef, syncMetaRef.current));
+        }
+      } catch (err) {}
+    }
+  };
+
+  const handleDuplicateMobileEvent = async (sourceEv, targetMemberId, targetDateStr) => {
+    if (!sourceEv) return;
+    lastLocalEditRef.current = Date.now();
+    const newDate = targetDateStr || sourceEv.date || todayStr;
+    const newMember = targetMemberId || sourceEv.member || 'all';
+    const targetM = safeMembers.find(m => m.id === newMember);
+
+    const copiedNewEv = {
+      id: String(Date.now() + Math.floor(Math.random() * 1000)),
+      title: String(sourceEv.title || 'Termin').trim(),
+      date: newDate,
+      time: sourceEv.time || 'Ganztägig',
+      member: newMember,
+      notifyTime: sourceEv.notifyTime || '30m',
+      notifyChannel: sourceEv.notifyChannel || 'wall_push',
+      notifyUsers: newMember === 'all'
+        ? safeMembers.filter(m => m.id !== 'all').map(m => m.id)
+        : [newMember],
+      fromGoogle: true,
+      fromMobile: true
+    };
+
+    registerPendingCalendarOp(pendingCalendarOpsRef, 'create', copiedNewEv);
+    setEvents(prev => [...(Array.isArray(prev) ? prev : []), copiedNewEv]);
+    showToast(
+      'Termin kopiert!',
+      '„' + copiedNewEv.title + '“ → ' + (targetM ? targetM.name : newMember) + ' (' + newDate + ')',
+      '📋'
+    );
+
+    if (accountId && accountId !== 'local') {
+      try {
+        const res = await callCloudBackend({ action: 'createEvent', event: copiedNewEv });
+        if (res?.result?.events) {
+          setEvents(mergeCalendarEventsSafe(res.result.events, pendingCalendarOpsRef, syncMetaRef.current));
         }
       } catch (err) {}
     }
@@ -2386,6 +2441,169 @@ export default function TouchwallPocketApp() {
     showToast('Erledigte geleert!', doneList.length + ' erledigte Einkäufe entfernt.', '🗑️');
   };
 
+  // KONTEN-HANDLER (IDENTISCH ZUR TOUCHWALL)
+  const createAndSelectTodoistProject = async (projectName) => {
+    const token = (todoistConfig?.apiToken || '').trim();
+    if (!token || !projectName?.trim()) return null;
+    try {
+      const createFn = Cfg.createNewTodoistProject || (async (tk, name) => Cfg.todoistFetch(tk, '/projects', { method: 'POST', rawBody: { name } }));
+      const created = await createFn(token, projectName.trim());
+      if (created?.id) {
+        setTodoistConfig(prev => ({
+          ...prev,
+          projects: [...(Array.isArray(prev?.projects) ? prev.projects : []), created]
+        }));
+        showToast('Projekt erstellt', 'Todoist-Projekt „' + created.name + '“ wurde angelegt!', '📂');
+        return created;
+      }
+    } catch (err) {
+      showToast('Projekt-Fehler', err.message, '❌');
+    }
+    return null;
+  };
+
+  const connectAndDiscoverTodoist = async () => {
+    if (!todoistConfig?.apiToken?.trim()) {
+      showToast('Token fehlt', 'Bitte zuerst dein Todoist API-Token eintragen.', '⚠️');
+      return;
+    }
+    setIsSyncing(true);
+    try {
+      const disc = await discoverTodoistWorkspace(todoistConfig.apiToken);
+      const nextCfg = {
+        ...todoistConfig,
+        projects: Array.isArray(disc?.projects) ? disc.projects : [],
+        shoppingProjectId: todoistConfig.shoppingProjectId || disc?.shoppingProjectId || '',
+        tasksProjectId: todoistConfig.tasksProjectId || disc?.tasksProjectId || '',
+        collaborators: Array.isArray(disc?.collaborators) ? disc.collaborators : []
+      };
+      setTodoistConfig(nextCfg);
+      if (nextCfg.collaborators.length > 0) {
+        setMembers(prev => (Array.isArray(prev) ? prev : DEFAULT_MEMBERS).map(m => {
+          if (m.id === 'all' || m.todoistUserId) return m;
+          const match = nextCfg.collaborators.find(c =>
+            c.name?.toLowerCase().includes(m.name.toLowerCase()) ||
+            c.email?.toLowerCase().includes(m.id.toLowerCase())
+          );
+          return match ? { ...m, todoistUserId: String(match.id) } : m;
+        }));
+      }
+      showToast('Todoist verbunden!', nextCfg.projects.length + ' Projekte geladen.', '🎉');
+      await syncAllNow(false);
+    } catch (err) {
+      showToast('Todoist-Fehler', err.message, '❌');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const pushToCloudAndDrive = async (customMembersList, showFeedback = true) => {
+    const listToSave = Array.isArray(customMembersList) ? customMembersList : safeMembers;
+    const calMap = {};
+    listToSave.forEach(m => { calMap[m.id] = (m.calendarId || '').trim(); });
+    const payload = {
+      isConfigured: true,
+      familyName,
+      members: listToSave,
+      calendars: calMap,
+      mealPlan: safeMeals,
+      familyNotes: safeNotes,
+      schoolData,
+      familyTasks: safeTasks,
+      pantryItems: safeStock,
+      pantryTrash: safeTrash,
+      skillBoardData: preservedWallStateRef.current.skillBoardData || null,
+      syncMeta: syncMetaRef.current,
+      currentTheme,
+      customLogoUrl: preservedWallStateRef.current.customLogoUrl || '',
+      todoistConfig
+    };
+    setIsSyncing(true);
+    try {
+      const res = await callCloudBackend({ action: 'saveDriveAndSync', payload, calendars: calMap });
+      if (res?.result?.events) {
+        setEvents(mergeCalendarEventsSafe(res.result.events, pendingCalendarOpsRef, syncMetaRef.current));
+      }
+      if (showFeedback) showToast('Gespeichert', 'Alle Konten & Daten wurden gesichert.', '✅');
+    } catch (err) {
+      if (showFeedback) showToast('Fehler', 'Speichern fehlgeschlagen.', '⚠️');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const runAllPermissionsTest = async () => {
+    setIsTestingDiag(true);
+    try {
+      const res = await callCloudBackend({ action: 'runDiagnostics' });
+      if (res?.result) setDiagResult(res.result);
+    } catch (e) {} finally {
+      setIsTestingDiag(false);
+    }
+  };
+
+  const addExtraCalendarAccount = () => {
+    const name = prompt('Name für neuen Kalender / Person:');
+    if (!name?.trim()) return;
+    const calId = prompt('Google Kalender-ID (leer lassen für Cloud-Kalender):') || '';
+    setMembers(prev => [
+      ...(Array.isArray(prev) ? prev : DEFAULT_MEMBERS),
+      {
+        id: 'cal_' + Date.now(),
+        name: name.trim(),
+        role: 'Zusatz',
+        badge: name.trim().charAt(0).toUpperCase(),
+        color: 'teal_bold',
+        avatarType: 'emoji',
+        emoji: '📅',
+        calendarId: calId.trim(),
+        todoistProjectId: '',
+        ok: true
+      }
+    ]);
+  };
+
+  const importBackupJson = (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    const r = new FileReader();
+    r.onload = (ev) => {
+      try {
+        const d = JSON.parse(ev.target.result);
+        if (Array.isArray(d.members)) setMembers(d.members);
+        if (Array.isArray(d.mealPlan)) setMealPlan(d.mealPlan);
+        if (Array.isArray(d.familyNotes)) setFamilyNotes(d.familyNotes);
+        if (d.schoolData) setSchoolData(d.schoolData);
+        if (Array.isArray(d.familyTasks)) setFamilyTasks(d.familyTasks);
+        if (Array.isArray(d.pantryItems)) setPantryItems(d.pantryItems);
+        if (Array.isArray(d.pantryTrash)) setPantryTrash(d.pantryTrash);
+        showToast('Import erfolgreich', 'Backup wurde wiederhergestellt.', '🎉');
+      } catch (err) {}
+    };
+    r.readAsText(f);
+  };
+
+  const exportBackupJson = () => {
+    const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify({
+      familyName,
+      members: safeMembers,
+      events: safeEvents,
+      mealPlan: safeMeals,
+      familyNotes: safeNotes,
+      schoolData,
+      familyTasks: safeTasks,
+      pantryItems: safeStock,
+      pantryTrash: safeTrash,
+      todoistConfig
+    }, null, 2));
+    const a = document.createElement('a');
+    a.setAttribute('href', dataStr);
+    a.setAttribute('download', 'touchwall_backup_' + todayStr + '.json');
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+
   const handlePocketLogin = async (e) => {
     e.preventDefault();
     setLoginError('');
@@ -2503,7 +2721,7 @@ export default function TouchwallPocketApp() {
       '&memberId=' + encodeURIComponent(targetMember) +
       '&returnTo=/pocket';
   };
-
+  
   //
   //
   // ============================================================================
@@ -2563,7 +2781,8 @@ export default function TouchwallPocketApp() {
         ? (mhdAlertGroups.finalToday.length + mhdAlertGroups.warnTwoDays.length)
         : safeStock.length,
       urgent: mhdAlertGroups.finalToday.length > 0
-    }
+    },
+    { id: 'accounts', label: 'Konten',   icon: Cloud,        badge: 0 }
   ];
 
   // Alle Kategorien für das schwebende Karussell (Scanner sitzt permanent im Dock rechts)
@@ -2668,11 +2887,11 @@ export default function TouchwallPocketApp() {
       switchCategorySmooth(POCKET_TABS[currentIdx - 1].id, 'prev', true);
     }
   };
-
-//
+  
+  //
   //
   // ============================================================================
-  // PART 10: HAUPT-LAYOUT, KALENDER, AUFGABEN, SCANNER & EINKAUF
+  // PART 10: HAUPT-LAYOUT, KALENDER, AUFGABEN, SCANNER, EINKAUF & KONTEN
   // ============================================================================
   //
   //
@@ -2726,6 +2945,7 @@ export default function TouchwallPocketApp() {
               renderAvatar={renderAvatar}
               onCreateEvent={handleCreateMobileEvent}
               onUpdateEvent={handleUpdateMobileEvent}
+              onDuplicateEvent={handleDuplicateMobileEvent}
               onDeleteEvent={handleDeleteMobileEvent}
             />
           ) : (
@@ -2806,7 +3026,52 @@ export default function TouchwallPocketApp() {
                   onMoveAllBoughtToPantry={handleMoveAllBoughtToPantry}
                   onClearDoneShopItems={handleClearDoneShopItems}
                 />
-              )} 
+              )}
+
+              {activeTab === 'accounts' && (
+                <OtherSections
+                  activeSection="google"
+                  accountId={accountId}
+                  authKey={authKey}
+                  onAuthKeyUpdated={(nextKey) => {
+                    setAuthKey(nextKey);
+                    writeAuthSession(accountId, nextKey, familyName);
+                  }}
+                  members={safeMembers}
+                  setMembers={setMembers}
+                  schoolData={schoolData}
+                  setSchoolData={setSchoolData}
+                  mealPlan={safeMeals}
+                  setMealPlan={setMealPlan}
+                  pantryItems={safeStock}
+                  setPantryItems={setPantryItems}
+                  setPantryTrash={setPantryTrash}
+                  todayStr={todayStr}
+                  familyNotes={safeNotes}
+                  setFamilyNotes={setFamilyNotes}
+                  currentTheme={currentTheme}
+                  setCurrentTheme={setCurrentTheme}
+                  appsScriptUrl={appsScriptUrl}
+                  setAppsScriptUrl={setAppsScriptUrl}
+                  todoistConfig={todoistConfig}
+                  setTodoistConfig={setTodoistConfig}
+                  connectAndDiscoverTodoist={connectAndDiscoverTodoist}
+                  createAndSelectTodoistProject={createAndSelectTodoistProject}
+                  runAllPermissionsTest={runAllPermissionsTest}
+                  isTestingDiag={isTestingDiag}
+                  diagResult={diagResult}
+                  pullFromCloud={() => syncAllNow(true)}
+                  pushToCloudAndDrive={pushToCloudAndDrive}
+                  addExtraCalendarAccount={addExtraCalendarAccount}
+                  importBackupJson={importBackupJson}
+                  exportBackupJson={exportBackupJson}
+                  setQrModalOpen={() => setQuickCockpitOpen(true)}
+                  themeStyles={themeStyles}
+                  getMemberStyles={getMemberStyles}
+                  renderAvatar={renderAvatar}
+                  showToast={showToast}
+                />
+              )}
             
               {/*
               //
