@@ -2,10 +2,18 @@
 /* eslint-disable react/no-unescaped-entities */
 'use client';
 
+//
+//
+// ============================================================================
+// PART 01: IMPORTS, KONSTANTEN & DATUMS-/ZEIT-HELFER
+// ============================================================================
+//
+//
+
 import React, { useState, useMemo, useEffect } from 'react';
 import {
   ChevronLeft, ChevronRight, Plus, Trash2, X,
-  Clock, Bell, BellOff, Pencil, Check
+  Clock, Bell, BellOff, Pencil, Check, Copy
 } from 'lucide-react';
 import * as Cfg from '../touchwallConfig';
 
@@ -91,6 +99,14 @@ function sortEventsByTime(list) {
   });
 }
 
+//
+//
+// ============================================================================
+// PART 02: HAUPTKOMPONENTE, STATES, MEMOS & EVENT-HANDLER
+// ============================================================================
+//
+//
+
 export default function PocketAgenda({
   safeMembers,
   filteredEvents,
@@ -102,6 +118,7 @@ export default function PocketAgenda({
   renderAvatar,
   onCreateEvent,
   onUpdateEvent,
+  onDuplicateEvent,
   onDeleteEvent
 }) {
   // '1w' | '2w' | '4w' (Monat) | 'list'
@@ -368,11 +385,17 @@ export default function PocketAgenda({
 
   const selectedDayEvents = selectedDayStr ? (eventsByDate[selectedDayStr] || []) : [];
 
+  //
+  //
+  // ============================================================================
+  // PART 03: KOPFLEISTE & KALENDER-ANSICHTEN (1W, 2W, MONAT, LISTE)
+  // ============================================================================
+  //
+  //
+
   return (
     <div className="h-full w-full flex flex-col overflow-hidden select-none">
-      {/* =====================================================================
-          ULTRA-SCHLANKE KOPFLEISTE (MAXIMALER PLATZ FÜR DEN KALENDER)
-         ===================================================================== */}
+      {/* ULTRA-SCHLANKE KOPFLEISTE */}
       <div className={'shrink-0 px-2.5 py-1.5 border-b flex flex-wrap items-center justify-between gap-1.5 ' + themeStyles.header}>
         {/* Links: Navigation + Zeitraum */}
         <div className="flex items-center gap-1 min-w-0">
@@ -487,18 +510,14 @@ export default function PocketAgenda({
         </div>
       </div>
 
-      {/* =====================================================================
-          HAUPTBEREICH (+ OPTIONALES TABLET-TAGES-SEITENPANEL RECHTS)
-         ===================================================================== */}
+      {/* HAUPTBEREICH (+ OPTIONALES TABLET-TAGES-SEITENPANEL RECHTS) */}
       <div className="flex-1 flex min-h-0 overflow-hidden">
         <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
 
-          {/* -----------------------------------------------------------------
-              MODUS 1: 1 WOCHE (Handy = saubere 7-Tage-Ansicht | Tablet = 7-Spalten-Board)
-             ----------------------------------------------------------------- */}
+          {/* MODUS 1: 1 WOCHE */}
           {viewMode === '1w' && (
             <>
-              {/* HANDY (< md): Optimierte 7-Tage-Wochenübersicht mit voller Lesbarkeit */}
+              {/* HANDY (< md): Optimierte 7-Tage-Wochenübersicht */}
               <div className="md:hidden flex-1 overflow-y-auto p-2 space-y-2">
                 {oneWeekCells.map(cell => (
                   <div
@@ -591,7 +610,7 @@ export default function PocketAgenda({
                 ))}
               </div>
 
-              {/* TABLET & DESKTOP (md+): echtes 7-Spalten-Touchwall-Wochenboard */}
+              {/* TABLET & DESKTOP (md+): 7-Spalten-Wochenboard */}
               <div className="hidden md:grid md:grid-cols-7 flex-1 min-h-0 bg-black/20">
                 {oneWeekCells.map(cell => (
                   <div
@@ -651,9 +670,7 @@ export default function PocketAgenda({
             </>
           )}
 
-          {/* -----------------------------------------------------------------
-              MODUS 2: 2 WOCHEN (Volle Höhe • 2 Reihen × 7 Spalten wie Touchwall)
-             ----------------------------------------------------------------- */}
+          {/* MODUS 2: 2 WOCHEN */}
           {viewMode === '2w' && (
             <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
               <div className={'grid grid-cols-7 border-b shrink-0 ' + themeStyles.header}>
@@ -739,9 +756,7 @@ export default function PocketAgenda({
             </div>
           )}
 
-          {/* -----------------------------------------------------------------
-              MODUS 3: MONAT (4W Vollbild-Raster)
-             ----------------------------------------------------------------- */}
+          {/* MODUS 3: MONAT (4W Vollbild-Raster) */}
           {viewMode === '4w' && (
             <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
               <div className={'grid grid-cols-7 border-b shrink-0 ' + themeStyles.header}>
@@ -811,9 +826,7 @@ export default function PocketAgenda({
             </div>
           )}
 
-          {/* -----------------------------------------------------------------
-              MODUS 4: GRUPPIERTE TERMINLISTE (ohne doppelte Datumszeilen)
-             ----------------------------------------------------------------- */}
+          {/* MODUS 4: GRUPPIERTE TERMINLISTE */}
           {viewMode === 'list' && (
             <div className="flex-1 overflow-y-auto p-2.5 sm:p-4">
               <div className="max-w-5xl mx-auto space-y-3">
@@ -884,9 +897,13 @@ export default function PocketAgenda({
           )}
         </div>
 
-        {/* ===================================================================
-            TABLET SPLIT-PANEL RECHTS FÜR AUSGEWÄHLTEN TAG (bei 2W & Monat)
-           =================================================================== */}
+        {/*
+        //
+        // ============================================================================
+        // PART 04: TAGES-DETAIL-PANEL (TABLET SPLIT-PANEL & HANDY DRAWER)
+        // ============================================================================
+        //
+        */}
         {selectedDayStr && (viewMode === '2w' || viewMode === '4w') && (
           <aside
             data-no-swipe="true"
@@ -956,9 +973,7 @@ export default function PocketAgenda({
         )}
       </div>
 
-      {/* =====================================================================
-          HANDY / SMALL-TABLET TAGES-DRAWER (unter lg:)
-         ===================================================================== */}
+      {/* HANDY / SMALL-TABLET TAGES-DRAWER (unter lg:) */}
       {selectedDayStr && (viewMode === '2w' || viewMode === '4w') && (
         <div
           data-no-swipe="true"
@@ -1037,9 +1052,13 @@ export default function PocketAgenda({
         </div>
       )}
 
-      {/* =====================================================================
-          VOLLSTÄNDIGER TOUCHWALL TERMIN-EDITOR (ERSTELLEN & BEARBEITEN)
-         ===================================================================== */}
+      {/*
+      //
+      // ============================================================================
+      // PART 05: TERMIN-EDITOR-MODAL (ERSTELLEN, BEARBEITEN & KOPIEREN)
+      // ============================================================================
+      //
+      */}
       {eventModal.open && (
         <div
           data-no-swipe="true"
@@ -1146,7 +1165,7 @@ export default function PocketAgenda({
               </div>
             </div>
 
-            {/* Erinnerungen & Benachrichtigungs-Kanal (wie Touchwall) */}
+            {/* Erinnerungen & Benachrichtigungs-Kanal */}
             <div className={'p-3 rounded-2xl border space-y-2.5 ' + themeStyles.subtle}>
               <div className="grid grid-cols-2 gap-2">
                 <div>
@@ -1202,6 +1221,45 @@ export default function PocketAgenda({
                 </div>
               )}
             </div>
+
+            {/* DIREKT IN ANDEREN KALENDER KOPIEREN (BEIM BEARBEITEN) */}
+            {eventModal.mode === 'edit' && eventModal.originalEvent && typeof onDuplicateEvent === 'function' && (
+              <div className="p-3 rounded-2xl border border-amber-400/40 bg-amber-500/10 space-y-2">
+                <div className="text-[10px] font-black uppercase text-amber-300 flex items-center gap-1.5">
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>📋 Direkt in anderen Kalender kopieren:</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {safeMembers.map(m => (
+                    <button
+                      key={'copy_' + m.id}
+                      type="button"
+                      onClick={() => {
+                        const finalTime = eventModal.allDay
+                          ? 'Ganztägig'
+                          : `${eventModal.startTime || '15:00'} - ${eventModal.endTime || '16:00'}`;
+                        onDuplicateEvent(
+                          {
+                            ...eventModal.originalEvent,
+                            title: eventModal.title.trim() || eventModal.originalEvent.title,
+                            time: finalTime,
+                            notifyTime: eventModal.notifyTime,
+                            notifyChannel: eventModal.notifyChannel
+                          },
+                          m.id,
+                          eventModal.date
+                        );
+                        setEventModal(prev => ({ ...prev, open: false }));
+                      }}
+                      className="tw-nav-inactive px-2.5 py-1.5 rounded-xl text-xs font-black flex items-center gap-1.5 hover:border-amber-400/70 active:scale-95 transition-transform"
+                    >
+                      {renderAvatar(m, 'w-4 h-4', 'text-[8px]')}
+                      <span>+ {m.name.split(' ')[0]}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-white/10">
               {eventModal.mode === 'edit' && eventModal.originalEvent ? (
